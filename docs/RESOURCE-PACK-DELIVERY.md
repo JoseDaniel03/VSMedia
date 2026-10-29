@@ -18,7 +18,7 @@ VSMedia aplica cuatro mejoras sin modificar el cliente vanilla:
    Los archivos JSON siguen usando DEFLATE. Esto ahorra trabajo del servidor
    y puede ayudar en el tiempo de compilación; no siempre reduce más bytes.
 3. Publicación inmutable: cada ZIP se almacena como
-   \`<sha256>.zip\`. Si no cambia, la URL no cambia.
+   `<sha256>.zip`. Si no cambia, la URL no cambia.
 4. SHA-1 de Minecraft y UUID estable por ID lógico de pack. El primer hash
    es para caché de Minecraft; SHA-256 es para integridad de VSMedia.
 
@@ -26,21 +26,21 @@ VSMedia aplica cuatro mejoras sin modificar el cliente vanilla:
 
 Cuando ya exista un Resource Pack ZIP válido:
 
-\`\`\`bash
+```bash
 cargo run -p vsmedia-engine -- pack-stage \
   ./resourcepack.zip \
   /srv/vsmedia/public-packs \
   https://packs.example.com/ \
   virgoland
-\`\`\`
+```
 
-El comando imprime un descriptor JSON con \`uuid\`, \`sha1\`, \`sha256\`,
-\`size_bytes\`, \`filename\` y \`url\`. No inicia un HTTP listener, no sirve el
+El comando imprime un descriptor JSON con `uuid`, `sha1`, `sha256`,
+`size_bytes`, `filename` y `url`. No inicia un HTTP listener, no sirve el
 ZIP por el puerto IPC y no publica ningún release en GitHub. Es una herramienta
 para el futuro entorno de producción, no un artefacto final entregado ahora.
 
 Nunca publicar secretos del Core, tokens, proyectos internos o archivos
-\`.vsbundle\` en el directorio web. Solo los packs explícitamente aprobados.
+`.vsbundle` en el directorio web. Solo los packs explícitamente aprobados.
 
 ## Ejemplo de configuración HTTPS: Caddy
 
@@ -48,7 +48,7 @@ Un servidor separado puede servir el directorio estático. Este ejemplo se
 utiliza **cuando el administrador ya dispone de dominio y DNS**.
 Sustituir los valores de dominio y ruta.
 
-\`\`\`caddyfile
+```caddyfile
 packs.example.com {
     root * /srv/vsmedia/public-packs
 
@@ -61,7 +61,7 @@ packs.example.com {
 
     respond 404
 }
-\`\`\`
+```
 
 Caddy gestiona HTTPS, la transferencia estática y respuestas HTTP de archivos.
 No se debe enviar una ZIP con Content-Encoding adicional: ya contiene sus
@@ -81,7 +81,7 @@ Cuando se incorpore el plugin, al entrar el jugador:
 - Si varios packs se apilan, gestionar IDs/orden de forma estable; no generar
   un UUID aleatorio por cada conexión.
 
-El SDK Java incluye \`ResourcePackDelivery\`, tipo independiente de Bukkit que
+El SDK Java incluye `ResourcePackDelivery`, tipo independiente de Bukkit que
 valida URL y SHA-1 antes de construir la oferta del pack.
 
 ## Pendiente, no declarar implementado
