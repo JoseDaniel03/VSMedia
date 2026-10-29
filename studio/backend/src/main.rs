@@ -188,11 +188,22 @@ async fn render_audio_project(
         }
         let mut sources=HashMap::new();
         for source in &audio.sources {
+            // A Studio project must not turn this unauthenticated local
+            // preview route into a cross-plugin read of another namespace.
+            if source.key.namespace!=STUDIO_NAMESPACE ||
+                !source.key.name.starts_with("audio/") {
+                return Err(ApiError(StatusCode::FORBIDDEN,
+                    "Studio solo puede renderizar archivos de su propio namespace".into()));
+            }
             if source.codec!=vsmedia_formats::MediaCodec::Wav {
                 return Err(ApiError(StatusCode::UNPROCESSABLE_ENTITY,
                     "Render de VSCore admite WAV por ahora. MP3, OGG, Opus y FLAC requieren un decodificador nativo.".into()));
             }
             let current=store.metadata(&source.key).map_err(not_found)?;
+            if current.kind!=AssetKind::Sound {
+                return Err(ApiError(StatusCode::UNPROCESSABLE_ENTITY,
+                    "El proyecto referencia un archivo que no es audio".into()));
+            }
             if current.sha256!=source.sha256 {
                 return Err(ApiError(StatusCode::CONFLICT,
                     "El audio fuente cambió desde la revisión del proyecto".into()));
@@ -401,6 +412,38 @@ mod tests {
         let response=app.clone().oneshot(request(Method::GET,
             "/api/v1/audio/projects/mp3-preview/render",vec![])).await.unwrap();
         assert_eq!(response.status(),StatusCode::UNPROCESSABLE_ENTITY);
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn preview_does_not_read_assets_of_other_plugin_namespaces() {
+        let (db,dir)=store();
+        let source_key=AssetKey::new("private","audio/secret").unwrap();
+        let bytes=encode_wav_pcm16(&StereoAudio {
+            sample_rate:8_000,frames:vec![[0.4,0.4];800],
+        }).unwrap();
+        let record=db.publish(source_key.clone(),AssetKind::Sound,&bytes).unwrap();
+        let document=json!({"magic":"VSMEDIA","version":1,
+            "payload":{"kind":"audio","data":{
+                "timeline":{"name":"Forbidden source","tracks":[{
+                    "name":"Private","muted":false,"clips":[{
+                        "asset":source_key,"start_ms":0,"duration_ms":100,"gain_db":0
+                    }]
+                }]},
+                "sources":[{"key":{"namespace":"private","name":"audio/secret"},
+                    "sha256":record.sha256,"codec":"wav"}]
+            }}
+        });
+        let app=router(db.clone());
+        let created=app.clone().oneshot(request(Method::POST,
+            "/api/v1/audio/projects/forbidden",
+            serde_json::to_vec(&document).unwrap()
+        )).await.unwrap();
+        assert_eq!(created.status(),StatusCode::OK);
+        let attempted=app.clone().oneshot(request(Method::GET,
+            "/api/v1/audio/projects/forbidden/render",vec![]
+        )).await.unwrap();
+        assert_eq!(attempted.status(),StatusCode::FORBIDDEN);
         drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
     }
 
