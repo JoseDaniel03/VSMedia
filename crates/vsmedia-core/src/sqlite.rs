@@ -9,7 +9,7 @@ use std::{
     sync::{atomic::{AtomicU64, Ordering}, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use vsmedia_api::{AssetKey, AssetKind, AssetRecord, AssetRepository, MediaError, MediaResult};
+use vsmedia_api::{AssetImport, AssetKey, AssetKind, AssetRecord, AssetRepository, AtomicAssetRepository, MediaError, MediaResult};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub const DEFAULT_MAX_ASSET_BYTES: usize = 64 * 1024 * 1024;
@@ -257,5 +257,141 @@ mod tests {
         assert!(db.publish(AssetKey::new("mine","x").unwrap(), AssetKind::Sound, b"oversized").is_err());
         drop(db);
         let _ = fs::remove_dir_all(root);
+    }
+}
+
+
+/// The content objects may leave harmless orphans after a crash, but the
+/// transaction guarantees the catalog is either fully updated or unchanged.
+/// Concurrent imports are serialized by the SQLite IMMEDIATE transaction.
+impl AtomicAssetRepository for SqliteAssetStore {
+    fn import_if_absent_or_identical(
+        &self, inputs: &[AssetImport],
+    ) -> MediaResult<Vec<AssetRecord>> {
+        const MAX_IMPORT_OBJECTS: usize = 512;
+        const MAX_IMPORT_BYTES: usize = 128 * 1024 * 1024;
+        if inputs.is_empty() || inputs.len() > MAX_IMPORT_OBJECTS {
+            return Err(MediaError::InvalidInput("invalid import batch length".into()));
+        }
+        let mut identifiers = std::collections::BTreeSet::new();
+        let mut total = 0usize;
+        let mut hashes = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            input.key.validated()?;
+            if !identifiers.insert(&input.key) {
+                return Err(MediaError::Conflict("duplicate asset in import batch".into()));
+            }
+            total = total.checked_add(input.bytes.len())
+                .ok_or_else(|| MediaError::InvalidInput("import byte count overflow".into()))?;
+            if total > MAX_IMPORT_BYTES || input.bytes.len() > self.max_asset_bytes {
+                return Err(MediaError::InvalidInput("import exceeds configured quota".into()));
+            }
+            hashes.push(format!("{:x}", Sha256::digest(&input.bytes)));
+        }
+
+        let mut connection = self.database.lock().map_err(lock_error)?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        let mut records = Vec::with_capacity(inputs.len());
+        // All conflicts are detected before a single new catalog entry is committed.
+        for (input, hash) in inputs.iter().zip(&hashes) {
+            let existing: Option<(String, String, i64, i64)> = tx.query_row(
+                "SELECT kind,sha256,size,revision FROM assets WHERE namespace=?1 AND name=?2",
+                params![input.key.namespace, input.key.name],
+                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+            ).optional().map_err(db_error)?;
+            if let Some((kind, old_hash, size, revision)) = existing {
+                let expected_kind = serde_json::to_string(&input.kind)
+                    .map_err(|e| MediaError::Io(e.to_string()))?;
+                if kind != expected_kind || old_hash != *hash || size != input.bytes.len() as i64 {
+                    return Err(MediaError::Conflict(format!(
+                        "import would replace an existing asset: {}", input.key.qualified()
+                    )));
+                }
+                records.push(AssetRecord {
+                    key: input.key.clone(), kind: input.kind,
+                    sha256: old_hash, size: size as u64, revision: revision as u64,
+                });
+            } else {
+                records.push(AssetRecord {
+                    key: input.key.clone(), kind: input.kind,
+                    sha256: hash.clone(), size: input.bytes.len() as u64, revision: 1,
+                });
+            }
+        }
+        for (input, record) in inputs.iter().zip(&records) {
+            if record.revision != 1 || tx.query_row(
+                "SELECT 1 FROM assets WHERE namespace=?1 AND name=?2",
+                params![input.key.namespace,input.key.name], |row| row.get::<_, i64>(0)
+            ).optional().map_err(db_error)?.is_some() {
+                continue;
+            }
+            self.persist_blob(&record.sha256, &input.bytes)?;
+            let serialized_kind = serde_json::to_string(&input.kind)
+                .map_err(|e| MediaError::Io(e.to_string()))?;
+            tx.execute(
+                "INSERT INTO assets(namespace,name,kind,sha256,size,revision) VALUES(?1,?2,?3,?4,?5,1)",
+                params![input.key.namespace,input.key.name,serialized_kind,record.sha256,record.size as i64]
+            ).map_err(db_error)?;
+            tx.execute(
+                "INSERT INTO asset_versions(namespace,name,revision,kind,sha256,size) VALUES(?1,?2,1,?3,?4,?5)",
+                params![input.key.namespace,input.key.name,serialized_kind,record.sha256,record.size as i64]
+            ).map_err(db_error)?;
+        }
+        tx.commit().map_err(db_error)?;
+        Ok(records)
+    }
+}
+
+
+#[cfg(test)]
+mod batch_import_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64,Ordering};
+    static COUNTER:AtomicU64=AtomicU64::new(0);
+    fn temporary()->PathBuf {
+        std::env::temp_dir().join(format!("vsmedia-atomic-batch-{}-{}",
+            std::process::id(),COUNTER.fetch_add(1,Ordering::Relaxed)))
+    }
+    fn asset(name:&str, bytes:&[u8])->AssetImport {
+        AssetImport {
+            key:AssetKey::new("test",name).unwrap(),kind:AssetKind::Sound,bytes:bytes.to_vec()
+        }
+    }
+    #[test]
+    fn batch_is_atomic_on_conflicts_and_identical_imports_are_idempotent() {
+        let path=temporary();
+        let db=SqliteAssetStore::open(&path).unwrap();
+        db.publish(AssetKey::new("test","existing").unwrap(),AssetKind::Sound,b"original").unwrap();
+        let denied=db.import_if_absent_or_identical(&[
+            asset("new",b"new bytes"),asset("existing",b"replacement")
+        ]);
+        assert!(denied.is_err());
+        assert!(db.metadata(&AssetKey::new("test","new").unwrap()).is_err());
+        assert_eq!(db.read(&AssetKey::new("test","existing").unwrap()).unwrap(),b"original");
+        let imported=db.import_if_absent_or_identical(&[
+            asset("new",b"new bytes"),asset("existing",b"original")
+        ]).unwrap();
+        assert_eq!(imported.len(),2);
+        assert_eq!(imported[0].revision,1);
+        assert_eq!(db.import_if_absent_or_identical(&[
+            asset("new",b"new bytes"),asset("existing",b"original")
+        ]).unwrap()[0].revision,1);
+        drop(db);
+        let reopened=SqliteAssetStore::open(&path).unwrap();
+        assert_eq!(reopened.read(&AssetKey::new("test","new").unwrap()).unwrap(),b"new bytes");
+        drop(reopened);
+        let _=fs::remove_dir_all(path);
+    }
+    #[test]
+    fn duplicate_keys_are_rejected_without_any_writes() {
+        let path=temporary();
+        let db=SqliteAssetStore::open(&path).unwrap();
+        assert!(db.import_if_absent_or_identical(&[
+            asset("same",b"a"), asset("same",b"a")
+        ]).is_err());
+        assert!(db.metadata(&AssetKey::new("test","same").unwrap()).is_err());
+        drop(db);
+        let _=fs::remove_dir_all(path);
     }
 }

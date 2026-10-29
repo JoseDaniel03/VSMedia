@@ -96,3 +96,20 @@ mod tests {
         assert!(AssetKey::new("good", "CamelCase").is_err());
     }
 }
+
+
+/// An import item is owned by the caller; the batch is staged before publication.
+#[derive(Debug, Clone)]
+pub struct AssetImport {
+    pub key: AssetKey,
+    pub kind: AssetKind,
+    pub bytes: Vec<u8>,
+}
+
+/// Optional extension for repositories that guarantee an all-or-nothing
+/// catalog import. Never silently replace different existing content.
+pub trait AtomicAssetRepository: AssetRepository {
+    fn import_if_absent_or_identical(
+        &self, inputs: &[AssetImport],
+    ) -> MediaResult<Vec<AssetRecord>>;
+}
