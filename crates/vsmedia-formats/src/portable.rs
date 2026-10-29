@@ -41,8 +41,8 @@ pub struct BundleManifest {
 #[derive(Debug)]
 pub struct PreparedBundle {
     pub manifest: BundleManifest,
-    /// Includes every logical asset only once; identical blobs are deduplicated on disk.
-    pub assets: Vec<(BundleEntry, Vec<u8>)>,
+    /// Immutable content indexed by SHA-256; shared sources are held once in RAM.
+    pub objects: BTreeMap<String, Vec<u8>>,
 }
 
 /// Traverse all nested document links, then include every pinned source media asset.
@@ -213,14 +213,13 @@ pub fn export<R: AssetRepository>(repo: &R, root: &AssetKey) -> MediaResult<Vec<
         return Err(invalid("bundle manifest too large"));
     }
 
-    let mut unique_objects = BTreeMap::<String, Vec<u8>>::new();
+    let mut unique_objects = BTreeMap::<&str, &BundleEntry>::new();
     for entry in &manifest.entries {
-        let content = repo.read(&entry.key)?;
-        if content.len() as u64 != entry.size {
-            return Err(MediaError::Conflict("asset size changed during export".into()));
+        if let Some(existing) = unique_objects.insert(&entry.sha256, entry) {
+            if existing.size != entry.size {
+                return Err(invalid("same SHA-256 referenced with different lengths"));
+            }
         }
-        check_bytes(&content, &entry.sha256)?;
-        unique_objects.entry(entry.sha256.clone()).or_insert(content);
     }
     let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default()
@@ -228,7 +227,12 @@ pub fn export<R: AssetRepository>(repo: &R, root: &AssetKey) -> MediaResult<Vec<
         .last_modified_time(zip::DateTime::default());
     zip.start_file("bundle.json", options).map_err(io_error)?;
     zip.write_all(&manifest_bytes).map_err(io_error)?;
-    for (hash, bytes) in unique_objects {
+    for (hash, entry) in unique_objects {
+        let bytes = repo.read(&entry.key)?;
+        if bytes.len() as u64 != entry.size {
+            return Err(MediaError::Conflict("asset size changed during export".into()));
+        }
+        check_bytes(&bytes, hash)?;
         zip.start_file(format!("objects/{hash}"), options).map_err(io_error)?;
         zip.write_all(&bytes).map_err(io_error)?;
     }
@@ -261,8 +265,14 @@ pub fn inspect(bytes: &[u8]) -> MediaResult<PreparedBundle> {
     let manifest: BundleManifest = serde_json::from_slice(&manifest_bytes)
         .map_err(|e| invalid(&format!("invalid bundle manifest: {e}")))?;
     check_manifest(&manifest)?;
-    let by_hash: BTreeMap<_, _> = manifest.entries.iter()
-        .map(|entry| (entry.sha256.as_str(), entry.size)).collect();
+    let mut by_hash = BTreeMap::new();
+    for entry in &manifest.entries {
+        match by_hash.insert(entry.sha256.as_str(), entry.size) {
+            Some(size) if size != entry.size =>
+                return Err(invalid("same SHA-256 referenced with different lengths")),
+            _ => {}
+        }
+    }
     let mut objects = BTreeMap::<String, Vec<u8>>::new();
     let mut seen = BTreeSet::new();
     for index in 0..archive.len() {
@@ -291,18 +301,14 @@ pub fn inspect(bytes: &[u8]) -> MediaResult<PreparedBundle> {
     if objects.len() != by_hash.len() {
         return Err(invalid("bundle is missing referenced objects"));
     }
-    let assets: Vec<_> = manifest.entries.iter().map(|entry| {
-        let bytes = objects.get(&entry.sha256).ok_or_else(|| invalid("missing object"))?.clone();
-        Ok((entry.clone(), bytes))
-    }).collect::<MediaResult<_>>()?;
-    let view = ArchiveView { assets: &assets };
+    let view = ArchiveView { entries: &manifest.entries, objects: &objects };
     let resolved = collect(&view, &manifest.root)?;
     let expected: BTreeMap<_, _> = manifest.entries.iter()
         .map(|entry| (entry.key.clone(), entry.clone())).collect();
     if resolved != expected {
         return Err(invalid("bundle is incomplete or contains unrelated assets"));
     }
-    Ok(PreparedBundle { manifest, assets })
+    Ok(PreparedBundle { manifest, objects })
 }
 
 /// Import after full ZIP, graph, checksum and size preflight. The atomic repository
@@ -313,28 +319,32 @@ pub fn import<R: AtomicAssetRepository>(
     repo: &R, archive: &[u8],
 ) -> MediaResult<AssetKey> {
     let prepared = inspect(archive)?;
-    let entries: Vec<_> = prepared.assets.into_iter().map(|(record, bytes)| {
-        AssetImport { key: record.key, kind: record.kind, bytes }
-    }).collect();
+    let entries: Vec<_> = prepared.manifest.entries.iter().map(|record| {
+        let bytes = prepared.objects.get(&record.sha256)
+            .ok_or_else(|| invalid("missing object after validation"))?.clone();
+        Ok(AssetImport { key: record.key.clone(), kind: record.kind, bytes })
+    }).collect::<MediaResult<_>>()?;
     repo.import_if_absent_or_identical(&entries)?;
     Ok(prepared.manifest.root)
 }
 
 struct ArchiveView<'a> {
-    assets: &'a [(BundleEntry, Vec<u8>)],
+    entries: &'a [BundleEntry],
+    objects: &'a BTreeMap<String, Vec<u8>>,
 }
 impl AssetRepository for ArchiveView<'_> {
     fn metadata(&self, key: &AssetKey) -> MediaResult<AssetRecord> {
-        let item = self.assets.iter().find(|(entry, _)| &entry.key == key)
+        let item = self.entries.iter().find(|entry| &entry.key == key)
             .ok_or_else(|| MediaError::NotFound(key.qualified()))?;
         Ok(AssetRecord {
-            key: key.clone(), kind: item.0.kind, sha256: item.0.sha256.clone(),
-            size: item.0.size, revision: 1,
+            key: key.clone(), kind: item.kind, sha256: item.sha256.clone(),
+            size: item.size, revision: 1,
         })
     }
     fn read(&self, key: &AssetKey) -> MediaResult<Vec<u8>> {
-        self.assets.iter().find(|(entry, _)| &entry.key == key)
-            .map(|(_, bytes)| bytes.clone())
+        let item = self.entries.iter().find(|entry| &entry.key == key)
+            .ok_or_else(|| MediaError::NotFound(key.qualified()))?;
+        self.objects.get(&item.sha256).cloned()
             .ok_or_else(|| MediaError::NotFound(key.qualified()))
     }
     fn publish(&self, _: AssetKey, _: AssetKind, _: &[u8]) -> MediaResult<AssetRecord> {
@@ -396,7 +406,8 @@ mod tests {
         assert_eq!(first, again);
         let prepared = inspect(&first).unwrap();
         assert_eq!(prepared.manifest.root, key);
-        assert_eq!(prepared.assets.len(), 3); // project + audio + unique sound
+        assert_eq!(prepared.manifest.entries.len(), 3); // project + audio + unique sound
+        assert_eq!(prepared.objects.len(), 3);
         let _ = fs::remove_dir_all(path);
     }
     #[test]
