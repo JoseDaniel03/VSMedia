@@ -46,6 +46,39 @@ impl Default for ClipEdit {
         }
     }
 }
+/// Optional editable overrides for an entire track. Existing AudioTrack
+/// documents keep their original fields, so older projects remain readable.
+#[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
+#[serde(default,deny_unknown_fields)]
+pub struct TrackEdit {
+    pub track_index:usize,
+    pub gain_db:f32,
+    pub pan:f32,
+    pub muted:bool,
+    pub solo:bool,
+}
+impl Default for TrackEdit {
+    fn default()->Self {
+        Self { track_index:0,gain_db:0.0,pan:0.0,muted:false,solo:false }
+    }
+}
+pub fn validate_track_edits<'a>(
+    project:&AudioProject,edits:&'a [TrackEdit]
+)->MediaResult<BTreeMap<usize,&'a TrackEdit>> {
+    if edits.len()>256 { return Err(invalid("too many track edits")); }
+    let mut map=BTreeMap::new();
+    for edit in edits {
+        if edit.track_index>=project.tracks.len() ||
+            !edit.gain_db.is_finite() || !(-120.0..=24.0).contains(&edit.gain_db) ||
+            !edit.pan.is_finite() || !(-1.0..=1.0).contains(&edit.pan) ||
+            map.insert(edit.track_index,edit).is_some()
+        {
+            return Err(invalid("invalid or duplicate track edit"));
+        }
+    }
+    Ok(map)
+}
+
 fn invalid(message:&str)->MediaError {
     MediaError::InvalidInput(message.into())
 }

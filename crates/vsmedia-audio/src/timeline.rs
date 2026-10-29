@@ -7,7 +7,7 @@ use crate::{
     codec::{StereoAudio, MAX_FRAMES},
     dsp::{db_to_linear, mix_stereo, StereoLayer},
     resample::resample_offline,
-    editing::{ClipEdit,validate_edits,process_clip_frames},
+    editing::{ClipEdit,TrackEdit,validate_edits,validate_track_edits,process_clip_frames},
 };
 pub const MAX_RENDER_CLIPS: usize = 256;
 const MAX_LAYER_FRAMES: usize = 10_000_000;
@@ -26,8 +26,19 @@ pub fn render_project_edited(
     project:&AudioProject, sources:&HashMap<AssetKey, StereoAudio>,
     sample_rate:u32, edits:&[ClipEdit]
 ) -> MediaResult<StereoAudio> {
+    render_project_advanced(project,sources,sample_rate,edits,&[])
+}
+
+/// Mixer with editor-defined controls per clip and per track.
+/// The original render API remains unchanged for older projects.
+pub fn render_project_advanced(
+    project:&AudioProject, sources:&HashMap<AssetKey, StereoAudio>,
+    sample_rate:u32, edits:&[ClipEdit], track_edits:&[TrackEdit]
+) -> MediaResult<StereoAudio> {
     project.validate()?;
     let indexed_edits=validate_edits(project,edits)?;
+    let indexed_tracks=validate_track_edits(project,track_edits)?;
+    let has_solo=track_edits.iter().any(|e|e.solo);
     if !(8_000..=192_000).contains(&sample_rate) {
         return Err(MediaError::InvalidInput("invalid project sample rate".into()));
     }
@@ -37,7 +48,11 @@ pub fn render_project_edited(
     // Cache resampled source PCM once for every distinct asset used by the timeline.
     let mut resampled_sources:HashMap<AssetKey,StereoAudio>=HashMap::new();
     for (track_id,track) in project.tracks.iter().enumerate() {
-        if track.muted { continue; }
+        let track_edit=indexed_tracks.get(&track_id).copied();
+        if track.muted || track_edit.is_some_and(|e|e.muted) ||
+            (has_solo && !track_edit.is_some_and(|e|e.solo)) {
+            continue;
+        }
         for (clip_id,clip) in track.clips.iter().enumerate() {
             let edit=indexed_edits.get(&(track_id,clip_id)).copied();
             if edit.is_some_and(|entry|entry.muted) {continue;}
@@ -79,13 +94,17 @@ pub fn render_project_edited(
                 return Err(MediaError::InvalidInput("combined clip memory budget exceeded".into()));
             }
             final_frame=final_frame.max(stop);
-            let gain=db_to_linear(clip.gain_db)?;
+            let combined_gain=clip.gain_db+
+                track_edit.map_or(0.0,|edit|edit.gain_db);
+            let gain=db_to_linear(combined_gain)?;
             let mut frames=resampled.frames[source_offset..source_offset+length].to_vec();
             if let Some(edit)=edit {
                 process_clip_frames(&mut frames,sample_rate,edit)?;
             }
             layers.push(StereoLayer{
-                start_frame:offset, gain, pan:edit.map_or(0.0,|e|e.pan),
+                start_frame:offset, gain,
+                pan:(edit.map_or(0.0,|e|e.pan)
+                    +track_edit.map_or(0.0,|e|e.pan)).clamp(-1.0,1.0),
                 frames,
             });
         }
@@ -174,6 +193,30 @@ mod tests {
         assert_eq!(render_project(&p,&sources,8_000).unwrap().frames,rendered.frames);
     }
 
+    #[test]
+    fn edited_track_solo_gain_and_pan_override_work_without_changing_clips() {
+        let mut p=project();
+        p.tracks.push(AudioTrack {
+            name:"effects".into(),muted:false,
+            clips:vec![AudioClip {
+                asset:AssetKey::new("demo","effects/sting").unwrap(),
+                start_ms:0,duration_ms:200,gain_db:0.0,
+            }]
+        });
+        let key1=AssetKey::new("demo","dialogue/hello").unwrap();
+        let key2=AssetKey::new("demo","effects/sting").unwrap();
+        let sources=HashMap::from([
+            (key1,StereoAudio{sample_rate:8_000,frames:vec![[0.5,0.5];1600]}),
+            (key2,StereoAudio{sample_rate:8_000,frames:vec![[0.25,0.25];1600]}),
+        ]);
+        let track=TrackEdit {track_index:1,gain_db:-6.0,pan:1.0,solo:true,..TrackEdit::default()};
+        let output=render_project_advanced(&p,&sources,8_000,&[],&[track]).unwrap();
+        assert!(output.frames[200][0].abs()<1e-6);
+        assert!((output.frames[200][1]-0.1253).abs()<0.002);
+        assert_eq!(p.tracks[1].clips[0].gain_db,0.0);
+        let invalid=TrackEdit {track_index:77,..TrackEdit::default()};
+        assert!(render_project_advanced(&p,&sources,8_000,&[],&[invalid]).is_err());
+    }
     #[test]
     fn reports_missing_audio_and_bounds_timeline() {
         assert!(render_project(&project(),&HashMap::new(),48000).is_err());
