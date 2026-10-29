@@ -3,6 +3,7 @@
 //! Only listens on loopback. No plugin broadcasting or radio transmitters.
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
+use sha2::{Digest,Sha256};
 use axum::{
     body::Bytes, extract::{DefaultBodyLimit, Path, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
@@ -209,6 +210,12 @@ async fn render_audio_project(
                     "El audio fuente cambió desde la revisión del proyecto".into()));
             }
             let bytes=store.read(&source.key).map_err(not_found)?;
+            // Recheck the fetched bytes against the manifest pin, too:
+            // metadata can advance between two independent read operations.
+            if format!("{:x}",Sha256::digest(&bytes))!=source.sha256 {
+                return Err(ApiError(StatusCode::CONFLICT,
+                    "La fuente ya no coincide con el SHA-256 del proyecto".into()));
+            }
             sources.insert(source.key.clone(),decode_wav(&bytes).map_err(bad)?);
         }
         let output=render_project_advanced(

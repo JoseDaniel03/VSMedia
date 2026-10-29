@@ -16,6 +16,7 @@ vsmedia-api = { path = "../../crates/vsmedia-api" }
 vsmedia-core = { path = "../../crates/vsmedia-core" }
 vsmedia-formats = { path = "../../crates/vsmedia-formats" }
 vsmedia-audio = { path = "../../crates/vsmedia-audio" }
+sha2 = "0.10"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
