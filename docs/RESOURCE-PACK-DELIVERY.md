@@ -91,6 +91,7 @@ valida URL y SHA-1 antes de construir la oferta del pack.
 - No hay patch/delta nativo de Resource Packs vanilla: una actualización con un
   SHA-1 diferente generalmente requiere bajar el ZIP completo actualizado.
 - No se han medido descargas reales, tiempos de aplicación o rendimiento CDN.
+- La distribución opcional en capas necesita crear packs base y overlays separados; todavía no existe particionado automático ni reconciliación de capas eliminadas.
 - La gestión de datapacks sigue aplazada hasta la última etapa del proyecto.
 
 ## Coordinación de entrega por jugador

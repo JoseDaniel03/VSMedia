@@ -17,7 +17,7 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 | Font Engine | Generación JSON bitmap, asignador de glifos | Composición final y formatos |
 | IPC v1 | Loopback autenticado, carga/descarga por bloques hasta 64 MiB y verificación SHA-256 | Reanudación, staging a disco, integración E2E y hardening |
 | Java API + Bridge | Interfaces, socket asíncrono, parser de descriptor CDN y seguimiento de packs | Bootstrap y persistencia de configuración |
-| Folia Delivery Adapter | Módulo Java 25 + Paper 26.3, scheduler de jugador y eventos | Habilitar en el plugin servidor y probar con Minecraft real |
+| Folia Delivery Adapter | Módulo Java 25 + Paper 26.3, scheduler de jugador, eventos y capas base/overlay | Bootstrap en servidor, reconciliación de capas y pruebas con Minecraft real |
 | Panel web | No iniciado | Studio de audio e imágenes, gestión |
 | VSClient | No modificado | Voz y streaming, cliente Fabric |
 

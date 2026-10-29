@@ -61,6 +61,8 @@ ni distribución todavía. `vspack` actualmente representa Resource Packs.
 - [x] ZIP determinista con Store para medios comprimidos y Deflate para JSON.
 - [x] CLI administrativa para preparar un pack para servidor estático HTTPS/CDN.
 - [x] API de oferta por jugador con estado, supresión de reenvíos y eventos, y adaptador de scheduler Folia fuente.
+- [x] Pilas opcionales de packs base + overlay en Java/Paper 26.3, con orden y límites; caché independiente por hash.
+- [ ] Particionado inteligente de recursos entre capas y reconciliación/remoción de overlays retirados.
 - [ ] Integrar y habilitar el adaptador en un plugin VSMedia real; pruebas con jugadores.
 - [ ] Medir consumo de ancho de banda, caché real y latencia desde distintos clientes.
 - [ ] Configurar alojamiento HTTPS/CDN y descarga pública; no hay servicio HTTP abierto por defecto.

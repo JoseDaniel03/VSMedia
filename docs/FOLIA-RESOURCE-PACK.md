@@ -36,6 +36,23 @@ la misma versión si ya está aplicada o descargándose. Los fallos o rechazos
 no se reintentan automáticamente: `offerTo(player, true)` permite reintentar
 en forma explícita. Al actualizar el SHA-1 se puede ofrecer la nueva versión.
 
+## Distribución por capas (opcional)
+
+El controlador admite un pack único con `setCurrent(delivery)` o una pila
+ordenada mediante `setCurrentStack(new ResourcePackStack(List.of(base, overlay)))`.
+En el segundo modo utiliza `Player.addResourcePack(...)` en el scheduler
+de la entidad. Minecraft 26.3 puede mantener una capa base estable en caché
+mientras un overlay más pequeño cambia con frecuencia.
+
+El orden de la lista importa: primero el pack base y después las capas
+de mayor prioridad. El SDK limita la pila a ocho capas y rechaza UUIDs
+o IDs lógicos repetidos. No cambia automáticamente la distribución de
+recursos; el administrador debe generar dos packs compatibles por separado.
+
+Al modificar la composición de la pila (eliminar capas o cambiar el orden),
+el futuro bootstrap debe reconciliar/remover los packs que ya no correspondan.
+Este primer adaptador solo añade y actualiza las capas deseadas.
+
 ## Limitaciones
 
 - Debe registrarse desde un plugin real marcado compatible con Folia.
