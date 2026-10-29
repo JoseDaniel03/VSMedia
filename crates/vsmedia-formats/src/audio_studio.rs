@@ -58,6 +58,8 @@ impl AudioIdentities {
 #[serde(tag="operation",rename_all="snake_case")]
 pub enum StudioCommand {
     Edit {command:AudioEditCommand},
+    EditClipById {clip_id:String, edit:vsmedia_audio::editing::ClipEdit},
+    EditTrackById {track_id:String, edit:vsmedia_audio::editing::TrackEdit},
     MoveTrack {from:usize,to:usize},
     MoveClip {track_index:usize,from:usize,to:usize},
     InsertTrack {index:usize,name:String},
@@ -66,6 +68,18 @@ pub enum StudioCommand {
     DeleteClip {track_index:usize,index:usize},
     RenameTrack {index:usize,name:String},
     ReplaceClip {track_index:usize,index:usize,clip:AudioClip},
+}
+fn find_track(ids:&AudioIdentities,track_id:&str)->MediaResult<usize> {
+    ids.tracks.iter().position(|track|track.id==track_id)
+        .ok_or_else(||invalid("track identifier no longer exists"))
+}
+fn find_clip(ids:&AudioIdentities,clip_id:&str)->MediaResult<(usize,usize)> {
+    for (track_index,track) in ids.tracks.iter().enumerate() {
+        if let Some(clip_index)=track.clip_ids.iter().position(|value|value==clip_id) {
+            return Ok((track_index,clip_index));
+        }
+    }
+    Err(invalid("clip identifier no longer exists"))
 }
 fn relocated(index:usize,from:usize,to:usize)->usize {
     if index==from {to}
@@ -81,6 +95,16 @@ pub fn apply_to_document(doc:&mut VSAudio,command:StudioCommand)->MediaResult<()
     let ids=doc.identities.as_mut().ok_or_else(||invalid("missing identities"))?;
     match command {
         StudioCommand::Edit{command}=>doc.apply_edit(command)?,
+        StudioCommand::EditClipById{clip_id,mut edit}=>{
+            let (track_index,clip_index)=find_clip(ids,&clip_id)?;
+            edit.track_index=track_index;
+            edit.clip_index=clip_index;
+            doc.apply_edit(AudioEditCommand::UpsertClip{edit})?;
+        }
+        StudioCommand::EditTrackById{track_id,mut edit}=>{
+            edit.track_index=find_track(ids,&track_id)?;
+            doc.apply_edit(AudioEditCommand::UpsertTrack{edit})?;
+        }
         StudioCommand::MoveTrack{from,to}=>{
             if from>=doc.timeline.tracks.len() || to>=doc.timeline.tracks.len() {
                 return Err(invalid("track index out of range"));
@@ -193,6 +217,13 @@ impl AudioStudio {
         Ok(Self{document,undo:VecDeque::new(),redo:VecDeque::new()})
     }
     pub fn document(&self)->&VSAudio {&self.document}
+    /// Exposes IDs for a UI without altering old manifests until first edit.
+    pub fn identities(&self)->MediaResult<AudioIdentities> {
+        match &self.document.identities {
+            Some(ids)=>Ok(ids.clone()),
+            None=>AudioIdentities::from_legacy(&self.document.timeline),
+        }
+    }
     pub fn can_undo(&self)->bool {!self.undo.is_empty()}
     pub fn can_redo(&self)->bool {!self.redo.is_empty()}
     pub fn undo_depth(&self)->usize {self.undo.len()}
@@ -292,6 +323,32 @@ mod tests {
         assert_eq!(studio.document().timeline.tracks[0].name,"First");
         studio.apply(StudioCommand::RenameTrack{index:0,name:"Second".into()}).unwrap();
         assert!(!studio.can_redo());
+    }
+    #[test]
+    fn id_addressed_edits_follow_the_same_clip_after_reorder() {
+        let mut studio=AudioStudio::open(sample()).unwrap();
+        let voice_clip=studio.identities().unwrap().tracks[0].clip_ids[1].clone();
+        let music_track=studio.identities().unwrap().tracks[1].id.clone();
+        studio.apply(StudioCommand::MoveTrack{from:0,to:1}).unwrap();
+        studio.apply(StudioCommand::MoveClip{track_index:1,from:1,to:0}).unwrap();
+        studio.apply(StudioCommand::EditClipById{
+            clip_id:voice_clip.clone(),
+            edit:ClipEdit {pan:-0.7, ..ClipEdit::default()}
+        }).unwrap();
+        assert_eq!(studio.document().clip_edits.len(),1);
+        assert_eq!(studio.document().clip_edits[0].track_index,1);
+        assert_eq!(studio.document().clip_edits[0].clip_index,0);
+        assert_eq!(studio.document().clip_edits[0].pan,-0.7);
+        studio.apply(StudioCommand::EditTrackById {
+            track_id:music_track,edit:TrackEdit {gain_db:-18.0,..TrackEdit::default()}
+        }).unwrap();
+        assert_eq!(studio.document().track_edits[0].track_index,0);
+        assert_eq!(studio.document().track_edits[0].gain_db,-18.0);
+        let revision=serde_json::to_vec(studio.document()).unwrap();
+        assert!(studio.apply(StudioCommand::EditClipById {
+            clip_id:"c-999999".into(),edit:ClipEdit::default()
+        }).is_err());
+        assert_eq!(revision,serde_json::to_vec(studio.document()).unwrap());
     }
     #[test]
     fn insertion_shifts_edits_and_json_round_trips_stable_ids() {
