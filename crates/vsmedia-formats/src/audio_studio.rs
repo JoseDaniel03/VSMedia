@@ -88,7 +88,7 @@ fn relocated(index:usize,from:usize,to:usize)->usize {
     else {index}
 }
 /// Edits only a candidate snapshot; validation before commit is mandatory.
-pub fn apply_to_document(doc:&mut VSAudio,command:StudioCommand)->MediaResult<()> {
+fn apply_to_document(doc:&mut VSAudio,command:StudioCommand)->MediaResult<()> {
     if doc.identities.is_none() {
         doc.identities=Some(AudioIdentities::from_legacy(&doc.timeline)?);
     }
@@ -202,11 +202,16 @@ fn size(document:&VSAudio)->MediaResult<usize> {
     serde_json::to_vec(document).map(|data|data.len())
         .map_err(|e|invalid(&format!("invalid audio document: {e}")))
 }
-fn trim(stack:&mut VecDeque<VSAudio>) {
-    while stack.len()>MAX_UNDO_STEPS ||
-        stack.iter().map(|item|size(item).unwrap_or(MAX_DOCUMENT_BYTES+1))
-            .sum::<usize>()>MAX_HISTORY_BYTES
-    {stack.pop_front();}
+fn trim_history(undo:&mut VecDeque<VSAudio>,redo:&mut VecDeque<VSAudio>) {
+    // Limit total history memory across both stacks, not 16 MiB per stack.
+    let bytes=|stack:&VecDeque<VSAudio>| stack.iter()
+        .map(|item|size(item).unwrap_or(MAX_DOCUMENT_BYTES+1))
+        .fold(0usize,usize::saturating_add);
+    while undo.len()+redo.len()>MAX_UNDO_STEPS ||
+        bytes(undo).saturating_add(bytes(redo))>MAX_HISTORY_BYTES
+    {
+        if undo.pop_front().is_none() {redo.pop_front();}
+    }
 }
 impl AudioStudio {
     pub fn open(document:VSAudio)->MediaResult<Self> {
@@ -234,14 +239,14 @@ impl AudioStudio {
             return Err(invalid("audio manifest exceeds 2 MiB"));
         }
         self.undo.push_back(std::mem::replace(&mut self.document,candidate));
-        trim(&mut self.undo);
+        trim_history(&mut self.undo,&mut self.redo);
         self.redo.clear();
         Ok(())
     }
     pub fn undo(&mut self)->bool {
         if let Some(previous)=self.undo.pop_back() {
             self.redo.push_back(std::mem::replace(&mut self.document,previous));
-            trim(&mut self.redo);
+            trim_history(&mut self.undo,&mut self.redo);
             true
         } else {false}
     }
