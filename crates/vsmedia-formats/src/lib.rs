@@ -271,6 +271,12 @@ pub fn publish<R: AssetRepository>(
     repository: &R, key: AssetKey, document: &NativeDocument,
 ) -> MediaResult<AssetRecord> {
     key.validated()?;
+    if let NativePayload::Project(project) = &document.payload {
+        if project.nodes.iter().any(|node| node.document.as_ref()
+            .is_some_and(|link| link.key == key)) {
+            return Err(invalid("a project cannot directly reference itself"));
+        }
+    }
     let bytes = encode(document)?;
     repository.publish(key, AssetKind::Other, &bytes)
 }
@@ -459,6 +465,26 @@ mod repository_tests {
     fn root()->std::path::PathBuf {
         std::env::temp_dir().join(format!("vsmedia-native-{}-{}",
             std::process::id(),NEXT.fetch_add(1,Ordering::SeqCst)))
+    }
+    #[test]
+    fn publishing_self_referencing_project_is_rejected() {
+        let path=root();
+        let repository=SqliteAssetStore::open(&path).unwrap();
+        let id=AssetKey::new("demo","project/master").unwrap();
+        let project=VSProject {
+            name:"Cycle".into(),
+            nodes:vec![ProjectNode {
+                id:"self".into(),
+                document:Some(DocumentLink {
+                    key:id.clone(),kind:NativeKind::Project,sha256:"0".repeat(64)
+                }),depends_on:vec![]
+            }],
+            entry_points:vec!["self".into()]
+        };
+        let result=publish(&repository,id,&NativeDocument::new(NativePayload::Project(project)));
+        assert!(result.is_err());
+        drop(repository);
+        let _=fs::remove_dir_all(path);
     }
     #[test]
     fn project_pins_real_documents_and_detects_changed_revisions() {
