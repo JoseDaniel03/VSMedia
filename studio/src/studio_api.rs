@@ -365,3 +365,122 @@ async fn save_mix(assets:&[AudioAsset],tracks:&[Track])->Result<String,String> {
     let revision=result.get("revision").and_then(Value::as_u64).unwrap_or(0);
     Ok(format!("VSMix guardado como {project_id}.vsaudio (revisión {revision})."))
 }
+
+/// Rehydrate a native multipista document into the local VSMix session.
+/// Reject unsupported multi-clip tracks instead of losing timing data.
+async fn load_mix(name:&str,assets:RwSignal<Vec<AudioAsset>>,
+    tracks:RwSignal<Vec<Track>>,status:RwSignal<String>
+)->Result<String,String> {
+    if name.is_empty() || !name.bytes().all(|b|
+        b.is_ascii_alphanumeric() || matches!(b,b'-'|b'_'|b'.')) {
+        return Err("Identificador de proyecto inválido".into());
+    }
+    let doc=request(&format!("/audio/projects/{name}"),"GET",JsValue::NULL,"").await?;
+    if doc.pointer("/payload/kind").and_then(Value::as_str)!=Some("audio") {
+        return Err("El proyecto no contiene audio".into());
+    }
+    let body=doc.pointer("/payload/data").ok_or("Documento de audio inválido")?;
+    let timeline=body.get("timeline").ok_or("Proyecto sin línea de tiempo")?;
+    let entries=timeline.get("tracks").and_then(Value::as_array)
+        .ok_or("Estructura de pistas inválida")?;
+    if entries.len()>256 {return Err("Demasiadas pistas para VSMix".into());}
+    let sources=body.get("sources").and_then(Value::as_array)
+        .ok_or("Proyecto sin referencias de origen")?;
+    let mut pending=Vec::<(String,String,web_sys::Blob)>::new();
+    // Stage downloads and validate every source before adding any to the UI.
+    for (i,track) in entries.iter().enumerate() {
+        let clips=track.get("clips").and_then(Value::as_array)
+            .ok_or("Pista con lista de clips inválida")?;
+        if clips.len()>1 {
+            return Err(format!("La pista {} tiene múltiples clips y requiere el editor de regiones.",i+1));
+        }
+        let Some(clip)=clips.first() else {continue;};
+        let key=clip.get("asset").ok_or("Clip sin referencia a audio")?;
+        if key.get("namespace").and_then(Value::as_str)!=Some("studio") {
+            return Err("Una pista apunta fuera del namespace de Studio".into());
+        }
+        let short=key.get("name").and_then(Value::as_str)
+            .and_then(|v|v.strip_prefix("audio/"))
+            .ok_or("Ruta de audio inválida")?;
+        if short.is_empty() || !short.bytes().all(|b|
+            b.is_ascii_alphanumeric() || matches!(b,b'_'|b'-'|b'.')) {
+            return Err("Identificador de archivo inseguro".into());
+        }
+        if pending.iter().any(|(id,_,_)|id==short){continue;}
+        let source=sources.iter().find(|source|
+            source.pointer("/key/namespace").and_then(Value::as_str)==Some("studio")
+            && source.pointer("/key/name").and_then(Value::as_str)
+                .and_then(|full|full.strip_prefix("audio/"))==Some(short)
+        ).ok_or("Clip sin archivo pinneado")?;
+        let expected=source.get("sha256").and_then(Value::as_str)
+            .ok_or("Fuente sin SHA-256")?;
+        let metadata=request(&format!("/assets/{short}/metadata"),"GET",JsValue::NULL,"").await?;
+        if metadata.get("sha256").and_then(Value::as_str)!=Some(expected) {
+            return Err("Uno de los audios fue modificado desde que se guardó la mezcla.".into());
+        }
+        let codec=source.get("codec").and_then(Value::as_str).unwrap_or("wav");
+        let suffix=match codec {
+            "wav"=>"wav","mp3"=>"mp3","flac"=>"flac",
+            "ogg_vorbis"=>"ogg","opus"=>"opus","webm"=>"webm",
+            _=>return Err("Códec no compatible con VSMix".into())
+        };
+        let blob=fetch_source_blob(short).await?;
+        if blob.size()<=0. || blob.size()>16.*1024.*1024. {
+            return Err("Un audio supera el límite de descarga local".into());
+        }
+        pending.push((short.to_owned(),suffix.to_owned(),blob));
+    }
+    let mut local_map=std::collections::HashMap::<String,String>::new();
+    for (original,extension,blob) in pending {
+        let filename=format!("{original}.{extension}");
+        let new_id=media::add_blob(blob,filename,assets,status)
+            .ok_or("No se pudo incorporar el archivo descargado")?;
+        local_map.insert(original,new_id);
+    }
+    let mut recovered=Vec::with_capacity(entries.len());
+    for (idx,t) in entries.iter().enumerate() {
+        let name=t.get("name").and_then(Value::as_str)
+            .unwrap_or("Pista").to_owned();
+        let clips=t.get("clips").and_then(Value::as_array)
+            .ok_or("Pista sin lista de clips")?;
+        let asset_id=if let Some(clip)=clips.first() {
+            let short=clip.pointer("/asset/name").and_then(Value::as_str)
+                .and_then(|s|s.strip_prefix("audio/")).ok_or("Audio inválido")?;
+            local_map.get(short).cloned().ok_or("Audio descargado faltante")?
+        }else{String::new()};
+        let edit=body.get("track_edits").and_then(Value::as_array)
+            .and_then(|list|list.iter().find(|value|
+                value.get("track_index").and_then(Value::as_u64)==Some(idx as u64)));
+        let gain_db=edit.and_then(|v|v.get("gain_db"))
+            .and_then(Value::as_f64).unwrap_or(0.);
+        let clip_edit=body.get("clip_edits").and_then(Value::as_array)
+            .and_then(|list|list.iter().find(|value|
+                value.get("track_index").and_then(Value::as_u64)==Some(idx as u64)
+                &&value.get("clip_index").and_then(Value::as_u64)==Some(0)));
+        recovered.push(Track {
+            id:media::uid("track"),name,asset_id,
+            volume:10_f64.powf(gain_db/20.).clamp(0.,1.),
+            muted:t.get("muted").and_then(Value::as_bool).unwrap_or(false)
+                ||edit.and_then(|v|v.get("muted")).and_then(Value::as_bool).unwrap_or(false),
+            solo:edit.and_then(|v|v.get("solo")).and_then(Value::as_bool).unwrap_or(false),
+            fade_in:clip_edit.and_then(|v|v.get("fade_in_ms"))
+                .and_then(Value::as_u64).unwrap_or(0) as f64/1000.,
+            fade_out:clip_edit.and_then(|v|v.get("fade_out_ms"))
+                .and_then(Value::as_u64).unwrap_or(0) as f64/1000.,
+        });
+    }
+    tracks.set(recovered);
+    Ok(format!("Mezcla {name} recuperada desde VSCore con sus pistas y controles. Guardar crea una nueva copia."))
+}
+pub fn open_saved_mix(name:String,assets:RwSignal<Vec<AudioAsset>>,
+    tracks:RwSignal<Vec<Track>>,status:RwSignal<String>
+) {
+    status.set(format!("Recuperando mezcla {name} desde VSCore…"));
+    spawn_local(async move {
+        let result=load_mix(&name,assets,tracks,status).await;
+        status.set(match result {
+            Ok(message)=>message,
+            Err(error)=>format!("No se pudo recuperar VSMix: {error}")
+        });
+    });
+}
