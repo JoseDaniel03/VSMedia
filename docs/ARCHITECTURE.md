@@ -71,3 +71,19 @@ todos los namespaces dentro de la misma transacción. Antes de exponerlas por
 IPC/web faltan cuotas por productor, transporte grande y autenticación de las
 peticiones de proyecto. El esquema SQLite está versionado por `user_version`
 y migración 0→1; formatos nativos siguen en versión 1 sin migración histórica.
+
+## Entrega acelerada de Resource Packs
+
+El módulo `vsmedia-pack::delivery` escribe archivos inmutables bajo nombre
+`<sha256>.zip` en un directorio de publicación controlado por el administrador.
+El motor calcula SHA-1 para la caché nativa de Minecraft y UUID estable por ID
+lógico. Este directorio **no** es el servicio IPC y no tiene tokens ni datos de
+SQLite; debe servirse como archivos estáticos mediante Caddy, Nginx o CDN HTTPS.
+
+La ruta del recurso publicada nunca cambia de contenido; si cambia el pack,
+obtiene otra URL y otro SHA-1. No se deben reenviar versiones idénticas a un
+jugador si ya tiene la misma versión cargada. Los hilos de región solo envían
+las instrucciones de Resource Pack; la descarga ocurre fuera de Minecraft.
+
+Todavía no se creó el adaptador Paper/Folia ni servidor HTTPS dentro de
+VSMedia. Ver `docs/RESOURCE-PACK-DELIVERY.md`.

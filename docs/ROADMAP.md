@@ -33,7 +33,7 @@
 
 ## Engines
 
-- **Pack:** merge con prioridades, detección de conflictos, importación ZIP segura y export ZIP determinista. La unión por clave de \`sounds.json\` ya está implementada. Pendiente fuentes y otros JSON tipados, formato específico 26.3 y distribución.
+- **Pack:** merge con prioridades, detección de conflictos, importación ZIP segura y export ZIP determinista; optimización Store/Deflate para archivos ya comprimidos. Generador de URL inmutable SHA-256 y SHA-1 del pack para caché de Minecraft. Pendientes servidor estático HTTPS/CDN configurado, integración real con jugador Folia y benchmarks de red. La unión por clave de \`sounds.json\` ya está implementada. Pendiente fuentes y otros JSON tipados, formato específico 26.3 y distribución.
 - **Audio:** modelo multipista, mezcla PCM mono/estéreo, fades, balance, cadena reutilizable de efectos, EQ biquad (low/high/peak), FFT/Hann, RMS y atenuación espacial 3D. Importación WAV int/float, export WAV PCM16, remuestreo FFT Rubato con límites, render multipista con caché por asset. Pendiente edición no destructiva completa, otros códecs, exportación OGG, streaming/Opus/voz y Web Studio.
 - **Image:** escalado RGBA nearest/Lanczos3 y mosaicos de mapas 128×128, deltas de fotogramas animados. Decodificador estático PNG/JPEG/WebP/GIF y secuencias GIF/APNG con límites de memoria. Pendiente WebP animado, conversión paleta/vistas MapView.
 - **Font:** generador JSON de fuentes bitmap y registro de glifos con asignación global de Unicode PUA. Pendiente fuentes completas, integración con pack y compatibilidad.
@@ -50,3 +50,15 @@ VSClient se actualizará después para streaming/voz; vanilla conserva sonidos d
 La compatibilidad con Data Packs se estudiará **al terminar Core, Audio,
 Image, Font, Pack de recursos, interfaces y APIs**. No se añade su importación
 ni distribución todavía. `vspack` actualmente representa Resource Packs.
+
+## Resource Pack Delivery (base terminada, integración pendiente)
+
+- [x] SHA-1 exacto de ZIP para que Minecraft aproveche su caché nativa.
+- [x] SHA-256 para identificar archivos públicos inmutables sin invalidación global.
+- [x] UUID de pack estable por identificador lógico.
+- [x] Publicación atómica en carpeta estática, sin sobrescribir packs ya publicados.
+- [x] ZIP determinista con Store para medios comprimidos y Deflate para JSON.
+- [x] CLI administrativa para preparar un pack para servidor estático HTTPS/CDN.
+- [ ] Conectar envío del pack al jugador con schedulers Folia y estado de aceptación.
+- [ ] Medir consumo de ancho de banda, caché real y latencia desde distintos clientes.
+- [ ] Configurar alojamiento HTTPS/CDN y descarga pública; no hay servicio HTTP abierto por defecto.
