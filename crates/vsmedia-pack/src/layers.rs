@@ -3,6 +3,7 @@
 //! overlay should not alter the base archive/hash or force its re-download.
 use crate::{validate_path, MergeOutput};
 use std::collections::{BTreeMap, BTreeSet};
+use sha2::Digest;
 use vsmedia_api::{MediaError, MediaResult};
 
 pub const MAX_PACK_LAYERS: usize = 8;
@@ -97,6 +98,62 @@ pub fn split_into_layers(
     Ok(selected)
 }
 
+/// Analyze recent merged pack revisions and *suggest* stable overlay rules.
+///
+/// Recommendations are never applied automatically: changing layer rules every
+/// build would itself invalidate the client's stable base pack cache. An admin
+/// should choose a proposal once and retain it across revisions.
+pub fn suggest_overlay_rules(
+    history:&[&MergeOutput],max_rules:usize
+) -> MediaResult<Vec<OverlayRule>> {
+    if !(2..=16).contains(&history.len()) ||
+        max_rules==0 || max_rules>=MAX_PACK_LAYERS {
+        return Err(MediaError::InvalidInput("invalid pack history or overlay budget".into()));
+    }
+    let current=history[history.len()-1];
+    if !current.files.contains_key("pack.mcmeta") {
+        return Err(MediaError::InvalidInput("missing pack.mcmeta in latest snapshot".into()));
+    }
+    let total_bytes:usize=current.files.iter()
+        .filter(|(key,_)|key.as_str()!="pack.mcmeta")
+        .map(|(_,bytes)|bytes.len()).sum();
+    if total_bytes==0 {return Ok(Vec::new());}
+    // Map prefix -> (current byte size, number of changed bytes).
+    let mut candidates=BTreeMap::<String,(usize,usize)>::new();
+    for (path,contents) in &current.files {
+        validate_path(path)?;
+        let parts:Vec<_>=path.split('/').collect();
+        if parts.len()<4 || parts[0]!="assets" {
+            continue;
+        }
+        let depth=(parts.len()-1).min(4);
+        let prefix=format!("{}/",parts[..depth].join("/"));
+        let stats=candidates.entry(prefix).or_default();
+        stats.0=stats.0.saturating_add(contents.len());
+        let changes=history.windows(2).filter(|pair|
+            pair[0].files.get(path)!=pair[1].files.get(path)
+        ).count();
+        stats.1=stats.1.saturating_add(contents.len().saturating_mul(changes));
+    }
+    let mut scored:Vec<_>=candidates.into_iter()
+        .filter(|(_, (size,changed))|
+            *changed>0 && *size>0 && size.saturating_mul(2)<=total_bytes
+        ).collect();
+    scored.sort_by(|a,b| b.1.1.cmp(&a.1.1).then_with(||a.0.cmp(&b.0)));
+    Ok(scored.into_iter().take(max_rules).map(|(prefix,_)| {
+        let short=prefix.trim_end_matches('/').rsplit('/').next()
+            .unwrap_or("layer").bytes()
+            .filter(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||*b==b'_')
+            .take(20).map(char::from).collect::<String>();
+        let digest=sha2::Sha256::digest(prefix.as_bytes());
+        OverlayRule {
+            logical_id:format!("overlay_{}_{:02x}{:02x}{:02x}{:02x}",
+                short,digest[0],digest[1],digest[2],digest[3]),
+            prefixes:vec![prefix],
+        }
+    }).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,6 +212,23 @@ mod tests {
             OverlayRule {logical_id:"base".into(),
                 prefixes:vec!["assets/demo/textures/ui/".into()]}
         ]).is_err());
+    }
+    #[test]
+    fn recommends_small_frequently_changed_overlay_without_changing_base_rules() {
+        let old=pack(b"first");
+        let updated=pack(b"second");
+        let suggestions=suggest_overlay_rules(&[&old,&updated],3).unwrap();
+        assert_eq!(suggestions.len(),1);
+        assert_eq!(suggestions[0].prefixes,vec!["assets/demo/textures/ui/"]);
+        assert!(suggestions[0].logical_id.starts_with("overlay_ui_"));
+        let same=suggest_overlay_rules(&[&old,&updated],3).unwrap();
+        assert_eq!(suggestions,same);
+        let layers1=split_into_layers(&old,"virgoland",&suggestions).unwrap();
+        let layers2=split_into_layers(&updated,"virgoland",&suggestions).unwrap();
+        let a=export_zip(&layers1[0].pack,ArchiveLimits::default()).unwrap();
+        let b=export_zip(&layers2[0].pack,ArchiveLimits::default()).unwrap();
+        assert_eq!(a,b);
+        assert!(suggest_overlay_rules(&[&old],3).is_err());
     }
     #[test]
     fn longest_asset_path_prefix_is_deterministic() {
