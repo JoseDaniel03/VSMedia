@@ -281,11 +281,11 @@ fn SimpleAudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                                 title="Render real del proyecto WAV: EQ, fades, paneo y automatización"
                                 on:click=move |_|studio_api::preview_engine(
                                     preview_name.clone(),"studio-engine-audio",status
-                                )}>"▶ Motor"</button>
+                                )>"▶ Motor"</button>
                             <button type="button" class="action-secondary"
                                 on:click=move |_|studio_api::export_engine_wav(
                                     download_name.clone(),status
-                                )}>"↓ WAV"</button>
+                                )>"↓ WAV"</button>
                         </div>}
                     }/>
                 </div>
@@ -552,11 +552,11 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                                 title="Reproduce una mezcla renderizada por el Audio Engine de Rust"
                                 on:click=move |_|studio_api::preview_engine(
                                     preview_name.clone(),"mix-engine-audio",status
-                                )}>"▶ Motor"</button>
+                                )>"▶ Motor"</button>
                             <button type="button" class="action-secondary"
                                 on:click=move |_|studio_api::export_engine_wav(
                                     download_name.clone(),status
-                                )}>"↓ WAV"</button>
+                                )>"↓ WAV"</button>
                         </div>}
                     }/>
                 </div>
