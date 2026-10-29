@@ -31,9 +31,20 @@ impl SqliteAssetStore {
         let root = fs::canonicalize(root).map_err(io_error)?;
         let db = Connection::open(root.join("catalog.sqlite")).map_err(db_error)?;
         db.busy_timeout(std::time::Duration::from_secs(5)).map_err(db_error)?;
+        db.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+            .map_err(db_error)?;
+        const SCHEMA_VERSION: i64 = 1;
+        let version: i64 = db.query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(db_error)?;
+        if !(0..=SCHEMA_VERSION).contains(&version) {
+            return Err(MediaError::Conflict(format!(
+                "unsupported SQLite catalog schema version: {version}"
+            )));
+        }
+        // Version 0 includes existing VSMedia catalogs created before tracking
+        // schema versions. All CREATE statements are safe to replay.
         db.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA foreign_keys = ON;
+            "BEGIN IMMEDIATE;
              CREATE TABLE IF NOT EXISTS assets (
                namespace TEXT NOT NULL,
                name TEXT NOT NULL,
@@ -58,7 +69,9 @@ impl SqliteAssetStore {
                can_publish INTEGER NOT NULL,
                can_read INTEGER NOT NULL,
                PRIMARY KEY(producer, namespace)
-             );"
+             );
+             PRAGMA user_version = 1;
+             COMMIT;"
         ).map_err(db_error)?;
         Ok(Self { root, database: Mutex::new(db), max_asset_bytes })
     }
@@ -245,6 +258,29 @@ mod tests {
         assert_eq!(db.history(&key).unwrap()[1].revision, 1);
         drop(db);
         let _ = fs::remove_dir_all(root);
+    }
+    #[test]
+    fn catalog_upgrades_legacy_version_zero_and_rejects_unknown_future_versions() {
+        let root=root();
+        let db=SqliteAssetStore::open(&root).unwrap();
+        let key=AssetKey::new("demo","asset").unwrap();
+        db.publish(key.clone(),AssetKind::Sound,b"preserved").unwrap();
+        drop(db);
+        {
+            let raw=Connection::open(root.join("catalog.sqlite")).unwrap();
+            raw.pragma_update(None,"user_version",0).unwrap();
+        }
+        let reopened=SqliteAssetStore::open(&root).unwrap();
+        assert_eq!(reopened.read(&key).unwrap(),b"preserved");
+        drop(reopened);
+        {
+            let raw=Connection::open(root.join("catalog.sqlite")).unwrap();
+            let version:i64=raw.query_row("PRAGMA user_version",[],|row|row.get(0)).unwrap();
+            assert_eq!(version,1);
+            raw.pragma_update(None,"user_version",99).unwrap();
+        }
+        assert!(SqliteAssetStore::open(&root).is_err());
+        let _=fs::remove_dir_all(root);
     }
     #[test]
     fn permissions_fail_closed_and_quota_is_enforced() {
