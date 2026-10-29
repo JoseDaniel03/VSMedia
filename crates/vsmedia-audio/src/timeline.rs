@@ -7,6 +7,7 @@ use crate::{
     codec::{StereoAudio, MAX_FRAMES},
     dsp::{db_to_linear, mix_stereo, StereoLayer},
     resample::resample_offline,
+    editing::{ClipEdit,validate_edits,process_clip_frames},
 };
 pub const MAX_RENDER_CLIPS: usize = 256;
 const MAX_LAYER_FRAMES: usize = 10_000_000;
@@ -16,7 +17,17 @@ const MAX_LAYER_FRAMES: usize = 10_000_000;
 pub fn render_project(
     project:&AudioProject, sources:&HashMap<AssetKey, StereoAudio>, sample_rate:u32
 ) -> MediaResult<StereoAudio> {
+    render_project_edited(project, sources, sample_rate, &[])
+}
+
+/// Render with non-destructive clip edits. Legacy projects pass an empty list;
+/// source audio is never modified, and resampling is still cached per asset.
+pub fn render_project_edited(
+    project:&AudioProject, sources:&HashMap<AssetKey, StereoAudio>,
+    sample_rate:u32, edits:&[ClipEdit]
+) -> MediaResult<StereoAudio> {
     project.validate()?;
+    let indexed_edits=validate_edits(project,edits)?;
     if !(8_000..=192_000).contains(&sample_rate) {
         return Err(MediaError::InvalidInput("invalid project sample rate".into()));
     }
@@ -25,9 +36,11 @@ pub fn render_project(
     let mut layer_frames=0usize;
     // Cache resampled source PCM once for every distinct asset used by the timeline.
     let mut resampled_sources:HashMap<AssetKey,StereoAudio>=HashMap::new();
-    for track in &project.tracks {
+    for (track_id,track) in project.tracks.iter().enumerate() {
         if track.muted { continue; }
-        for clip in &track.clips {
+        for (clip_id,clip) in track.clips.iter().enumerate() {
+            let edit=indexed_edits.get(&(track_id,clip_id)).copied();
+            if edit.is_some_and(|entry|entry.muted) {continue;}
             if layers.len()>=MAX_RENDER_CLIPS {
                 return Err(MediaError::InvalidInput("render exceeds clip quota".into()));
             }
@@ -44,9 +57,16 @@ pub fn render_project(
                 Entry::Occupied(entry)=>entry.into_mut(),
                 Entry::Vacant(entry)=>entry.insert(resample_offline(source,sample_rate)?),
             };
+            let source_start=edit.map_or(0,|e|e.source_in_ms);
+            let source_offset=usize::try_from(
+                (source_start as u128*sample_rate as u128)/1000
+            ).map_err(|_|MediaError::InvalidInput("source inpoint exceeds limit".into()))?;
+            if source_offset >= resampled.frames.len() {
+                return Err(MediaError::InvalidInput("source inpoint is outside clip audio".into()));
+            }
             let length=usize::try_from(duration_ms)
                 .map_err(|_|MediaError::InvalidInput("clip duration exceeds limit".into()))?
-                .min(resampled.frames.len());
+                .min(resampled.frames.len()-source_offset);
             let stop=offset.checked_add(length)
                 .ok_or_else(||MediaError::InvalidInput("clip endpoint overflow".into()))?;
             if stop>MAX_FRAMES {
@@ -60,9 +80,13 @@ pub fn render_project(
             }
             final_frame=final_frame.max(stop);
             let gain=db_to_linear(clip.gain_db)?;
+            let mut frames=resampled.frames[source_offset..source_offset+length].to_vec();
+            if let Some(edit)=edit {
+                process_clip_frames(&mut frames,sample_rate,edit)?;
+            }
             layers.push(StereoLayer{
-                start_frame:offset, gain, pan:0.0,
-                frames:resampled.frames[..length].to_vec(),
+                start_frame:offset, gain, pan:edit.map_or(0.0,|e|e.pan),
+                frames,
             });
         }
     }

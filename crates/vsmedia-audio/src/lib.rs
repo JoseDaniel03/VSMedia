@@ -7,6 +7,7 @@ pub mod filter;
 pub mod codec;
 pub mod resample;
 pub mod timeline;
+pub mod editing;
 use serde::{Deserialize, Serialize};
 use vsmedia_api::{AssetKey, MediaError, MediaResult};
 
