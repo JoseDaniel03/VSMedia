@@ -1,7 +1,8 @@
 //! Development-only VSMedia Studio HTTP bridge. Reuses the actual SQLite CAS,
 //! native document parser, project revisions and non-destructive Studio editor.
 //! Only listens on loopback. No plugin broadcasting or radio transmitters.
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
+use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
 use axum::{
     body::Bytes, extract::{DefaultBodyLimit, Path, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
@@ -168,6 +169,49 @@ async fn command_audio(
     ).map_err(not_found)?;
     Ok(Json(CommandResult{record,document:updated}))
 }
+/// Offline render of a saved native .vsaudio, using the *actual* Rust DSP
+/// implementation (fades, EQ, pan and gain envelopes). Processing is isolated
+/// from Axum's async executor and capped by the Audio Engine's own quotas.
+/// Only uncompressed WAV is supported until safe compressed decoders exist.
+async fn render_audio_project(
+    State(store):State<Store>,Path(name):Path<String>
+)->Result<Response,ApiError> {
+    let key=key(format!("projects/{name}"))?;
+    let wav=tokio::task::spawn_blocking(move||->Result<Vec<u8>,ApiError>{
+        let document=vsmedia_formats::load(store.as_ref(),&key,"vsaudio")
+            .map_err(not_found)?;
+        let NativePayload::Audio(audio)=document.payload else {
+            return Err(bad("Expected .vsaudio document"));
+        };
+        if audio.sources.len()>256 {
+            return Err(bad("Too many audio sources"));
+        }
+        let mut sources=HashMap::new();
+        for source in &audio.sources {
+            if source.codec!=vsmedia_formats::MediaCodec::Wav {
+                return Err(ApiError(StatusCode::UNPROCESSABLE_ENTITY,
+                    "Render de VSCore admite WAV por ahora. MP3, OGG, Opus y FLAC requieren un decodificador nativo.".into()));
+            }
+            let current=store.metadata(&source.key).map_err(not_found)?;
+            if current.sha256!=source.sha256 {
+                return Err(ApiError(StatusCode::CONFLICT,
+                    "El audio fuente cambió desde la revisión del proyecto".into()));
+            }
+            let bytes=store.read(&source.key).map_err(not_found)?;
+            sources.insert(source.key.clone(),decode_wav(&bytes).map_err(bad)?);
+        }
+        let output=render_project_advanced(
+            &audio.timeline,&sources,48_000,&audio.clip_edits,&audio.track_edits
+        ).map_err(bad)?;
+        encode_wav_pcm16(&output).map_err(bad)
+    }).await.map_err(|e|ApiError(StatusCode::INTERNAL_SERVER_ERROR,
+        format!("Audio render task terminated: {e}")))??;
+    Ok(([
+        (header::CONTENT_TYPE,"audio/wav"),
+        (header::CACHE_CONTROL,"no-store"),
+        (header::CONTENT_DISPOSITION,"inline")
+    ],wav).into_response())
+}
 async fn unsupported() -> impl IntoResponse {
     (StatusCode::NOT_IMPLEMENTED,Json(json!({
         "error":"not_connected",
@@ -191,6 +235,7 @@ fn router(store:Store)->Router {
         .route("/api/v1/audio/projects",get(list_audio_projects))
         .route("/api/v1/audio/projects/{name}/metadata",get(get_audio_metadata))
         .route("/api/v1/audio/projects/{name}",post(put_audio).get(get_audio))
+        .route("/api/v1/audio/projects/{name}/render",get(render_audio_project))
         .route("/api/v1/audio/projects/{name}/commands",post(command_audio))
         .route("/api/v1/media/jobs",post(unsupported))
         .route("/api/v1/radio/sessions",post(unsupported))
