@@ -1,6 +1,7 @@
 //! Convert predecoded RGBA images to 128x128 map-sized RGBA tiles.
 //! This is a sampling stage; vanilla map palette conversion remains TODO.
 pub mod animation;
+pub mod decode;
 pub mod quality;
 use vsmedia_api::{MediaError, MediaResult};
 
