@@ -8,3 +8,7 @@
 data/
 local-tokens.json
 **/local-tokens.json
+
+studio/dist/
+studio/.vsmedia-data/
+.vsmedia-data/

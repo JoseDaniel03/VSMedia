@@ -22,3 +22,17 @@ jobs:
           java-version: '25'
       # Test/compile only; no package, release or artifact upload until completion.
       - run: mvn -B -f java/pom.xml test
+  studio-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --manifest-path studio/backend/Cargo.toml --all-targets
+  studio-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo check --manifest-path studio/Cargo.toml --target wasm32-unknown-unknown
