@@ -174,8 +174,17 @@ impl SqliteAssetStore {
         })
     }
 }
-impl AssetRepository for SqliteAssetStore {
-    fn publish(&self, key: AssetKey, kind: AssetKind, bytes: &[u8]) -> MediaResult<AssetRecord> {
+impl SqliteAssetStore {
+    /// Publish for a producer with the ACL checked under the same SQLite write
+    /// transaction as the revision update. Prevents revoke/publish races.
+    pub fn publish_for(
+        &self, producer: &str, key: AssetKey, kind: AssetKind, bytes: &[u8],
+    ) -> MediaResult<AssetRecord> {
+        self.publish_impl(Some(producer), key, kind, bytes)
+    }
+    fn publish_impl(
+        &self, producer: Option<&str>, key: AssetKey, kind: AssetKind, bytes: &[u8],
+    ) -> MediaResult<AssetRecord> {
         key.validated()?;
         if bytes.len() > self.max_asset_bytes {
             return Err(MediaError::InvalidInput("asset exceeds size quota".into()));
@@ -183,9 +192,21 @@ impl AssetRepository for SqliteAssetStore {
         let hash = format!("{:x}", Sha256::digest(bytes));
         let kind_text = serde_json::to_string(&kind)
             .map_err(|e| MediaError::Io(e.to_string()))?;
-        self.persist_blob(&hash, bytes)?;
         let mut conn = self.database.lock().map_err(lock_error)?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(db_error)?;
+        if let Some(producer) = producer {
+            validate_producer(producer)?;
+            let allowed: Option<bool> = tx.query_row(
+                "SELECT can_publish FROM producers WHERE producer=?1 AND namespace=?2",
+                params![producer, key.namespace],
+                |row| row.get(0),
+            ).optional().map_err(db_error)?;
+            if allowed != Some(true) {
+                return Err(MediaError::InvalidInput("producer lacks publish permission".into()));
+            }
+        }
+        // Never persist unauthorized bytes. Transactional ACL checks happen first.
+        self.persist_blob(&hash, bytes)?;
         let old: Option<i64> = tx.query_row(
             "SELECT revision FROM assets WHERE namespace=?1 AND name=?2",
             params![key.namespace, key.name], |r| r.get(0),
@@ -207,6 +228,11 @@ impl AssetRepository for SqliteAssetStore {
         ).map_err(db_error)?;
         tx.commit().map_err(db_error)?;
         Ok(AssetRecord { key, kind, sha256: hash, size: bytes.len() as u64, revision: revision as u64 })
+    }
+}
+impl AssetRepository for SqliteAssetStore {
+    fn publish(&self, key: AssetKey, kind: AssetKind, bytes: &[u8]) -> MediaResult<AssetRecord> {
+        self.publish_impl(None, key, kind, bytes)
     }
     fn metadata(&self, key: &AssetKey) -> MediaResult<AssetRecord> {
         self.lookup(key)
@@ -280,6 +306,24 @@ mod tests {
             raw.pragma_update(None,"user_version",99).unwrap();
         }
         assert!(SqliteAssetStore::open(&root).is_err());
+        let _=fs::remove_dir_all(root);
+    }
+    #[test]
+    fn producer_publish_enforces_acl_and_allows_revisions() {
+        let root=root();
+        let db=SqliteAssetStore::open(&root).unwrap();
+        let key=AssetKey::new("demo","repeated").unwrap();
+        assert!(db.publish_for("writer",key.clone(),AssetKind::Sound,b"secret").is_err());
+        assert!(db.metadata(&key).is_err());
+        db.grant("writer","demo",true,true).unwrap();
+        assert_eq!(db.publish_for("writer",key.clone(),AssetKind::Sound,b"first")
+            .unwrap().revision,1);
+        assert_eq!(db.publish_for("writer",key.clone(),AssetKind::Sound,b"second")
+            .unwrap().revision,2);
+        db.grant("writer","demo",false,true).unwrap();
+        assert!(db.publish_for("writer",key.clone(),AssetKind::Sound,b"third").is_err());
+        assert_eq!(db.read(&key).unwrap(),b"second");
+        drop(db);
         let _=fs::remove_dir_all(root);
     }
     #[test]
