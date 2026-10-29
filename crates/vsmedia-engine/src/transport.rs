@@ -112,14 +112,16 @@ fn handle(store: &SqliteAssetStore, tokens: &TokenMap, transfers: &DownloadRegis
                 return Err(("too_large", "asset exceeds IPC inline limit".into()));
             }
             let bytes = decode_blob(&content_base64)?;
-            let record = store.publish(key, kind, &bytes).map_err(failure)?;
+            let record = store.publish_for(&req.producer, key, kind, &bytes).map_err(failure)?;
             Ok(WireResult::Asset { record })
         }
         WireCommand::PublishNative { key, extension, content_base64 } => {
             store.authorize(&req.producer, &key.namespace, true).map_err(failure)?;
             let bytes=decode_blob(&content_base64)?;
             let doc=vsmedia_formats::decode(&bytes,&extension).map_err(failure)?;
-            let record=vsmedia_formats::publish(store,key,&doc).map_err(failure)?;
+            let data=vsmedia_formats::prepare_publish(&key,&doc).map_err(failure)?;
+            let record=store.publish_for(&req.producer,key,vsmedia_api::AssetKind::Other,&data)
+                .map_err(failure)?;
             Ok(WireResult::Asset { record })
         }
         WireCommand::ReadNative { key, extension } => {

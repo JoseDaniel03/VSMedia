@@ -268,17 +268,22 @@ pub fn decode(bytes: &[u8], extension: &str) -> MediaResult<NativeDocument> {
     Ok(document)
 }
 /// Store in the existing Core, never in a parallel formats-specific database.
-pub fn publish<R: AssetRepository>(
-    repository: &R, key: AssetKey, document: &NativeDocument,
-) -> MediaResult<AssetRecord> {
+/// Prepare a native document for both privileged and ACL-protected publishing.
+/// Validation is shared to prevent unsafe differences between API entrypoints.
+pub fn prepare_publish(key: &AssetKey, document: &NativeDocument) -> MediaResult<Vec<u8>> {
     key.validated()?;
     if let NativePayload::Project(project) = &document.payload {
         if project.nodes.iter().any(|node| node.document.as_ref()
-            .is_some_and(|link| link.key == key)) {
+            .is_some_and(|link| link.key == *key)) {
             return Err(invalid("a project cannot directly reference itself"));
         }
     }
-    let bytes = encode(document)?;
+    encode(document)
+}
+pub fn publish<R: AssetRepository>(
+    repository: &R, key: AssetKey, document: &NativeDocument,
+) -> MediaResult<AssetRecord> {
+    let bytes = prepare_publish(&key, document)?;
     repository.publish(key, AssetKind::Other, &bytes)
 }
 pub fn load<R: AssetRepository>(
