@@ -9,7 +9,8 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 
 | Módulo | Implementado actualmente | Pendiente principal |
 |---|---|---|
-| Core Rust | SQLite + SHA-256 + revisiones, ACL, jobs acotados | Jobs persistentes, quotas globales, backups |
+| Core Rust | SQLite + SHA-256 + revisiones, ACL, jobs acotados | Jobs persistentes, cuotas globales, backups |
+| Formatos nativos | .vsaudio / .vsimage / .vsstream / .vspack / .vsproject, versión 1, referencias SHA-256 | Portable bundling, migraciones y edición web |
 | Pack Engine | Merge, conflictos, ZIP seguro, export determinista y unión de sounds.json | Otros esquemas JSON, resource-pack 26.3, distribución |
 | Audio Engine | Modelo multipista, WAV PCM/float, render timeline, Rubato FFT SRC, EQ/FFT/RMS y espacial | MP3/FLAC/OGG, edición avanzada, Opus, streaming, voz |
 | Image Engine | Tiles 128x128, Lanczos3, PNG/JPEG/WebP/GIF y fotogramas GIF/APNG | Paleta MapView, marcos, web URL segura |
@@ -28,7 +29,7 @@ cargo test --workspace --all-targets
 mvn -B -f java/pom.xml test
 ```
 
-Los checks no publican releases ni suben archivos compilados. Ver [arquitectura](docs/ARCHITECTURE.md),
+Los checks no publican releases ni suben archivos compilados. Ver [formatos nativos](docs/NATIVE-FORMATS.md), [arquitectura](docs/ARCHITECTURE.md),
 [protocolo IPC](docs/IPC.md), [matemáticas](docs/MATH-AND-PERFORMANCE.md), [referencias técnicas](docs/RESEARCH.md) y [roadmap](docs/ROADMAP.md).
 
 ## Seguridad y compatibilidad

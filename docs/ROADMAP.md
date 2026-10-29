@@ -15,6 +15,17 @@
 - [ ] Prueba end-to-end real entre proceso Rust y puente Java.
 - [ ] Cuotas agregadas por productor, recolección de objetos huérfanos y respaldo DB.
 
+## Formatos nativos de proyectos (fase de esquemas)
+
+- [x] `vsmedia-formats`: contratos comunes versionados y 5 extensiones nativas.
+- [x] Proyecto maestro `.vsproject` con nodos, entradas y dependencias acíclicas locales.
+- [x] Referencias inmutables SHA-256; mismos recursos compartidos sin copias.
+- [x] Almacenamiento mediante el AssetRepository existente; pruebas de persistencia SQLite y revisión desactualizada.
+- [x] API IPC `publish_native` / `read_native` y contratos Java `NativeFormatsApi`.
+- [ ] Resolver dependencias entre proyectos anidados globalmente y asegurar ACL de lectura por referencia.
+- [ ] Portabilidad: paquete autocontenido opcional, import/export transaccional, rollback y migración de esquemas.
+- [ ] Herramientas del editor para crear, abrir, duplicar, importar y exportar proyectos.
+
 ## Engines
 
 - **Pack:** merge con prioridades, detección de conflictos, importación ZIP segura y export ZIP determinista. La unión por clave de \`sounds.json\` ya está implementada. Pendiente fuentes y otros JSON tipados, formato específico 26.3 y distribución.

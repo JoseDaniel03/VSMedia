@@ -11,12 +11,13 @@ La dirección es unidireccional. VSMedia no importa clases de los plugins consum
 - `crates/vsmedia-api`: identificadores versionados, tipos, metadatos y trait de almacenamiento.
 - `crates/vsmedia-core`: SQLite transaccional con historial, hashes SHA-256 y trabajos con cola/worker pool. `FsAssetStore` es un backend legado de prueba, no apto para producción.
 - `crates/vsmedia-protocol`: esquema de mensajes tipados y límites de tamaño IPC.
+- `crates/vsmedia-formats`: formatos editables VSAudio, VSImage, VSStream, VSPack y VSProject; validación de recursos pinneados por SHA-256 y grafos de proyecto.
 - `crates/vsmedia-engine`: proceso Rust de desarrollo que sirve IPC autenticado solo por 127.0.0.1. En tareas de lectura/escritura usa `spawn_blocking`.
 - `crates/vsmedia-pack`: fusión determinista y prioridad por productor, ZIP import/export, cuotas y validación de rutas.
 - `crates/vsmedia-audio`: modelo multipista y rutinas primitivas DSP PCM.
 - `crates/vsmedia-image`: mosaicos y cálculo de cambios por fotograma para actualizaciones de mapas.
 - `crates/vsmedia-font`: definiciones bitmap y asignación global de glifos del Área de Uso Privado.
-- `java/vsmedia-api`: contrato asíncrono que deben compilar los plugins consumidores.
+- `java/vsmedia-api`: contrato asíncrono que deben compilar los plugins consumidores, además de `NativeFormatsApi` para importar/exportar manifiestos.
 - `java/vsmedia-bridge`: cliente asíncrono con pool acotado, socket loopback y framing; no depende de Bukkit.
 
 ## Integración Minecraft pendiente

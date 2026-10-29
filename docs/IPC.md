@@ -13,7 +13,7 @@ No se permiten mutaciones de permisos desde la API de red.
 
 ## Comandos
 
-`ping`, `publish`, `lookup`, `read`. Las solicitudes incluyen
+`ping`, `publish`, `lookup`, `read`, `publish_native`, `read_native`. Las solicitudes incluyen
 `version`, `request_id`, `producer`, `token`, `command`.
 Los comandos se etiquetan con `operation`. Cada respuesta incluye `version`,
 `request_id` y exactamente uno de `result` / `error`.
@@ -34,6 +34,20 @@ Ejemplo (no utilizar tokens reales en documentación):
   }
 }
 ```
+
+## Formatos nativos
+
+`publish_native` y `read_native` requieren `key`, `extension` (una de
+`vsaudio`, `vsimage`, `vsstream`, `vspack`, `vsproject`) y, para escritura,
+`content_base64`. Los manifiestos son JSON UTF-8 versionados con máximo 2 MiB;
+Rust valida contenido, tipos, rutas y versión antes de publicarlo en el Core.
+Los archivos finales siguen referenciando medios mediante hashes, no incluyen blobs.
+
+El servicio utiliza las mismas ACL por productor/namespace y los mismos límites IPC.
+`NativeFormatsApi` añade operaciones asíncronas a Java sin cambiar el contrato
+`VSMediaApi` existente. Los vínculos entre recursos de otros namespaces todavía
+no disponen de permisos delegados de lectura para validación automática; no se
+comparte el contenido de esos recursos mediante el manifiesto.
 
 ## Java Bridge
 
