@@ -4,6 +4,9 @@ pub mod dsp;
 pub mod effects;
 pub mod spatial;
 pub mod filter;
+pub mod codec;
+pub mod resample;
+pub mod timeline;
 use serde::{Deserialize, Serialize};
 use vsmedia_api::{AssetKey, MediaError, MediaResult};
 
