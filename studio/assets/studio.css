@@ -14,3 +14,7 @@
 .saved-projects-list .version-row strong{font-size:11px;color:#39425b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .saved-projects-list .version-row small{color:#8a91a5;white-space:nowrap}
 .saved-projects-list .version-row button{margin-left:auto;padding:5px 9px;font-size:10px}
+
+.core-connection{display:inline-flex;align-items:center;gap:7px;border:1px solid transparent;border-radius:7px;padding:7px;background:transparent;color:#788398;font-size:11px}
+.core-connection:hover{background:#f4f5fb;border-color:var(--line)}
+.core-connection .privacy-dot.offline{background:#d4a95e}

@@ -20,6 +20,8 @@ pub fn App() -> impl IntoView {
     let tracks = RwSignal::new(Vec::<Track>::new());
     let playlists = RwSignal::new(Vec::<Playlist>::new());
     let recording = RwSignal::new(false);
+    let core_connected=RwSignal::new(false);
+    studio_api::probe_engine(core_connected);
     view! {
         <div class="app-shell">
             <header class="app-topbar">
@@ -29,7 +31,19 @@ pub fn App() -> impl IntoView {
                             on:click=move |_|{crate::teleprompter::stop();page.set(target);}>{target.title()}</button>
                     }).collect_view() }
                 </nav>
-                <div class="app-header-right"><span class="privacy-dot"></span>"Local · sincronización opcional"</div>
+                <div class="app-header-right">
+                    <button type="button" class="core-connection"
+                        title="Consultar conexión local al motor y almacenamiento de VSMedia"
+                        on:click=move |_|studio_api::probe_engine(core_connected)>
+                        <span class="privacy-dot" class:offline=move ||!core_connected.get()></span>
+                        {move ||if core_connected.get() {
+                            "VSCore conectado · archivos locales".to_owned()
+                        }else{
+                            "VSCore sin conexión · modo local".to_owned()
+                        }}
+                        " ↻"
+                    </button>
+                </div>
             </header>
             <main class="workspace-main">
                 <Show when=move ||page.get()==Page::Home>

@@ -484,3 +484,15 @@ pub fn open_saved_mix(name:String,assets:RwSignal<Vec<AudioAsset>>,
         });
     });
 }
+
+/// One-shot connection probe; local editing remains available if VSCore
+/// is not running. Refresh is initiated explicitly by a user click.
+pub fn probe_engine(available:RwSignal<bool>) {
+    spawn_local(async move {
+        let result=request("/health","GET",JsValue::NULL,"").await;
+        available.set(result.ok().as_ref().is_some_and(|data|
+            data.get("status").and_then(Value::as_str)==Some("ready")
+            && data.get("storage_connected").and_then(Value::as_bool)==Some(true)
+        ));
+    });
+}
