@@ -1,4 +1,5 @@
 //! Build namespaced JSON bitmap-font definitions from registered glyphs.
+pub mod registry;
 use std::collections::{BTreeMap, BTreeSet};
 use vsmedia_api::{AssetKey, MediaError, MediaResult};
 
