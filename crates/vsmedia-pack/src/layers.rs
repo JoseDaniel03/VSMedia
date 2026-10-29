@@ -126,7 +126,7 @@ mod tests {
         let two=split_into_layers(&pack(b"new"),"base",&rules()).unwrap();
         assert_eq!(one.len(),2);
         assert_eq!(two.len(),2);
-        let zipped=|layers:&Vec<NamedLayer>, idx| {
+        let zipped=|layers:&Vec<NamedLayer>, idx:usize| {
             export_zip(&layers[idx].pack,ArchiveLimits::default()).unwrap()
         };
         let base_1=zipped(&one,0);
