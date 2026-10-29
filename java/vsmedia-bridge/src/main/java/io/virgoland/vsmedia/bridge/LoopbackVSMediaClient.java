@@ -68,15 +68,76 @@ public final class LoopbackVSMediaClient implements VSMediaApi, NativeFormatsApi
     public CompletionStage<AssetReceipt> publish(AssetPayload payload) {
         Objects.requireNonNull(payload);
         byte[] bytes = payload.data();
-        if (bytes.length > MAX_INLINE) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("IPC inline resource exceeds 2 MiB"));
+        if (bytes.length > 64 * 1024 * 1024) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("IPC resource exceeds 64 MiB limit"));
         }
         return async(() -> {
+            if (bytes.length > MAX_INLINE) {
+                return publishChunked(payload.id(), payload.type(), bytes);
+            }
             ObjectNode command = command("publish", payload.id());
             command.put("kind", toWireType(payload.type()));
             command.put("content_base64", Base64.getEncoder().encodeToString(bytes));
             return toReceipt(send(command).path("record"));
         });
+    }
+
+    private AssetReceipt publishChunked(AssetId id, AssetType type, byte[] bytes) {
+        final int chunkLimit = 256 * 1024;
+        String sha256;
+        try {
+            sha256 = HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new VSMediaTransportException("internal", "SHA-256 unavailable", error);
+        }
+        ObjectNode begin = command("begin_upload", id);
+        begin.put("kind", toWireType(type));
+        begin.put("size", bytes.length);
+        begin.put("sha256", sha256);
+        JsonNode opened = send(begin);
+        if (!"upload".equals(opened.path("kind").asText()) ||
+                opened.path("offset").asLong(-1) != 0) {
+            throw new VSMediaTransportException("protocol", "Invalid upload session response");
+        }
+        String transferId = opened.path("transfer_id").asText();
+        if (transferId.isBlank()) {
+            throw new VSMediaTransportException("protocol", "Missing upload transfer ID");
+        }
+        try {
+            for (int offset = 0; offset < bytes.length;) {
+                int end = Math.min(bytes.length, offset + chunkLimit);
+                byte[] piece = java.util.Arrays.copyOfRange(bytes, offset, end);
+                ObjectNode append = simpleCommand("upload_chunk");
+                append.put("transfer_id", transferId);
+                append.put("offset", offset);
+                append.put("content_base64", Base64.getEncoder().encodeToString(piece));
+                JsonNode accepted = send(append);
+                if (!"upload".equals(accepted.path("kind").asText()) ||
+                        !transferId.equals(accepted.path("transfer_id").asText()) ||
+                        accepted.path("offset").asLong(-1) != end) {
+                    throw new VSMediaTransportException("protocol", "Unexpected upload offset");
+                }
+                offset = end;
+            }
+            ObjectNode finish = simpleCommand("complete_upload");
+            finish.put("transfer_id", transferId);
+            JsonNode result = send(finish);
+            if (!"asset".equals(result.path("kind").asText())) {
+                throw new VSMediaTransportException("protocol", "Upload completion lacked asset receipt");
+            }
+            return toReceipt(result.path("record"));
+        } catch (RuntimeException failed) {
+            ObjectNode abort = simpleCommand("abort_upload");
+            abort.put("transfer_id", transferId);
+            try {
+                send(abort);
+            } catch (RuntimeException ignored) {
+                // The Rust session also expires automatically after inactivity.
+            }
+            throw failed;
+        }
     }
     @Override
     public CompletionStage<Optional<AssetReceipt>> lookup(AssetId id) {
