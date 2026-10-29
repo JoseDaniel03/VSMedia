@@ -2,6 +2,8 @@
 //! No game or radio operation is emulated: only CAS assets and VSAudio projects.
 use crate::media::{self,AudioAsset,Version,Track};
 use js_sys::{ArrayBuffer,Uint8Array};
+use std::{cell::RefCell,collections::HashMap};
+use web_sys::{Blob,Url};
 use leptos::prelude::*;
 use serde_json::{json,Value};
 use wasm_bindgen::{JsCast,JsValue};
@@ -494,5 +496,87 @@ pub fn probe_engine(available:RwSignal<bool>) {
             data.get("status").and_then(Value::as_str)==Some("ready")
             && data.get("storage_connected").and_then(Value::as_bool)==Some(true)
         ));
+    });
+}
+
+/// A renderer preview is always generated from a stored .vsaudio revision.
+/// The browser never pretends that its local HTMLAudioElement player applies
+/// Rust's EQ, automation, reverse or multitrack mixing to the source file.
+async fn request_engine_wav(name:&str)->Result<Blob,String> {
+    if name.is_empty() || !name.bytes().all(|b|
+        b.is_ascii_alphanumeric() || matches!(b,b'-'|b'_'|b'.')) {
+        return Err("Nombre de proyecto no válido".into());
+    }
+    let req=Request::new_with_str_and_init(
+        &format!("{BASE}/audio/projects/{name}/render"),&RequestInit::new()
+    ).map_err(|_|"No se pudo crear la solicitud de render")?;
+    let window=web_sys::window().ok_or("No hay ventana")?;
+    let response=JsFuture::from(window.fetch_with_request(&req)).await
+        .map_err(|_|"No se pudo conectar con el Audio Engine de VSCore")?;
+    let response:Response=response.dyn_into()
+        .map_err(|_|"Respuesta del Audio Engine no válida")?;
+    if !response.ok() {
+        let body=JsFuture::from(response.text()
+            .map_err(|_|"Error leyendo mensaje del Audio Engine")?).await
+            .map_err(|_|"Error leyendo mensaje del Audio Engine")?;
+        let message=body.as_string().and_then(|raw|
+            serde_json::from_str::<Value>(&raw).ok()
+        ).and_then(|value|value.get("error").and_then(Value::as_str)
+            .map(ToOwned::to_owned))
+        .unwrap_or_else(||format!("El Audio Engine respondió con HTTP {}",response.status()));
+        return Err(message);
+    }
+    let response_body=JsFuture::from(response.blob()
+        .map_err(|_|"El WAV no pudo prepararse")?).await
+        .map_err(|_|"Error recibiendo el WAV procesado")?;
+    let blob:Blob=response_body.dyn_into()
+        .map_err(|_|"VSCore devolvió un archivo de audio inválido")?;
+    if blob.size()<44. || blob.size()>64.*1024.*1024. {
+        return Err("El render tiene un tamaño inválido o supera los límites".into());
+    }
+    Ok(blob)
+}
+thread_local! {
+    static ENGINE_PREVIEWS: RefCell<HashMap<&'static str,String>> =
+        RefCell::new(HashMap::new());
+}
+/// Listen to actual Rust-engine rendered WAV, not a browser approximation.
+pub fn preview_engine(name:String,player_id:&'static str,status:RwSignal<String>) {
+    status.set(format!("Renderizando {name} con el Audio Engine de Rust…"));
+    spawn_local(async move {
+        let result=async {
+            let wav=request_engine_wav(&name).await?;
+            let url=Url::create_object_url_with_blob(&wav)
+                .map_err(|_|"No se pudo reproducir el WAV generado")?;
+            let player=media::player(player_id)
+                .ok_or("No se encontró el reproductor de previsualización")?;
+            player.pause().ok();
+            player.set_src(&url);
+            player.set_current_time(0.);
+            ENGINE_PREVIEWS.with(|previews|{
+                if let Some(old)=previews.borrow_mut().insert(player_id,url) {
+                    Url::revoke_object_url(&old).ok();
+                }
+            });
+            player.play().map_err(|_|"El navegador bloqueó la reproducción")?;
+            Ok::<(),String>(())
+        }.await;
+        status.set(match result {
+            Ok(())=>format!("Escuchando {name}: WAV renderizado con el motor Rust."),
+            Err(error)=>format!("No se pudo renderizar {name}: {error}"),
+        });
+    });
+}
+pub fn export_engine_wav(name:String,status:RwSignal<String>) {
+    status.set(format!("Preparando WAV definitivo de {name} con VSCore…"));
+    spawn_local(async move {
+        let result=async {
+            let wav=request_engine_wav(&name).await?;
+            media::download_blob(&wav,&format!("{name}-vsmedia-render.wav"))
+        }.await;
+        status.set(match result {
+            Ok(())=>format!("WAV renderizado por VSCore preparado para descargar: {name}."),
+            Err(error)=>format!("No se pudo exportar {name}: {error}"),
+        });
     });
 }
