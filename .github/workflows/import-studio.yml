@@ -1,0 +1,47 @@
+name: Import Studio Source
+on:
+  push:
+    paths:
+      - .integrations/studio-import.zip
+permissions:
+  contents: write
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract reviewed source-only Studio bundle
+        shell: python
+        run: |
+          from pathlib import Path
+          import zipfile
+          bundle = Path(".integrations/studio-import.zip")
+          root = Path.cwd().resolve()
+          with zipfile.ZipFile(bundle) as z:
+              members = z.infolist()
+              assert len(members) == 26, "unexpected source file count"
+              assert sum(x.file_size for x in members) < 300_000
+              seen = set()
+              for entry in members:
+                  name = entry.filename
+                  dest = (root / name).resolve()
+                  assert name.startswith("studio/") and dest.is_relative_to(root / "studio")
+                  assert not name.startswith("/") and ".." not in Path(name).parts
+                  assert name not in seen and not entry.is_dir()
+                  assert not ((entry.external_attr >> 16) & 0o170000) == 0o120000
+                  assert entry.file_size < 90_000
+                  seen.add(name)
+                  dest.parent.mkdir(parents=True, exist_ok=True)
+                  dest.write_bytes(z.read(entry))
+          assert Path("studio/src/app.rs").exists()
+          assert Path("studio/backend/src/main.rs").exists()
+      - name: Commit extracted source and remove temporary import archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "VSMedia Source Import"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add studio
+          git rm -- .integrations/studio-import.zip
+          git commit -m "feat(studio): integrate Leptos FullCanvas with Rust Core, projects and CAS"
+          git push origin HEAD:main
