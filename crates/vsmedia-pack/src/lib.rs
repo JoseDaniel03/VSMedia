@@ -1,5 +1,6 @@
 //! Deterministic, non-destructive pack asset merging. ZIP compilation comes later.
 pub mod archive;
+pub mod structured;
 use std::collections::BTreeMap;
 use vsmedia_api::{MediaError, MediaResult};
 

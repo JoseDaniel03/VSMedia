@@ -131,7 +131,7 @@ pub fn merge_archives(
     for (source, priority, data) in archives {
         files.extend(import_zip(data, source, *priority, limits)?);
     }
-    super::merge(&files)
+    super::structured::merge_structured(&files)
 }
 
 #[cfg(test)]
