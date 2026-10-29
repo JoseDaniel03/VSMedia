@@ -30,7 +30,7 @@ async fn render_wav(asset: AudioAsset, v: Version) -> Result<Blob,String> {
     let source=media::get_blob(&asset.id).ok_or("El archivo ya no está en memoria")?;
     let bytes = JsFuture::from(source.array_buffer()).await.map_err(|_|"No se pudo leer el archivo")?;
     let raw: ArrayBuffer = bytes.dyn_into().map_err(|_|"Contenido de audio inválido")?;
-    let promise = context.decode_audio_data_with_array_buffer(&raw).map_err(|_|"Formato no reconocido por Web Audio")?;
+    let promise = context.decode_audio_data(&raw).map_err(|_|"Formato no reconocido por Web Audio")?;
     let decoded = JsFuture::from(promise).await.map_err(|_|"No se pudo decodificar este formato de audio")?;
     let buffer: web_sys::AudioBuffer = decoded.dyn_into().map_err(|_|"Datos de audio inválidos")?;
     let channels = buffer.number_of_channels().max(1).min(2) as usize;
