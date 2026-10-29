@@ -3,6 +3,7 @@
 //! A native format is a versioned JSON document referencing immutable assets
 //! by namespace/key and SHA-256. It is NOT a new audio/image codec, and binary
 //! media is deliberately not embedded in the manifest.
+pub mod portable;
 use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use vsmedia_api::{AssetKey, AssetKind, AssetRecord, AssetRepository, MediaError, MediaResult};

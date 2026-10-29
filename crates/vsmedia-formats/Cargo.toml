@@ -10,6 +10,8 @@ vsmedia-audio = { path = "../vsmedia-audio" }
 vsmedia-pack = { path = "../vsmedia-pack" }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 vsmedia-core = { path = "../vsmedia-core" }
