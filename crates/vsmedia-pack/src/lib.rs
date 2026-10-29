@@ -25,7 +25,7 @@ pub struct MergeOutput {
     pub conflicts: Vec<PackConflict>,
 }
 
-pub(crate) fn validate_path(path: &str) -> MediaResult<()> {
+pub fn validate_path(path: &str) -> MediaResult<()> {
     if path.is_empty() || path.len() > 512
         || path.starts_with('/') || path.contains('\\')
         || path.split('/').any(|part| part.is_empty() || part == "." || part == "..")
