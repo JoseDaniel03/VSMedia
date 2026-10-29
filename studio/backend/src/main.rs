@@ -339,6 +339,72 @@ mod tests {
         let _=std::fs::remove_dir_all(dir);
     }
     #[tokio::test]
+    async fn rust_engine_wav_preview_applies_pan_and_fades() {
+        let (db,dir)=store();
+        let key=AssetKey::new("studio","audio/wav-preview").unwrap();
+        let source=StereoAudio {sample_rate:8_000,frames:vec![[0.6,0.6];800]};
+        let raw=encode_wav_pcm16(&source).unwrap();
+        let record=db.publish_for("studio",key.clone(),AssetKind::Sound,&raw).unwrap();
+        let project=json!({"magic":"VSMEDIA","version":1,
+            "payload":{"kind":"audio","data":{
+                "timeline":{"name":"DSP demo","tracks":[{
+                    "name":"Clip","muted":false,
+                    "clips":[{"asset":key,"start_ms":0,"duration_ms":100,"gain_db":0}]
+                }]},
+                "sources":[{"key":{"namespace":"studio","name":"audio/wav-preview"},
+                    "sha256":record.sha256,"codec":"wav"}],
+                "clip_edits":[{"track_index":0,"clip_index":0,"source_in_ms":0,
+                    "pan":1.0,"fade_in_ms":20,"fade_out_ms":20,
+                    "reversed":false,"muted":false,"gain_points":[],"filters":[]}]
+            }}
+        });
+        let app=router(db.clone());
+        let created=app.clone().oneshot(request(Method::POST,
+            "/api/v1/audio/projects/wav-preview",
+            serde_json::to_vec(&project).unwrap())).await.unwrap();
+        assert_eq!(created.status(),StatusCode::OK);
+        let response=app.clone().oneshot(request(Method::GET,
+            "/api/v1/audio/projects/wav-preview/render",vec![])).await.unwrap();
+        assert_eq!(response.status(),StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE],"audio/wav");
+        let bytes=to_bytes(response.into_body(),64*1024*1024).await.unwrap();
+        let decoded=decode_wav(&bytes).unwrap();
+        assert_eq!(decoded.sample_rate,48_000);
+        assert!(decoded.frames.len()>4000);
+        assert!(decoded.frames[0][1].abs()<0.01);
+        assert!(decoded.frames[2000][1].abs()>0.3);
+        assert!(decoded.frames[2000][0].abs()<0.001);
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn compressed_audio_preview_is_explicitly_unsupported() {
+        let (db,dir)=store();
+        let key=AssetKey::new("studio","audio/mp3-preview").unwrap();
+        let source=db.publish_for("studio",key.clone(),AssetKind::Sound,
+            b"uncompressed decoder is not available").unwrap();
+        let doc=json!({"magic":"VSMEDIA","version":1,
+            "payload":{"kind":"audio","data":{
+                "timeline":{"name":"MP3 demo","tracks":[{
+                    "name":"Audio","muted":false,
+                    "clips":[{"asset":key,"start_ms":0,"duration_ms":100,"gain_db":0}]
+                }]},
+                "sources":[{"key":{"namespace":"studio","name":"audio/mp3-preview"},
+                    "sha256":source.sha256,"codec":"mp3"}]
+            }}
+        });
+        let app=router(db.clone());
+        let created=app.clone().oneshot(request(Method::POST,
+            "/api/v1/audio/projects/mp3-preview",
+            serde_json::to_vec(&doc).unwrap())).await.unwrap();
+        assert_eq!(created.status(),StatusCode::OK);
+        let response=app.clone().oneshot(request(Method::GET,
+            "/api/v1/audio/projects/mp3-preview/render",vec![])).await.unwrap();
+        assert_eq!(response.status(),StatusCode::UNPROCESSABLE_ENTITY);
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn studio_local_writes_reject_external_origins() {
         let (db,dir)=store();
         let invalid=Request::builder().method(Method::POST)
