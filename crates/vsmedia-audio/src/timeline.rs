@@ -209,11 +209,11 @@ mod tests {
             (key1,StereoAudio{sample_rate:8_000,frames:vec![[0.5,0.5];1600]}),
             (key2,StereoAudio{sample_rate:8_000,frames:vec![[0.25,0.25];1600]}),
         ]);
-        let track=TrackEdit {track_index:1,gain_db:-6.0,pan:1.0,solo:true,..TrackEdit::default()};
+        let track=TrackEdit {track_index:2,gain_db:-6.0,pan:1.0,solo:true,..TrackEdit::default()};
         let output=render_project_advanced(&p,&sources,8_000,&[],&[track]).unwrap();
         assert!(output.frames[200][0].abs()<1e-6);
         assert!((output.frames[200][1]-0.1253).abs()<0.002);
-        assert_eq!(p.tracks[1].clips[0].gain_db,0.0);
+        assert_eq!(p.tracks[2].clips[0].gain_db,0.0);
         let invalid=TrackEdit {track_index:77,..TrackEdit::default()};
         assert!(render_project_advanced(&p,&sources,8_000,&[],&[invalid]).is_err());
     }
