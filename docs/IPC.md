@@ -35,6 +35,14 @@ Ejemplo (no utilizar tokens reales en documentación):
 }
 ```
 
+## Java Bridge
+
+`java/vsmedia-api` publica las interfaces que consumen otros plugins.
+`java/vsmedia-bridge` implementa esas interfaces con Jackson y sockets loopback
+asíncronos, sin bloquear regiones Folia. El adaptador de Bukkit y su ciclo de vida
+todavía faltan, igual que el comando `buildResourcePack`, que actualmente falla
+explícitamente como operación no implementada.
+
 ## Ejecución manual para desarrollo
 
 ```bash
@@ -45,4 +53,4 @@ cargo run -p vsmedia-engine -- serve ./data ./local-tokens.json 3059
 
 **Advertencias:** protocolo experimental, sin TLS (solo loopback), sin transferencia masiva,
 no apto para exposición pública. Las llamadas que acceden a SQLite no se ejecutan sobre
-hilos Folia. No existe todavía un bridge de plataforma ni autenticación de VSClient.
+hilos Folia. No existe todavía un plugin de plataforma ni autenticación de VSClient.
