@@ -10,9 +10,9 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 | Módulo | Implementado actualmente | Pendiente principal |
 |---|---|---|
 | Core Rust | SQLite + SHA-256 + revisiones, ACL, jobs acotados | Jobs persistentes, quotas globales, backups |
-| Pack Engine | Merge, conflictos, ZIP seguro y export determinista | JSON merge tipado, resource-pack 26.3, distribución |
-| Audio Engine | Modelo multipista, mezcla PCM mono/estéreo, fades | Codecs, edición avanzada, Opus, streaming, voice chat |
-| Image Engine | Tiles RGBA 128x128, deltas para animaciones | PNG/JPEG/GIF/APNG, paleta MapView, marcos |
+| Pack Engine | Merge, conflictos, ZIP seguro, export determinista y unión de sounds.json | Otros esquemas JSON, resource-pack 26.3, distribución |
+| Audio Engine | Modelo multipista, EQ biquad, FFT/RMS, cadena de efectos, fades, audio espacial | Codecs, edición avanzada, Opus, streaming, voice chat |
+| Image Engine | Tiles RGBA 128x128, Lanczos3 y deltas para animaciones | Decodificación PNG/JPEG/GIF/APNG, paleta MapView, marcos |
 | Font Engine | Generación JSON bitmap, asignador de glifos | Composición final y formatos |
 | IPC v1 | Servicio Rust loopback con tokens y límites | Transferencia masiva, E2E contra Java, hardening |
 | Java API + Bridge | Interfaces + cliente socket asíncrono | Adaptador plugin Folia/Bukkit y ciclo de vida |
@@ -29,7 +29,7 @@ mvn -B -f java/pom.xml test
 ```
 
 Los checks no publican releases ni suben archivos compilados. Ver [arquitectura](docs/ARCHITECTURE.md),
-[protocolo IPC](docs/IPC.md) y [roadmap](docs/ROADMAP.md).
+[protocolo IPC](docs/IPC.md), [matemáticas](docs/MATH-AND-PERFORMANCE.md), [referencias técnicas](docs/RESEARCH.md) y [roadmap](docs/ROADMAP.md).
 
 ## Seguridad y compatibilidad
 
