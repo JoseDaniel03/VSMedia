@@ -455,6 +455,38 @@ mod tests {
         let _=fs::remove_dir_all(dest_dir);
     }
     #[test]
+    fn nested_projects_include_full_transitive_dependency_closure() {
+        let (path, db)=store();
+        let nested=project_with_shared_sources(&db);
+        let pinned=db.metadata(&nested).unwrap();
+        let root=AssetKey::new("demo","projects/master").unwrap();
+        publish(&db,root.clone(),&NativeDocument::new(NativePayload::Project(VSProject {
+            name:"Master".into(),entry_points:vec!["chapter".into()],
+            nodes:vec![ProjectNode {
+                id:"chapter".into(),depends_on:vec![],
+                document:Some(DocumentLink {
+                    key:nested,kind:NativeKind::Project,sha256:pinned.sha256
+                }),
+            }],
+        }))).unwrap();
+        let bytes=export(&db,&root).unwrap();
+        let result=inspect(&bytes).unwrap();
+        assert_eq!(result.manifest.entries.len(),4);
+        assert_eq!(result.objects.len(),4);
+        let _=fs::remove_dir_all(path);
+    }
+    #[test]
+    fn altered_portable_object_fails_integrity_validation() {
+        let (path, db)=store();
+        let root=project_with_shared_sources(&db);
+        let mut archive=export(&db,&root).unwrap();
+        let token=b"audio bytes";
+        let pos=archive.windows(token.len()).position(|window|window==token).unwrap();
+        archive[pos] ^= 0x01;
+        assert!(inspect(&archive).is_err());
+        let _=fs::remove_dir_all(path);
+    }
+    #[test]
     fn malformed_archive_is_rejected() {
         assert!(inspect(b"not an archive").is_err());
     }
