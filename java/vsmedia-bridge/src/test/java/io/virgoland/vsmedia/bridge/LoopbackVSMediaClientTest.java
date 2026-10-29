@@ -75,7 +75,9 @@ class LoopbackVSMediaClientTest {
     @Test
     void nativeProjectCommandsSendTypedExtensionAndManifest() throws Exception {
         ObjectMapper json = new ObjectMapper();
-        String raw = "{\\"magic\\":\\"VSMEDIA\\",\\"version\\":1,\\"payload\\":{\\"kind\\":\\"project\\",\\"data\\":{\\"name\\":\\"Adventure\\",\\"nodes\\":[],\\"entry_points\\":[]}}}";
+        String raw = """
+                {"magic":"VSMEDIA","version":1,"payload":{"kind":"project","data":{"name":"Adventure","nodes":[],"entry_points":[]}}}
+                """;
         byte[] manifest = raw.getBytes(StandardCharsets.UTF_8);
         try (ServerSocket server = new ServerSocket(0, 2, InetAddress.getLoopbackAddress());
              var executor = Executors.newSingleThreadExecutor();
