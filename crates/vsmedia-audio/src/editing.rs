@@ -1,12 +1,13 @@
 //! Clip edits are non-destructive, index-addressed operations on AudioProject.
 //! The original clip/source schema remains compatible with version-one projects.
 //! A future editor can assign stable IDs; v1 deliberately validates every index.
-use crate::{AudioProject,dsp::db_to_linear};
+use crate::{AudioProject,dsp::db_to_linear,filter::{FilterKind,StereoBiquad},effects::EffectChain};
 use serde::{Deserialize,Serialize};
 use std::collections::BTreeMap;
 use vsmedia_api::{MediaError,MediaResult};
 
 pub const MAX_EDIT_POINTS:usize=256;
+pub const MAX_CLIP_FILTERS:usize=16;
 pub const MAX_CLIP_EDITS:usize=256;
 
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
@@ -33,13 +34,15 @@ pub struct ClipEdit {
     pub muted:bool,
     /// Editable gain automation with monotonic local timestamps.
     pub gain_points:Vec<GainPoint>,
+    /// Ordered parametric EQ chain: low-pass, high-pass, and peaking filters.
+    pub filters:Vec<FilterKind>,
 }
 impl Default for ClipEdit {
     fn default()->Self {
         Self {
             track_index:0,clip_index:0,source_in_ms:0,pan:0.0,
             fade_in_ms:0,fade_out_ms:0,reversed:false,muted:false,
-            gain_points:Vec::new(),
+            gain_points:Vec::new(),filters:Vec::new(),
         }
     }
 }
@@ -61,7 +64,8 @@ pub fn validate_edits<'a>(
             edit.fade_in_ms>clip.duration_ms || edit.fade_out_ms>clip.duration_ms ||
             edit.fade_in_ms.checked_add(edit.fade_out_ms)
                 .is_none_or(|sum|sum>clip.duration_ms) ||
-            edit.gain_points.len()>MAX_EDIT_POINTS
+            edit.gain_points.len()>MAX_EDIT_POINTS ||
+            edit.filters.len()>MAX_CLIP_FILTERS
         {
             return Err(invalid("invalid fade, pan or automation settings"));
         }
@@ -130,6 +134,13 @@ pub fn process_clip_frames(
         let scale=volume*in_gain*out_gain;
         for channel in frame { *channel *= scale; }
     }
+    if !edit.filters.is_empty() {
+        let mut eq=EffectChain::new();
+        for setting in &edit.filters {
+            eq.add(StereoBiquad::new(sample_rate,*setting)?)?;
+        }
+        eq.process(frames)?;
+    }
     if frames.iter().any(|frame|frame.iter().any(|v|!v.is_finite())) {
         return Err(invalid("clip edit caused non-finite audio"));
     }
@@ -164,6 +175,28 @@ mod tests {
         assert_eq!(legacy.tracks[0].clips[0].gain_db,0.0);
         let bytes=serde_json::to_vec(&edits).unwrap();
         assert_eq!(serde_json::from_slice::<Vec<ClipEdit>>(&bytes).unwrap(),edits);
+    }
+    #[test]
+    fn audio_eq_settings_round_trip_and_process_without_source_changes() {
+        let edit=ClipEdit {
+            filters:vec![
+                FilterKind::LowPass{frequency_hz:1_000.0,q:0.707},
+                FilterKind::Peaking{frequency_hz:500.0,q:1.0,gain_db:3.0}
+            ],
+            ..ClipEdit::default()
+        };
+        let bytes=serde_json::to_vec(&edit).unwrap();
+        let parsed:ClipEdit=serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(parsed,edit);
+        let mut frames=vec![[0.25,-0.25];800];
+        process_clip_frames(&mut frames,8_000,&parsed).unwrap();
+        assert!(frames.iter().all(|frame|frame.iter().all(|x|x.is_finite())));
+        assert!((frames[799][0]-0.25).abs()>0.001);
+        let invalid=ClipEdit {
+            filters:vec![FilterKind::LowPass{frequency_hz:100_000.0,q:0.707}],
+            ..ClipEdit::default()
+        };
+        assert!(process_clip_frames(&mut frames,8_000,&invalid).is_err());
     }
     #[test]
     fn rejects_duplicate_unknown_nonfinite_and_unsorted_edits() {

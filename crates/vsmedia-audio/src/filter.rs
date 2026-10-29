@@ -2,9 +2,11 @@
 //! Coefficients and two independent channel states are f64 for numerical stability.
 //! Processing requires no allocation and is suitable for offline or streaming blocks.
 use std::f64::consts::TAU;
+use serde::{Deserialize, Serialize};
 use vsmedia_api::{MediaError, MediaResult};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum FilterKind {
     LowPass { frequency_hz: f64, q: f64 },
     HighPass { frequency_hz: f64, q: f64 },
