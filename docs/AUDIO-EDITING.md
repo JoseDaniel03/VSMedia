@@ -46,6 +46,21 @@ Ejemplo de configuración (fragmento de `payload.data`):
 }
 ```
 
+## API de comandos para la interfaz
+
+`vsmedia-audio::editing::AudioEditCommand` expone acciones serializables:
+`upsert_clip`, `remove_clip`, `upsert_track` y `remove_track`. El editor
+puede enviar un cambio sin reconstruir el proyecto completo.
+
+`apply_edit_command()` prepara copias de las configuraciones, valida todos
+los parámetros y solamente entonces confirma ambas listas. En caso de
+error, el proyecto permanece sin cambios. En formatos nativos está
+disponible `VSAudio::apply_edit(command)`.
+
+Estas operaciones aún no realizan persistencia SQLite por sí solas;
+el servicio de proyectos guardará una nueva revisión mediante el
+`AssetRepository` después de aplicar los comandos.
+
 ## Formas de onda y vista previa
 
 `vsmedia-audio::analysis::waveform_peaks(frames,frames_per_bucket)`
