@@ -268,6 +268,8 @@ fn SimpleAudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                     </Show>
                     <For each=move ||saved_projects.get() key=|entry|entry.name.clone() children=move |entry|{
                         let name=entry.name.clone();
+                        let preview_name=entry.name.clone();
+                        let download_name=entry.name.clone();
                         view!{<div class="version-row">
                             <strong>{entry.name.clone()}</strong>
                             <small>{format!("Revisión {}",entry.revision)}</small>
@@ -275,8 +277,21 @@ fn SimpleAudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                                 studio_api::open_saved_project(name.clone(),assets,selected,versions,current_version,status);
                                 project_picker.set(false);
                             }>"Abrir"</button>
+                            <button type="button" class="action-secondary"
+                                title="Render real del proyecto WAV: EQ, fades, paneo y automatización"
+                                on:click=move |_|studio_api::preview_engine(
+                                    preview_name.clone(),"studio-engine-audio",status
+                                )}>"▶ Motor"</button>
+                            <button type="button" class="action-secondary"
+                                on:click=move |_|studio_api::export_engine_wav(
+                                    download_name.clone(),status
+                                )}>"↓ WAV"</button>
                         </div>}
                     }/>
+                </div>
+                <div class="engine-preview">
+                    <audio id="studio-engine-audio" controls preload="none"></audio>
+                    <small>"Render procesado por VSCore · fuentes WAV · no modifica los originales"</small>
                 </div>
             </section>
         </Show>
@@ -458,6 +473,8 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                     </Show>
                     <For each=move ||saved_projects.get() key=|entry|entry.name.clone() children=move |entry|{
                         let name=entry.name.clone();
+                        let preview_name=entry.name.clone();
+                        let download_name=entry.name.clone();
                         view!{<div class="version-row">
                             <strong>{entry.name.clone()}</strong>
                             <small>{format!("Revisión {}",entry.revision)}</small>
@@ -466,8 +483,21 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                                 selected_track.set(String::new());
                                 show_saved.set(false);
                             }>"Abrir en VSMix"</button>
+                            <button type="button" class="action-secondary"
+                                title="Reproduce una mezcla renderizada por el Audio Engine de Rust"
+                                on:click=move |_|studio_api::preview_engine(
+                                    preview_name.clone(),"mix-engine-audio",status
+                                )}>"▶ Motor"</button>
+                            <button type="button" class="action-secondary"
+                                on:click=move |_|studio_api::export_engine_wav(
+                                    download_name.clone(),status
+                                )}>"↓ WAV"</button>
                         </div>}
                     }/>
+                </div>
+                <div class="engine-preview">
+                    <audio id="mix-engine-audio" controls preload="none"></audio>
+                    <small>"Previsualización Rust de la mezcla guardada · WAV únicamente"</small>
                 </div>
             </section>
         </Show>
