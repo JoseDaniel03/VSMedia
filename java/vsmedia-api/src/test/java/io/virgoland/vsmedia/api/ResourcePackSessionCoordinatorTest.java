@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.util.UUID;
+import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ResourcePackSessionCoordinatorTest {
@@ -109,6 +110,24 @@ class ResourcePackSessionCoordinatorTest {
         coordinator.onQuit(new UUID(0,1));
         assertEquals(ResourcePackSessionCoordinator.Decision.SEND,
             coordinator.prepare(UUID.randomUUID(),pack(FIRST),false));
+    }
+
+    @Test
+    void reconcilesOnlyItsOwnObsoletePackSlots() {
+        var coordinator=new ResourcePackSessionCoordinator();
+        UUID player=UUID.randomUUID();
+        UUID foreignPack=UUID.randomUUID();
+        var base=pack(FIRST);
+        var overlay=new ResourcePackDelivery("overlay",UUID.randomUUID(),
+            URI.create("https://packs.example.test/overlay.zip"),UPDATED,8192);
+        coordinator.prepare(player,base,false);
+        coordinator.prepare(player,overlay,false);
+        assertEquals(Set.of(overlay.packId()),
+            coordinator.obsolete(player,Set.of(base.packId(),foreignPack)));
+        assertTrue(coordinator.removed(player,overlay.packId()));
+        assertFalse(coordinator.removed(player,overlay.packId()));
+        assertTrue(coordinator.obsolete(player,Set.of(base.packId())).isEmpty());
+        assertEquals(1,coordinator.sessionCount());
     }
 
     @Test

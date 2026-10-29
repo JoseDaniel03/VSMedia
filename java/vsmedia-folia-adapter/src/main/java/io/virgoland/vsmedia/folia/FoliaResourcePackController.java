@@ -13,6 +13,8 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerResourcePackStatusEvent;
 import org.bukkit.plugin.Plugin;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 /**
@@ -59,6 +61,19 @@ public final class FoliaResourcePackController implements Listener {
             }
             DeliveryPlan snapshot = plan;
             if (snapshot == null) return;
+            Set<UUID> expected = snapshot.layers().stream()
+                .map(ResourcePackDelivery::packId).collect(Collectors.toUnmodifiableSet());
+            // Only withdraw packs previously offered by VSMedia, not those
+            // belonging to other server plugins or client-installed packs.
+            for (UUID obsolete : sessions.obsolete(playerId, expected)) {
+                try {
+                    player.removeResourcePack(obsolete);
+                    sessions.removed(playerId, obsolete);
+                } catch (RuntimeException error) {
+                    plugin.getLogger().warning("VSMedia pack withdrawal failed: "
+                        + error.getClass().getSimpleName());
+                }
+            }
             for (ResourcePackDelivery delivery : snapshot.layers()) {
                 Decision decision = sessions.prepare(playerId, delivery, retryFailed);
                 if (decision != Decision.SEND) continue;

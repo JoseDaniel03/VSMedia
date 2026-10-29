@@ -2,6 +2,8 @@ package io.virgoland.vsmedia.api;
 
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -142,6 +144,32 @@ public final class ResourcePackSessionCoordinator {
 
     public synchronized Optional<Snapshot> snapshot(UUID player, UUID pack) {
         return Optional.ofNullable(sessions.get(new Slot(player, pack)));
+    }
+
+    /**
+     * Find only resource pack UUIDs this coordinator previously offered to
+     * a player and which are no longer present in the desired stack. Other
+     * plugins' Resource Packs must never be removed.
+     */
+    public synchronized Set<UUID> obsolete(UUID player, Set<UUID> desired) {
+        Objects.requireNonNull(player);
+        Objects.requireNonNull(desired);
+        Set<UUID> ids = new HashSet<>();
+        for (Slot slot : sessions.keySet()) {
+            if (slot.player().equals(player) && !desired.contains(slot.pack())) {
+                ids.add(slot.pack());
+            }
+        }
+        return Set.copyOf(ids);
+    }
+
+    /**
+     * Forget a withdrawn pack only after the owning player scheduler has
+     * successfully requested its removal. On platform failure, it can retry.
+     */
+    public synchronized boolean removed(UUID player, UUID pack) {
+        return sessions.remove(new Slot(
+            Objects.requireNonNull(player), Objects.requireNonNull(pack))) != null;
     }
 
     /** Call when a player disconnects; their next join can request the pack. */
