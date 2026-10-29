@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - .integrations/studio-import.zip
+      - .github/workflows/import-studio.yml
 permissions:
   contents: write
 jobs:
@@ -10,7 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Detect source bundle
+        id: source
+        run: |
+          if [ -f .integrations/studio-import.zip ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Extract reviewed source-only Studio bundle
+        if: steps.source.outputs.present == 'true'
         shell: python
         run: |
           from pathlib import Path
@@ -19,7 +29,7 @@ jobs:
           root = Path.cwd().resolve()
           with zipfile.ZipFile(bundle) as z:
               members = z.infolist()
-              assert len(members) == 26, "unexpected source file count"
+              assert len(members) == 20, "unexpected source file count"
               assert sum(x.file_size for x in members) < 300_000
               seen = set()
               for entry in members:
@@ -36,6 +46,7 @@ jobs:
           assert Path("studio/src/app.rs").exists()
           assert Path("studio/backend/src/main.rs").exists()
       - name: Commit extracted source and remove temporary import archive
+        if: steps.source.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
