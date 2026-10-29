@@ -44,9 +44,8 @@ async fn render_wav(asset: AudioAsset, v: Version) -> Result<Blob,String> {
     if samples > 100_000_000 {return Err("Archivo demasiado grande para exportar en el navegador".into());}
     let mut audio = Vec::<Vec<f32>>::new();
     for c in 0..channels {
-        let ch = buffer.get_channel_data(c as i32).map_err(|_|"No se pudo leer el canal PCM")?;
-        let mut pcm = vec![0.0f32;length];
-        ch.copy_to(&mut pcm);
+        let pcm = buffer.get_channel_data(c as u32).map_err(|_|"No se pudo leer el canal PCM")?;
+        if pcm.len() != length {return Err("Cantidad de muestras inesperada".into());}
         audio.push(pcm);
     }
     let capacity = 44usize.saturating_add(samples.saturating_mul(channels).saturating_mul(2));
