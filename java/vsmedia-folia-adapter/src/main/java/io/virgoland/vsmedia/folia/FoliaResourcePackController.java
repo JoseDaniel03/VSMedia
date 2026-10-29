@@ -53,7 +53,7 @@ public final class FoliaResourcePackController implements Listener {
                     delivery.packId(),
                     delivery.downloadUrl().toASCIIString(),
                     delivery.minecraftSha1Bytes(),
-                    null,
+                    (net.kyori.adventure.text.Component) null,
                     required
                 );
             } catch (RuntimeException error) {
