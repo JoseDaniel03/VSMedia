@@ -96,3 +96,26 @@ mod tests {
         }], 1).is_err());
     }
 }
+
+/// Constant-power crossfade weights. Used by audio transitions and spatial audio,
+/// so the trigonometric law stays in one place.
+pub fn equal_power_gains(progress: f32) -> MediaResult<[f32; 2]> {
+    if !progress.is_finite() || !(0.0..=1.0).contains(&progress) {
+        return Err(MediaError::InvalidInput("invalid crossfade progress".into()));
+    }
+    let radians = f64::from(progress) * std::f64::consts::FRAC_PI_2;
+    Ok([radians.cos() as f32, radians.sin() as f32])
+}
+
+#[cfg(test)]
+mod equal_power_tests {
+    use super::*;
+    #[test]
+    fn constant_power_weights_are_normalized() {
+        for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let [left, right] = equal_power_gains(progress).unwrap();
+            assert!((left * left + right * right - 1.0).abs() < 1e-6);
+        }
+        assert!(equal_power_gains(f32::NAN).is_err());
+    }
+}
