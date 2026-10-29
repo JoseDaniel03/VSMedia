@@ -1,5 +1,6 @@
 //! VSMedia Rust engine and loopback IPC daemon (development protocol v1).
 mod transport;
+mod transfers;
 use std::{collections::HashMap, env, fs, path::Path, sync::Arc};
 use vsmedia_core::sqlite::SqliteAssetStore;
 

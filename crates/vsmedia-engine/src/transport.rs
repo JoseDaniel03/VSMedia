@@ -1,6 +1,7 @@
 //! Loopback-only authenticated IPC. No public HTTP listener, no Minecraft I/O here.
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::{collections::HashMap, sync::Arc, time::Duration};
+use crate::transfers::DownloadRegistry;
 use subtle::ConstantTimeEq;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -28,16 +29,18 @@ pub async fn serve(
     println!("VSMedia internal IPC listening on 127.0.0.1:{port}");
     let permit_limit = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let tokens = Arc::new(tokens);
+    let transfers = Arc::new(DownloadRegistry::default());
     loop {
         let permit = permit_limit.clone().acquire_owned().await
             .map_err(std::io::Error::other)?;
         let (stream, _) = listener.accept().await?;
         let store = Arc::clone(&store);
         let tokens = Arc::clone(&tokens);
+        let transfers = Arc::clone(&transfers);
         tokio::spawn(async move {
             let _permit = permit;
             // Do not log requests or credentials. Each connection carries one request.
-            let _ = timeout(IO_TIMEOUT, process_connection(stream, store, tokens)).await;
+            let _ = timeout(IO_TIMEOUT, process_connection(stream, store, tokens, transfers)).await;
         });
     }
 }
@@ -45,6 +48,7 @@ async fn process_connection(
     mut stream: TcpStream,
     store: Arc<SqliteAssetStore>,
     tokens: Arc<TokenMap>,
+    transfers: Arc<DownloadRegistry>,
 ) -> std::io::Result<()> {
     let length = stream.read_u32().await? as usize;
     if length == 0 || length > MAX_FRAME_BYTES {
@@ -59,7 +63,7 @@ async fn process_connection(
             return Ok(());
         }
     };
-    let response = tokio::task::spawn_blocking(move || dispatch(store.as_ref(), &tokens, request))
+    let response = tokio::task::spawn_blocking(move || dispatch(store.as_ref(), &tokens, transfers.as_ref(), request))
         .await.map_err(std::io::Error::other)?;
     send(&mut stream, &response).await?;
     Ok(())
@@ -73,16 +77,16 @@ async fn send(stream: &mut TcpStream, response: &WireResponse) -> std::io::Resul
     stream.write_all(&body).await?;
     stream.flush().await
 }
-fn dispatch(store: &SqliteAssetStore, tokens: &TokenMap, req: WireRequest) -> WireResponse {
+fn dispatch(store: &SqliteAssetStore, tokens: &TokenMap, transfers: &DownloadRegistry, req: WireRequest) -> WireResponse {
     let id = req.request_id.clone();
-    let outcome = handle(store, tokens, req);
+    let outcome = handle(store, tokens, transfers, req);
     match outcome {
         Ok(value) => WireResponse::ok(id, value),
         Err((code, message)) => WireResponse::failure(id, code, &message),
     }
 }
 type Failure = (&'static str, String);
-fn handle(store: &SqliteAssetStore, tokens: &TokenMap, req: WireRequest) -> Result<WireResult, Failure> {
+fn handle(store: &SqliteAssetStore, tokens: &TokenMap, transfers: &DownloadRegistry, req: WireRequest) -> Result<WireResult, Failure> {
     if req.version != WIRE_VERSION {
         return Err(("version_mismatch", "unsupported API version".into()));
     }
@@ -129,6 +133,26 @@ fn handle(store: &SqliteAssetStore, tokens: &TokenMap, req: WireRequest) -> Resu
             store.authorize(&req.producer, &key.namespace, false).map_err(failure)?;
             Ok(WireResult::Asset { record: store.metadata(&key).map_err(failure)? })
         }
+        WireCommand::BeginRead { key } => {
+            store.authorize(&req.producer, &key.namespace, false).map_err(failure)?;
+            let (transfer_id, size, sha256) =
+                transfers.begin(store, &req.producer, &key).map_err(failure)?;
+            Ok(WireResult::Download { transfer_id, size, sha256 })
+        }
+        WireCommand::ReadChunk { transfer_id, offset } => {
+            // The session is bound to an authenticated producer and key; a
+            // revoked namespace read grant also invalidates the next chunk.
+            let key=transfers.key(&req.producer, &transfer_id).map_err(failure)?;
+            store.authorize(&req.producer, &key.namespace, false).map_err(failure)?;
+            let (chunk, done)=transfers.chunk(&req.producer, &transfer_id, offset).map_err(failure)?;
+            Ok(WireResult::Chunk {
+                offset, content_base64: STANDARD.encode(chunk), done
+            })
+        }
+        WireCommand::EndRead { transfer_id } => {
+            transfers.end(&req.producer, &transfer_id).map_err(failure)?;
+            Ok(WireResult::Acknowledged)
+        }
         WireCommand::Read { key } => {
             store.authorize(&req.producer, &key.namespace, false).map_err(failure)?;
             let record = store.metadata(&key).map_err(failure)?;
@@ -164,6 +188,7 @@ mod tests {
     use super::*;
     use std::{fs, path::PathBuf, sync::atomic::{AtomicU64, Ordering}};
     use vsmedia_api::{AssetKey, AssetKind};
+    fn transfers()->DownloadRegistry { DownloadRegistry::default() }
     fn setup() -> (PathBuf, SqliteAssetStore, TokenMap) {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
@@ -180,11 +205,11 @@ mod tests {
     fn authenticated_publish_and_read() {
         let (root, db, tokens) = setup();
         let key = AssetKey::new("demo", "music/intro.ogg").unwrap();
-        let pub_result = dispatch(&db, &tokens,
+        let pub_result = dispatch(&db, &tokens, &transfers(),
             request(WireCommand::Publish { key: key.clone(), kind: AssetKind::Sound,
                 content_base64: STANDARD.encode(b"hello") }));
         assert!(pub_result.error.is_none());
-        let read_result = dispatch(&db, &tokens, request(WireCommand::Read { key }));
+        let read_result = dispatch(&db, &tokens, &transfers(), request(WireCommand::Read { key }));
         match read_result.result.unwrap() {
             WireResult::Content { content_base64 } => assert_eq!(STANDARD.decode(content_base64).unwrap(), b"hello"),
             _ => panic!("expected content"),
@@ -201,17 +226,17 @@ mod tests {
             name:"Master Project".into(),nodes:vec![],entry_points:vec![]
         }));
         let bytes=vsmedia_formats::encode(&doc).unwrap();
-        let bad=dispatch(&db,&tokens,request(WireCommand::PublishNative {
+        let bad=dispatch(&db,&tokens,&transfers(),request(WireCommand::PublishNative {
             key:key.clone(),extension:"vsaudio".into(),
             content_base64:STANDARD.encode(&bytes)
         }));
         assert_eq!(bad.error.unwrap().code,"forbidden");
-        let saved=dispatch(&db,&tokens,request(WireCommand::PublishNative {
+        let saved=dispatch(&db,&tokens,&transfers(),request(WireCommand::PublishNative {
             key:key.clone(),extension:"vsproject".into(),
             content_base64:STANDARD.encode(&bytes)
         }));
         assert!(saved.error.is_none());
-        let retrieved=dispatch(&db,&tokens,request(WireCommand::ReadNative {
+        let retrieved=dispatch(&db,&tokens,&transfers(),request(WireCommand::ReadNative {
             key,extension:"vsproject".into()
         }));
         match retrieved.result.unwrap() {
@@ -229,10 +254,10 @@ mod tests {
     fn credentials_and_acl_are_both_checked() {
         let (root, db, tokens) = setup();
         let key = AssetKey::new("private", "data").unwrap();
-        assert_eq!(dispatch(&db, &tokens, request(WireCommand::Lookup { key })).error.unwrap().code, "forbidden");
+        assert_eq!(dispatch(&db, &tokens, &transfers(), request(WireCommand::Lookup { key })).error.unwrap().code, "forbidden");
         let mut forged = request(WireCommand::Ping);
         forged.token = "wrong".into();
-        assert_eq!(dispatch(&db, &tokens, forged).error.unwrap().code, "unauthorized");
+        assert_eq!(dispatch(&db, &tokens, &transfers(), forged).error.unwrap().code, "unauthorized");
         drop(db);
         let _ = fs::remove_dir_all(root);
     }

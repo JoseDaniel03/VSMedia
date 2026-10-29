@@ -29,6 +29,9 @@ pub enum WireCommand {
     ReadNative { key: AssetKey, extension: String },
     Lookup { key: AssetKey },
     Read { key: AssetKey },
+    BeginRead { key: AssetKey },
+    ReadChunk { transfer_id: String, offset: u64 },
+    EndRead { transfer_id: String },
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WireResponse {
@@ -43,6 +46,9 @@ pub struct WireResponse {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WireResult {
     Pong,
+    Acknowledged,
+    Download { transfer_id: String, size: u64, sha256: String },
+    Chunk { offset: u64, content_base64: String, done: bool },
     Asset { record: AssetRecord },
     Content { content_base64: String },
 }
