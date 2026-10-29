@@ -25,6 +25,8 @@ pub enum WireCommand {
         kind: AssetKind,
         content_base64: String,
     },
+    PublishNative { key: AssetKey, extension: String, content_base64: String },
+    ReadNative { key: AssetKey, extension: String },
     Lookup { key: AssetKey },
     Read { key: AssetKey },
 }

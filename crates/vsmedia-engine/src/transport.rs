@@ -104,13 +104,26 @@ fn handle(store: &SqliteAssetStore, tokens: &TokenMap, req: WireRequest) -> Resu
             if content_base64.len() > (MAX_INLINE_BLOB_BYTES / 3 + 1) * 4 {
                 return Err(("too_large", "asset exceeds IPC inline limit".into()));
             }
-            let bytes = STANDARD.decode(content_base64)
-                .map_err(|_| ("invalid_request", "invalid base64 data".into()))?;
-            if bytes.len() > MAX_INLINE_BLOB_BYTES {
-                return Err(("too_large", "asset exceeds IPC inline limit".into()));
-            }
+            let bytes = decode_blob(&content_base64)?;
             let record = store.publish(key, kind, &bytes).map_err(failure)?;
             Ok(WireResult::Asset { record })
+        }
+        WireCommand::PublishNative { key, extension, content_base64 } => {
+            store.authorize(&req.producer, &key.namespace, true).map_err(failure)?;
+            let bytes=decode_blob(&content_base64)?;
+            let doc=vsmedia_formats::decode(&bytes,&extension).map_err(failure)?;
+            let record=vsmedia_formats::publish(store,key,&doc).map_err(failure)?;
+            Ok(WireResult::Asset { record })
+        }
+        WireCommand::ReadNative { key, extension } => {
+            store.authorize(&req.producer, &key.namespace, false).map_err(failure)?;
+            let record=store.metadata(&key).map_err(failure)?;
+            if record.size > MAX_INLINE_BLOB_BYTES as u64 {
+                return Err(("too_large", "native manifest exceeds IPC limit".into()));
+            }
+            let doc=vsmedia_formats::load(store,&key,&extension).map_err(failure)?;
+            let bytes=vsmedia_formats::encode(&doc).map_err(failure)?;
+            Ok(WireResult::Content { content_base64: STANDARD.encode(bytes) })
         }
         WireCommand::Lookup { key } => {
             store.authorize(&req.producer, &key.namespace, false).map_err(failure)?;
@@ -126,6 +139,17 @@ fn handle(store: &SqliteAssetStore, tokens: &TokenMap, req: WireRequest) -> Resu
             Ok(WireResult::Content { content_base64: STANDARD.encode(bytes) })
         }
     }
+}
+fn decode_blob(content_base64:&str) -> Result<Vec<u8>, Failure> {
+    if content_base64.len() > (MAX_INLINE_BLOB_BYTES / 3 + 1) * 4 {
+        return Err(("too_large", "asset exceeds IPC inline limit".into()));
+    }
+    let bytes=STANDARD.decode(content_base64)
+        .map_err(|_| ("invalid_request", "invalid base64 data".into()))?;
+    if bytes.len() > MAX_INLINE_BLOB_BYTES {
+        return Err(("too_large", "asset exceeds IPC inline limit".into()));
+    }
+    Ok(bytes)
 }
 fn failure(err: MediaError) -> Failure {
     match err {
@@ -167,6 +191,39 @@ mod tests {
         }
         drop(db);
         let _ = fs::remove_dir_all(root);
+    }
+    #[test]
+    fn native_format_calls_validate_extension_and_round_trip() {
+        use vsmedia_formats::{NativeDocument,NativePayload,VSProject};
+        let (root,db,tokens)=setup();
+        let key=AssetKey::new("demo","project/master.vsproject").unwrap();
+        let doc=NativeDocument::new(NativePayload::Project(VSProject {
+            name:"Master Project".into(),nodes:vec![],entry_points:vec![]
+        }));
+        let bytes=vsmedia_formats::encode(&doc).unwrap();
+        let bad=dispatch(&db,&tokens,request(WireCommand::PublishNative {
+            key:key.clone(),extension:"vsaudio".into(),
+            content_base64:STANDARD.encode(&bytes)
+        }));
+        assert_eq!(bad.error.unwrap().code,"forbidden");
+        let saved=dispatch(&db,&tokens,request(WireCommand::PublishNative {
+            key:key.clone(),extension:"vsproject".into(),
+            content_base64:STANDARD.encode(&bytes)
+        }));
+        assert!(saved.error.is_none());
+        let retrieved=dispatch(&db,&tokens,request(WireCommand::ReadNative {
+            key,extension:"vsproject".into()
+        }));
+        match retrieved.result.unwrap() {
+            WireResult::Content{content_base64} => {
+                let raw=STANDARD.decode(content_base64).unwrap();
+                assert_eq!(vsmedia_formats::decode(&raw,"vsproject").unwrap().kind(),
+                    vsmedia_formats::NativeKind::Project);
+            }
+            _ => panic!("expected native document bytes"),
+        }
+        drop(db);
+        let _=fs::remove_dir_all(root);
     }
     #[test]
     fn credentials_and_acl_are_both_checked() {

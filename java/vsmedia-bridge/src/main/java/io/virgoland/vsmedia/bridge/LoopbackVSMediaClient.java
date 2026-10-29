@@ -7,6 +7,8 @@ import io.virgoland.vsmedia.api.AssetId;
 import io.virgoland.vsmedia.api.AssetPayload;
 import io.virgoland.vsmedia.api.AssetReceipt;
 import io.virgoland.vsmedia.api.AssetType;
+import io.virgoland.vsmedia.api.NativeFormat;
+import io.virgoland.vsmedia.api.NativeFormatsApi;
 import io.virgoland.vsmedia.api.PackReceipt;
 import io.virgoland.vsmedia.api.VSMediaApi;
 
@@ -33,7 +35,7 @@ import java.util.function.Supplier;
  * Async Java -> Rust v1 IPC adapter. Never call blocking socket I/O on a Folia region thread.
  * No Minecraft or plugin-producer dependencies. Socket target is fixed to loopback.
  */
-public final class LoopbackVSMediaClient implements VSMediaApi, AutoCloseable {
+public final class LoopbackVSMediaClient implements VSMediaApi, NativeFormatsApi, AutoCloseable {
     private static final int MAX_FRAME = 4 * 1024 * 1024;
     private static final int MAX_INLINE = 2 * 1024 * 1024;
     private final int port;
@@ -93,6 +95,38 @@ public final class LoopbackVSMediaClient implements VSMediaApi, AutoCloseable {
             byte[] bytes = Base64.getDecoder().decode(encoded);
             if (bytes.length > MAX_INLINE) {
                 throw new VSMediaTransportException("too_large", "Response exceeds IPC inline limit");
+            }
+            return bytes;
+        });
+    }
+    @Override
+    public CompletionStage<AssetReceipt> publishNative(
+            AssetId id, NativeFormat format, byte[] manifestJson) {
+        Objects.requireNonNull(id);
+        Objects.requireNonNull(format);
+        Objects.requireNonNull(manifestJson);
+        if (manifestJson.length > MAX_INLINE) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Native manifest too large"));
+        }
+        // Do not block Folia. Rust validates schema/version/magic and extension.
+        byte[] snapshot = manifestJson.clone();
+        return async(() -> {
+            ObjectNode cmd = command("publish_native", id);
+            cmd.put("extension", format.extension());
+            cmd.put("content_base64", Base64.getEncoder().encodeToString(snapshot));
+            return toReceipt(send(cmd).path("record"));
+        });
+    }
+    @Override
+    public CompletionStage<byte[]> readNative(AssetId id, NativeFormat format) {
+        Objects.requireNonNull(id);
+        Objects.requireNonNull(format);
+        return async(() -> {
+            ObjectNode cmd = command("read_native", id);
+            cmd.put("extension", format.extension());
+            byte[] bytes = Base64.getDecoder().decode(send(cmd).path("content_base64").asText());
+            if (bytes.length > MAX_INLINE) {
+                throw new VSMediaTransportException("too_large","Native manifest exceeds IPC limit");
             }
             return bytes;
         });

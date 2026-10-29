@@ -12,6 +12,7 @@ vsmedia-audio = { path = "../vsmedia-audio" }
 vsmedia-image = { path = "../vsmedia-image" }
 vsmedia-font = { path = "../vsmedia-font" }
 vsmedia-protocol = { path = "../vsmedia-protocol" }
+vsmedia-formats = { path = "../vsmedia-formats" }
 serde_json.workspace = true
 base64 = "0.22"
 subtle = "2.6"
