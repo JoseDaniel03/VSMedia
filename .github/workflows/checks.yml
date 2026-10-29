@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check --manifest-path studio/backend/Cargo.toml --all-targets
+      - run: cargo test --manifest-path studio/backend/Cargo.toml --all-targets
   studio-frontend:
     runs-on: ubuntu-latest
     steps:
