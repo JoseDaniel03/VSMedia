@@ -1,6 +1,6 @@
 //! Browser-to-Rust Studio bridge. Explicit user action is required for upload.
 //! No game or radio operation is emulated: only CAS assets and VSAudio projects.
-use crate::media::{self,AudioAsset,Version};
+use crate::media::{self,AudioAsset,Version,Track};
 use js_sys::{ArrayBuffer,Uint8Array};
 use leptos::prelude::*;
 use serde_json::{json,Value};
@@ -260,4 +260,108 @@ pub fn open_saved_project(name:String,assets:RwSignal<Vec<AudioAsset>>,
         };
         status.set(msg);
     });
+}
+
+/// Publish a VSMix session as a genuine multipista VSAudio document.
+/// Uploads occur only on explicit user action and never on local import.
+pub fn save_mix_project(
+    assets:Vec<AudioAsset>,tracks:Vec<Track>,status:RwSignal<String>
+) {
+    status.set("Publicando pistas y proyecto multipista en VSCore…".into());
+    spawn_local(async move {
+        let result=save_mix(&assets,&tracks).await;
+        status.set(match result {
+            Ok(message)=>message,
+            Err(error)=>format!("No se guardó VSMix: {error}")
+        });
+    });
+}
+async fn save_mix(assets:&[AudioAsset],tracks:&[Track])->Result<String,String> {
+    if tracks.is_empty() || tracks.len()>256 {
+        return Err("La mezcla debe tener entre 1 y 256 pistas".into());
+    }
+    let mut known=std::collections::HashMap::<String,String>::new();
+    let mut sources=Vec::new();
+    let mut timeline_tracks=Vec::new();
+    let mut clip_edits=Vec::new();
+    let mut track_edits=Vec::new();
+    for (index,track) in tracks.iter().enumerate() {
+        if track.name.trim().is_empty() {
+            return Err("Todas las pistas deben tener nombre".into());
+        }
+        if !track.volume.is_finite() || !(0.0..=1.0).contains(&track.volume) {
+            return Err("Volumen de pista inválido".into());
+        }
+        let gain_db=if track.volume==0. {-120.0} else {
+            20.*track.volume.log10()
+        };
+        track_edits.push(json!({
+            "track_index":index,"gain_db":gain_db,"pan":0.0,
+            "muted":track.muted,"solo":track.solo
+        }));
+        let mut clips=Vec::new();
+        if !track.asset_id.is_empty() {
+            let asset=assets.iter().find(|item|item.id==track.asset_id)
+                .ok_or_else(||format!("Falta el audio para la pista {}",track.name))?;
+            let kind=codec(&asset.name)
+                .ok_or("VSMix admite WAV, MP3, FLAC, OGG, Opus y WebM")?;
+            let duration=media::player(&format!("track-{}",track.id))
+                .map(|player|player.duration()).unwrap_or(0.);
+            let length=millis(duration)?;
+            if length==0 {
+                return Err(format!("Esperá a que cargue la duración de {}",track.name));
+            }
+            let fade_in=millis(track.fade_in)?;
+            let fade_out=millis(track.fade_out)?;
+            if fade_in.saturating_add(fade_out)>length {
+                return Err(format!("Los fades de {} superan la duración del audio",track.name));
+            }
+            if !known.contains_key(&asset.id) {
+                let blob=media::get_blob(&asset.id)
+                    .ok_or("El audio original no está disponible en memoria")?;
+                if blob.size()<=0. || blob.size()>16.*1024.*1024. {
+                    return Err("Cada audio debe ocupar entre 1 B y 16 MiB".into());
+                }
+                let raw=JsFuture::from(blob.array_buffer()).await
+                    .map_err(|_|"No se pudo leer un audio de VSMix")?;
+                let array:ArrayBuffer=raw.dyn_into().map_err(|_|"Audio inválido")?;
+                let uploaded=request(&format!("/assets/{}",asset.id),"POST",
+                    Uint8Array::new(&array).into(),"application/octet-stream").await?;
+                let sha=uploaded.get("sha256").and_then(Value::as_str)
+                    .ok_or("No se recibió el hash SHA-256 del audio")?.to_owned();
+                known.insert(asset.id.clone(),sha.clone());
+                sources.push(json!({
+                    "key":{"namespace":"studio","name":format!("audio/{}",asset.id)},
+                    "sha256":sha,"codec":kind
+                }));
+            }
+            clips.push(json!({
+                "asset":{"namespace":"studio","name":format!("audio/{}",asset.id)},
+                "start_ms":0,"duration_ms":length,"gain_db":0.0
+            }));
+            clip_edits.push(json!({
+                "track_index":index,"clip_index":0,"source_in_ms":0,
+                "pan":0.0,"fade_in_ms":fade_in,"fade_out_ms":fade_out,
+                "reversed":false,"muted":false,
+                "gain_points":[],"filters":[]
+            }));
+        }
+        timeline_tracks.push(json!({
+            "name":track.name,"muted":false,"clips":clips
+        }));
+    }
+    let project_id=media::uid("mix");
+    let document=json!({
+        "magic":"VSMEDIA","version":1,
+        "payload":{"kind":"audio","data":{
+            "timeline":{"name":format!("Mezcla {project_id}"),
+                "tracks":timeline_tracks},
+            "sources":sources,"clip_edits":clip_edits,
+            "track_edits":track_edits
+        }}
+    });
+    let result=request(&format!("/audio/projects/{project_id}"),"POST",
+        JsValue::from_str(&document.to_string()),"application/json").await?;
+    let revision=result.get("revision").and_then(Value::as_u64).unwrap_or(0);
+    Ok(format!("VSMix guardado como {project_id}.vsaudio (revisión {revision})."))
 }
