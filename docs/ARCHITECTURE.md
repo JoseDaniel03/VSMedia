@@ -1,32 +1,51 @@
-# Arquitectura — contrato inicial
+# Arquitectura de VSMedia Remake 26.3
 
 ## Regla de dependencias
 
-`VSRender / Typewriter / VSUiRemake / otros → VSMedia API → VSMedia Core → Engines`
+`VSRender / Typewriter / VSUiRemake / otros → VSMedia API (Java) → Bridge Java → IPC v1 → Core Rust → Engines`
 
-**No existe dependencia inversa.** Los productores publican contenido con `AssetId` y VSMedia conserva el catálogo.
-El puente Java de Minecraft es un adaptador opcional de plataforma; ninguna crate Rust usa Bukkit/Folia.
+La dirección es unidireccional. VSMedia no importa clases de los plugins consumidores.
 
-## Procesos y límites
+## Componentes
 
-- **Plugin Java:** eventos/players/mapas/comandos mediante schedulers correctos de Folia. No procesamiento pesado en hilos de región.
-- **Rust daemon (objetivo):** procesamiento y almacenamiento, separado de la JVM. IPC autenticado y versionado pendiente.
-- **VSClient:** streaming/voz con consentimiento y captura bajo control del usuario. Integración posterior en el repositorio del mod.
-- **Cliente vanilla:** sonidos ya incorporados al Resource Pack, fuentes y mapas.
+- `crates/vsmedia-api`: identificadores versionados, tipos, metadatos y trait de almacenamiento.
+- `crates/vsmedia-core`: SQLite transaccional con historial, hashes SHA-256 y trabajos con cola/worker pool. `FsAssetStore` es un backend legado de prueba, no apto para producción.
+- `crates/vsmedia-protocol`: esquema de mensajes tipados y límites de tamaño IPC.
+- `crates/vsmedia-engine`: proceso Rust de desarrollo que sirve IPC autenticado solo por 127.0.0.1. En tareas de lectura/escritura usa `spawn_blocking`.
+- `crates/vsmedia-pack`: fusión determinista y prioridad por productor, ZIP import/export, cuotas y validación de rutas.
+- `crates/vsmedia-audio`: modelo multipista y rutinas primitivas DSP PCM.
+- `crates/vsmedia-image`: mosaicos y cálculo de cambios por fotograma para actualizaciones de mapas.
+- `crates/vsmedia-font`: definiciones bitmap y asignación global de glifos del Área de Uso Privado.
+- `java/vsmedia-api`: contrato asíncrono que deben compilar los plugins consumidores.
+- `java/vsmedia-bridge`: cliente asíncrono con pool acotado, socket loopback y framing; no depende de Bukkit.
 
-## API
+## Integración Minecraft pendiente
 
-`vsmedia-api` define identificadores, tipos, metadatos y contrato de almacenamiento. `java/vsmedia-api` define el contrato asíncrono para plugins de Minecraft. **Todavía no existe un puente conectando ambas APIs.**
+`VSMediaPlugin` Java administrará los eventos y jugadores mediante los schedulers de VSEngine/Folia,
+el ciclo de vida del proceso Rust y la distribución de packs. No debe ejecutar DSP ni I/O
+bloqueante sobre los hilos regionales. MapViews y colocación de marcos requieren APIs de plataforma.
 
-## Seguridad esencial
+## Audio / VSClient
 
-1. Validar nombres/rutas antes de acceder a disco; impedir rutas absolutas y traversal.
-2. Resolver conflictos de archivos de packs mediante prioridades explícitas, nunca sobrescribir silenciosamente.
-3. Límite de archivos, imágenes, duración de audio y memoria; no ejecutar ffmpeg con parámetros arbitrarios del usuario.
-4. Descarga por URL solo mediante fetcher con protección SSRF y tamaños máximos, por implementar.
-5. Voz: autenticación, cifrado, permisos, mute, no grabación predeterminada.
-6. Mantener hashes, versiones y pruebas automatizadas.
+El servidor Rust gestionará radio/streaming/voice chat y VSClient se ocupará de captura,
+decodificación y espacialización. **Nada de esto está activo aún.**
+El diseño debe incluir Opus, autenticación, privacidad, silenciar/ensordecer y ningún registro de audio
+por defecto. Minecraft vanilla utiliza sonidos ya presentes en Resource Packs.
 
-## Primer alcance funcional
+## Límites e integridad
 
-Core: catálogo de assets y objetos hash en disco. El catálogo inicial usa un único escritor local; migrar a un almacén transaccional antes de habilitar múltiples procesos. Engines: algoritmos aislados con tests de unidad. **No confundirlos con un sistema listo para producción.**
+- Hashes SHA-256 y validación en lectura; catálogo SQLite en WAL con revisiones atómicas.
+- Cuotas per-asset, ZIP seguro con control de expansión, límites de imágenes y de audio.
+- Tokens independientes por productor y autorización denegada por defecto por namespace.
+- IPC experimental con mensajes JSON de máximo 4 MiB y blobs inline de 2 MiB.
+- El IPC **no es un servicio público**; requiere un mecanismo de transferencia por streaming/chunks
+  antes de usar assets grandes en producción.
+- El trabajo de procesamiento offline se ejecutará como jobs con cancelación cooperativa.
+  Todavía faltan estado persistente, progreso y retención limitada de jobs.
+- Importación remota por URL requiere protección SSRF, DNS pinning y cuotas; no implementada.
+
+## Estado y prueba
+
+Las pruebas actuales verifican algoritmos de engines y contratos de red con mocks. No se han
+validado todavía mapas reales en Minecraft, builds de plugin, VSClient, cargas de producción o
+la interoperabilidad completa Rust↔Java sobre un proceso real.
