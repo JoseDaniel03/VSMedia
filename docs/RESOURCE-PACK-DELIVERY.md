@@ -146,3 +146,16 @@ actualizada. Esta invariancia tiene pruebas automáticas de Rust.
 No hay aún selección automática del mejor particionado por frecuencia de
 cambios ni un servidor/CDN publicado desde VSMedia. La mejora de velocidad
 real dependerá del patrón de cambios y de la red del jugador.
+
+## Recomendación de capas basada en versiones anteriores
+
+`vsmedia-pack::layers::suggest_overlay_rules(history,max_rules)` compara
+entre 2 y 16 snapshots de packs fusionados. Recomienda prefijos con archivos
+que cambian frecuentemente y ocupan menos de la mitad del paquete total.
+El resultado conserva IDs derivados del prefijo para que permanezcan estables
+aunque cambien los bytes de los recursos. El máximo es de siete overlays.
+
+**Importante:** las reglas son recomendaciones, no cambios automáticos. Una
+vez aceptadas por el administrador deben mantenerse entre compilaciones;
+redistribuir continuamente los archivos del base a overlays anularía su
+ventaja de caché. Los paquetes deben probarse juntos en clientes reales.

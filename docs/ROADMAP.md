@@ -64,7 +64,8 @@ ni distribución todavía. `vspack` actualmente representa Resource Packs.
 - [x] Pilas opcionales de packs base + overlay en Java/Paper 26.3, con orden y límites; caché independiente por hash.
 - [x] Particionado configurable por prefijos y publicación de capas independientes, con SHA-1 de cada ZIP y prueba de base inmutable.
 - [x] Reconciliación del adaptador Folia: elimina solamente las capas anteriores administradas por VSMedia.
-- [ ] Recomendación inteligente de overlay a partir del historial de cambios (sin cambiar reglas estables automáticamente).
+- [x] Recomendaciones de overlays según frecuencia de cambios de rutas y tamaño, manteniendo reglas fijas para preservar la caché.
+- [ ] Automatizar evaluación estadística de tamaños/descargas y benchmark real bajo carga.
 - [ ] Integrar y habilitar el adaptador en un plugin VSMedia real; pruebas con jugadores.
 - [ ] Medir consumo de ancho de banda, caché real y latencia desde distintos clientes.
 - [ ] Configurar alojamiento HTTPS/CDN y descarga pública; no hay servicio HTTP abierto por defecto.
