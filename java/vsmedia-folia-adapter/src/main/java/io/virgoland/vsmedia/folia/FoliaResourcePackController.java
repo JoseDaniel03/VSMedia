@@ -1,6 +1,7 @@
 package io.virgoland.vsmedia.folia;
 
 import io.virgoland.vsmedia.api.ResourcePackDelivery;
+import io.virgoland.vsmedia.api.ResourcePackStack;
 import io.virgoland.vsmedia.api.ResourcePackSessionCoordinator;
 import io.virgoland.vsmedia.api.ResourcePackSessionCoordinator.ClientStatus;
 import io.virgoland.vsmedia.api.ResourcePackSessionCoordinator.Decision;
@@ -22,7 +23,9 @@ public final class FoliaResourcePackController implements Listener {
     private final Plugin plugin;
     private final ResourcePackSessionCoordinator sessions;
     private final boolean required;
-    private volatile ResourcePackDelivery current;
+    private volatile DeliveryPlan plan;
+
+    private record DeliveryPlan(java.util.List<ResourcePackDelivery> layers, boolean stacked) {}
 
     public FoliaResourcePackController(
             Plugin plugin, ResourcePackSessionCoordinator sessions, boolean required) {
@@ -32,7 +35,17 @@ public final class FoliaResourcePackController implements Listener {
     }
 
     public void setCurrent(ResourcePackDelivery delivery) {
-        this.current = Objects.requireNonNull(delivery, "delivery");
+        this.plan = new DeliveryPlan(java.util.List.of(
+            Objects.requireNonNull(delivery, "delivery")), false);
+    }
+
+    /**
+     * Use multiple cached Resource Pack layers. A mostly-unchanged base pack
+     * should be first and small frequently updated overlays should follow it.
+     */
+    public void setCurrentStack(ResourcePackStack stack) {
+        this.plan = new DeliveryPlan(
+            Objects.requireNonNull(stack, "stack").layers(), true);
     }
 
     /** Schedule a pack offer on the player entity's owning Folia region. */
@@ -44,22 +57,36 @@ public final class FoliaResourcePackController implements Listener {
                 sessions.onQuit(playerId);
                 return;
             }
-            ResourcePackDelivery delivery = current;
-            if (delivery == null) return;
-            Decision decision = sessions.prepare(playerId, delivery, retryFailed);
-            if (decision != Decision.SEND) return;
-            try {
-                player.setResourcePack(
-                    delivery.packId(),
-                    delivery.downloadUrl().toASCIIString(),
-                    delivery.minecraftSha1Bytes(),
-                    (net.kyori.adventure.text.Component) null,
-                    required
-                );
-            } catch (RuntimeException error) {
-                sessions.sendFailed(playerId, delivery.packId(), delivery.sha1Hex());
-                plugin.getLogger().warning("VSMedia pack offer failed: "
-                    + error.getClass().getSimpleName());
+            DeliveryPlan snapshot = plan;
+            if (snapshot == null) return;
+            for (ResourcePackDelivery delivery : snapshot.layers()) {
+                Decision decision = sessions.prepare(playerId, delivery, retryFailed);
+                if (decision != Decision.SEND) continue;
+                try {
+                    if (snapshot.stacked()) {
+                        // Paper 26.3 supports stacked packs. Different UUIDs
+                        // are retained separately in the client's SHA-1 cache.
+                        player.addResourcePack(
+                            delivery.packId(),
+                            delivery.downloadUrl().toASCIIString(),
+                            delivery.minecraftSha1Bytes(),
+                            (String) null,
+                            required
+                        );
+                    } else {
+                        player.setResourcePack(
+                            delivery.packId(),
+                            delivery.downloadUrl().toASCIIString(),
+                            delivery.minecraftSha1Bytes(),
+                            (net.kyori.adventure.text.Component) null,
+                            required
+                        );
+                    }
+                } catch (RuntimeException error) {
+                    sessions.sendFailed(playerId, delivery.packId(), delivery.sha1Hex());
+                    plugin.getLogger().warning("VSMedia pack offer failed: "
+                        + error.getClass().getSimpleName());
+                }
             }
         }, () -> sessions.onQuit(playerId));
     }
@@ -84,7 +111,7 @@ public final class FoliaResourcePackController implements Listener {
     }
 
     public void close() {
-        current = null;
+        plan = null;
         sessions.clear();
     }
 
