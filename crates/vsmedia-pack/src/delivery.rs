@@ -109,6 +109,23 @@ fn stage_verified(
         size_bytes:zip_bytes.len() as u64,filename,url,
     })
 }
+/// Build and publish a cache-friendly stack of immutable packs. The rule
+/// planner assigns each asset to one layer, and existing publishing code
+/// validates every layer as an ordinary Resource Pack before publication.
+pub fn compile_and_stage_layers(
+    merged: &MergeOutput,
+    base_id: &str,
+    rules: &[crate::layers::OverlayRule],
+    limits: ArchiveLimits,
+    static_dir: &Path,
+    base_url: &str,
+) -> MediaResult<Vec<DeliveryDescriptor>> {
+    let layers = crate::layers::split_into_layers(merged, base_id, rules)?;
+    layers.iter().map(|layer| {
+        compile_and_stage(&layer.pack, limits, &layer.logical_id, static_dir, base_url)
+    }).collect()
+}
+
 fn verify_existing(path:&Path, expected:&str, len:usize) -> MediaResult<()> {
     let meta=fs::symlink_metadata(path).map_err(io_error)?;
     if !meta.file_type().is_file() || meta.len()!=len as u64 {
@@ -172,6 +189,35 @@ mod tests {
         assert_eq!(from_builder,from_import);
         assert_eq!(fs::read_dir(&dir).unwrap().count(),1);
         let _=fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn a_changed_overlay_only_republishes_its_layer() {
+        let root=temp();
+        let overlay_rules=vec![crate::layers::OverlayRule {
+            logical_id:"overlays".into(),
+            prefixes:vec!["assets/demo/textures/ui/".into()],
+        }];
+        let build=|value:&[u8]| MergeOutput {
+            files:BTreeMap::from([
+                ("pack.mcmeta".into(),br#"{"pack":{"description":"Demo"}}"#.to_vec()),
+                ("assets/demo/textures/base.png".into(),b"base".to_vec()),
+                ("assets/demo/textures/ui/panel.png".into(),value.to_vec()),
+            ]), conflicts:vec![],
+        };
+        let old=compile_and_stage_layers(
+            &build(b"old"),"virgoland",&overlay_rules,
+            ArchiveLimits::default(),&root,"https://packs.example.test/"
+        ).unwrap();
+        let new=compile_and_stage_layers(
+            &build(b"new"),"virgoland",&overlay_rules,
+            ArchiveLimits::default(),&root,"https://packs.example.test/"
+        ).unwrap();
+        assert_eq!(old.len(),2);
+        assert_eq!(old[0],new[0]);
+        assert_ne!(old[1].sha1,new[1].sha1);
+        assert_eq!(old[1].uuid,new[1].uuid);
+        assert_eq!(fs::read_dir(&root).unwrap().count(),3);
+        let _=fs::remove_dir_all(root);
     }
     #[test]
     fn rejects_unsafe_urls_malformed_packs_and_changed_existing_files() {
