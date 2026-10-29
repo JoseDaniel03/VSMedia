@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 vsmedia-api = { path = "../vsmedia-api" }
 serde.workspace = true
+rustfft = "6.4"

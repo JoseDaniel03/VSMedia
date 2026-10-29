@@ -1,5 +1,7 @@
 //! Audio project data model and a bounded PCM mixing primitive.
+pub mod analysis;
 pub mod dsp;
+pub mod filter;
 use serde::{Deserialize, Serialize};
 use vsmedia_api::{AssetKey, MediaError, MediaResult};
 
