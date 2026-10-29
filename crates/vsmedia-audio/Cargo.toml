@@ -11,3 +11,6 @@ rustfft = "6.4"
 hound = "3.5.1"
 rubato = "5.0.1"
 audioadapter-buffers = "5.2.0"
+
+[dev-dependencies]
+serde_json.workspace = true
