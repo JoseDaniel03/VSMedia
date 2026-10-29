@@ -1,0 +1,17 @@
+[package]
+name = "vsmedia-studio-bridge"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+axum = { version = "0.8", features = ["json"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower-http = { version = "0.6", features = ["cors"] }
+vsmedia-api = { path = "../../crates/vsmedia-api" }
+vsmedia-core = { path = "../../crates/vsmedia-core" }
+vsmedia-formats = { path = "../../crates/vsmedia-formats" }
