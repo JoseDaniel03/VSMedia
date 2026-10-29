@@ -22,10 +22,12 @@
 - [x] Referencias inmutables SHA-256; mismos recursos compartidos sin copias.
 - [x] Almacenamiento mediante el AssetRepository existente; pruebas de persistencia SQLite y revisión desactualizada.
 - [x] API IPC `publish_native` / `read_native` y contratos Java `NativeFormatsApi`.
-- [ ] Resolver dependencias entre proyectos anidados globalmente y asegurar ACL de lectura por referencia.
+- [x] Resolver el cierre transitivo de proyectos anidados con límites y detección de ciclos; permisos de lectura por cada referencia en exportación autenticada.
+- [ ] Endpoints públicos seguros para compartir proyectos y transferencias grandes; autenticación de la identidad de origen.
 - [x] Snapshot portátil opcional con closure de referencias, hashes, deduplicación y ZIP determinista.
 - [x] Importación atómica SQLite con detección de conflictos y reimportación idempotente.
-- [ ] Migraciones de esquema, firma/confianza del origen, cuotas por productor y autorización transversal de namespaces.
+- [x] Versión de esquema del catálogo SQLite (migración 0→1 y rechazo de versiones futuras); lectura/escritura por namespaces en API de portabilidad autenticada.
+- [ ] Migraciones futuras de manifiestos nativos, firma/confianza del origen y cuotas globales por productor.
 - [ ] Herramientas del editor para crear, abrir, duplicar, importar y exportar proyectos.
 
 ## Engines

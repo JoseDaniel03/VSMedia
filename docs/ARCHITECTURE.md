@@ -54,14 +54,20 @@ la interoperabilidad completa Rust↔Java sobre un proceso real.
 
 ## Portabilidad y atomicidad
 
-El adaptador \`vsmedia-formats::portable\` exporta e inspecciona snapshots
+El adaptador `vsmedia-formats::portable` exporta e inspecciona snapshots
 autocontenidos sin disco ni acceso a red. El importador **solo administrativo**
-usa \`AtomicAssetRepository::import_if_absent_or_identical\`. La implementación
+usa `AtomicAssetRepository::import_if_absent_or_identical`. La implementación
 SQLite garantiza commit o rollback de todas las entradas del catálogo y no
 reemplaza una clave existente si cambió su hash/tipo.
 
 Los objetos de contenido se escriben antes del commit; una falla de proceso
 puede dejar objetos huérfanos, pero **nunca referencias de catálogo parciales**.
 Se incorporará garbage collection seguro antes de habilitar exportaciones masivas.
-No conectar este método directamente a productores remotos: es necesario
-verificar ACL de lectura de origen y permisos de escritura por cada namespace.
+Las variantes de confianza administrativa `export` e `import` **no** se
+deben exponer a productores remotos. Las variantes `export_for` e
+`import_for` aplican permisos por productor: la exportación valida lectura
+de cada recurso vinculado y la importación comprueba permisos de escritura de
+todos los namespaces dentro de la misma transacción. Antes de exponerlas por
+IPC/web faltan cuotas por productor, transporte grande y autenticación de las
+peticiones de proyecto. El esquema SQLite está versionado por `user_version`
+y migración 0→1; formatos nativos siguen en versión 1 sin migración histórica.

@@ -9,8 +9,8 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 
 | Módulo | Implementado actualmente | Pendiente principal |
 |---|---|---|
-| Core Rust | SQLite + SHA-256 + revisiones, ACL, jobs acotados | Jobs persistentes, cuotas globales, backups |
-| Formatos nativos | .vsaudio / .vsimage / .vsstream / .vspack / .vsproject, versión 1, referencias SHA-256 | Snapshot portátil deduplicado, importación atómica; pendientes migraciones y edición web |
+| Core Rust | SQLite v1, SHA-256 + revisiones, ACL transaccionales, jobs acotados | Jobs persistentes, cuotas globales, backups |
+| Formatos nativos | .vsaudio / .vsimage / .vsstream / .vspack / .vsproject, versión 1, referencias SHA-256 | Migración futura de manifiestos, edición web, control de permisos end-to-end |
 | Pack Engine | Merge, conflictos, ZIP seguro, export determinista y unión de sounds.json | Otros esquemas JSON, resource-pack 26.3, distribución |
 | Audio Engine | Modelo multipista, WAV PCM/float, render timeline, Rubato FFT SRC, EQ/FFT/RMS y espacial | MP3/FLAC/OGG, edición avanzada, Opus, streaming, voz |
 | Image Engine | Tiles 128x128, Lanczos3, PNG/JPEG/WebP/GIF y fotogramas GIF/APNG | Paleta MapView, marcos, web URL segura |

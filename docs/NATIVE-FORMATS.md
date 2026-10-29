@@ -58,8 +58,8 @@ Los documentos se publican/leen en `AssetRepository` como `AssetKind::Other` par
 mantener compatible el contrato actual. Se añadirán tipos de recurso explícitos
 cuando el contrato Java/Rust esté sincronizado.
 
-**No existe aún soporte para exportar paquetes portables que incluyan todos los blobs**
-ni integración de los formatos desde el panel web. Nunca asumir que un archivo
+**Ya existe un importador/exportador portátil en Rust**; todavía no está disponible
+mediante el panel web ni a través de una API pública de transporte de archivos grandes. Nunca asumir que un archivo
 `.vsproject` por sí mismo contiene videos, imágenes o sonidos.
 
 
@@ -67,20 +67,20 @@ ni integración de los formatos desde el panel web. Nunca asumir que un archivo
 
 Los cinco formatos siguen siendo manifiestos JSON editables. Para mover un
 proyecto **con todos sus recursos** se genera bajo demanda un archivo de transporte
-separado, denominado de trabajo **\`.vsbundle\`**. Su contenedor interno es ZIP,
-pero no es un Minecraft Resource Pack ni sustituye \`.vsproject\`.
+separado, denominado de trabajo **`.vsbundle`**. Su contenedor interno es ZIP,
+pero no es un Minecraft Resource Pack ni sustituye `.vsproject`.
 
-\`vsmedia-formats::portable::export(repo, root_key)\` recorre \`.vsproject\`
+`vsmedia-formats::portable::export(repo, root_key)` recorre `.vsproject`
 y todos sus documentos nativos, incluidos subproyectos, y recopila los recursos
 pinneados por SHA-256 (audio, imágenes y datos de packs). El archivador guarda
-\`bundle.json\` y \`objects/<sha256>\`, deduplicando blobs idénticos.
+`bundle.json` y `objects/<sha256>`, deduplicando blobs idénticos.
 
-\`inspect(bytes)\` realiza una lectura acotada sin extraer rutas a disco: valida
+`inspect(bytes)` realiza una lectura acotada sin extraer rutas a disco: valida
 índice, rutas, número y tamaño de entradas, objetos presentes, SHA-256 y
 dependencias transitivas. **Los medios no se procesan ni ejecutan** en esta etapa.
 
-\`import(repo,bytes)\` exige el contrato \`AtomicAssetRepository\` que implementa
-\`SqliteAssetStore\`. Prevalida el archivo, lo importa en una sola transacción
+`import(repo,bytes)` exige el contrato `AtomicAssetRepository` que implementa
+`SqliteAssetStore`. Prevalida el archivo, lo importa en una sola transacción
 SQLite y rechaza colisiones de claves con hashes/tipos diferentes.
 Una segunda importación idéntica es idempotente y no aumenta las revisiones.
 
@@ -89,10 +89,26 @@ Una segunda importación idéntica es idempotente y no aumenta las revisiones.
 - No sobrescribir assets existentes ni aceptar rutas arbitrarias del archivo.
 - Sin descarga externa: el importador recibe bytes de un origen que la capa
   de administración tendrá que autorizar y limitar.
-- La importación portátil todavía **no está expuesta por IPC público**; antes de
-  conectarla al panel hay que añadir autorización transversal de namespaces.
+- La importación portátil todavía **no está expuesta por IPC público**: el protocolo
+  necesita un transporte para archivos grandes, validación de identidad y cuotas.
+- `portable::export_for` verifica permiso de lectura por productor para cada
+  recurso del proyecto, incluso cuando pertenece a otro namespace.
+- `portable::import_for` verifica permisos de escritura por namespace **dentro**
+  de la misma transacción SQLite que registra todos los recursos. Si falla
+  cualquier permiso, ningún registro del catálogo se publica.
+- `portable::export` e `import` sin productor siguen disponibles **exclusivamente
+  para procesos internos de mantenimiento confiables**. No son endpoints públicos.
 - No se entregan archivos ZIP/JAR/release finales en esta fase: el proyecto
   implementa únicamente los algoritmos y sus pruebas.
 
 El archivo de transporte es para intercambiar/copiar proyectos; la edición diaria
 continúa usando los cinco manifiestos nativos ligeros.
+
+## Versionado y migraciones
+
+El catálogo SQLite utiliza `PRAGMA user_version=1`, admite apertura y migración
+segura de catálogos anteriores que usan versión 0, y rechaza una versión futura
+desconocida para evitar daños accidentales. Los cinco formatos nativos utilizan
+`version: 1`: todavía **no hay una versión nativa anterior real** que migrar.
+Las futuras migraciones de manifiestos deben ser explícitas, con pruebas de ida y
+vuelta y sin perder referencias SHA-256.
