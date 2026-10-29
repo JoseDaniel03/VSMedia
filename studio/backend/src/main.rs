@@ -373,7 +373,10 @@ mod tests {
                     "sha256":record.sha256,"codec":"wav"}],
                 "clip_edits":[{"track_index":0,"clip_index":0,"source_in_ms":0,
                     "pan":1.0,"fade_in_ms":20,"fade_out_ms":20,
-                    "reversed":false,"muted":false,"gain_points":[],"filters":[]}]
+                    "reversed":false,"muted":false,
+                    "gain_points":[{"at_ms":0,"gain_db":-9.0},
+                        {"at_ms":100,"gain_db":0.0}],
+                    "filters":[{"type":"low_pass","frequency_hz":1500.0,"q":0.707}]}]
             }}
         });
         let app=router(db.clone());
@@ -390,7 +393,10 @@ mod tests {
         assert_eq!(decoded.sample_rate,48_000);
         assert!(decoded.frames.len()>4000);
         assert!(decoded.frames[0][1].abs()<0.01);
-        assert!(decoded.frames[2000][1].abs()>0.3);
+        assert!(decoded.frames[2000][1].abs()>0.15);
+        // A linearly rising volume automation should be measurable well
+        // before the fade-out begins, after the EQ has stabilized.
+        assert!(decoded.frames[3500][1].abs()>decoded.frames[1200][1].abs());
         assert!(decoded.frames[2000][0].abs()<0.001);
         drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
     }
