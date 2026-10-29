@@ -18,7 +18,7 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 | IPC v1 | Loopback autenticado, carga/descarga por bloques hasta 64 MiB y verificación SHA-256 | Reanudación, staging a disco, integración E2E y hardening |
 | Java API + Bridge | Interfaces, socket asíncrono, parser de descriptor CDN y seguimiento de packs | Bootstrap y persistencia de configuración |
 | Folia Delivery Adapter | Java 25/Paper 26.3, scheduler de jugador, estados, base/overlay y retiro de capas propias | Bootstrap en servidor, CDN y pruebas con Minecraft real |
-| Panel web | FullCanvas Leptos, VSAudio/VSMix con guardar/abrir proyectos del CAS, catálogo nativo y comandos optimistas transaccionales; VSRadio local | Regiones multipista avanzadas, autenticación, radio remota y conexión Folia |
+| Panel web | FullCanvas Leptos, VSAudio/VSMix con proyectos CAS, controles EQ/paneo/automatización, render WAV Rust por HTTP y comandos transaccionales; VSRadio local | Regiones multipista avanzadas, autenticación, radio remota y conexión Folia |
 | VSClient | No modificado | Voz y streaming, cliente Fabric |
 
 ## Pruebas sin empaquetar

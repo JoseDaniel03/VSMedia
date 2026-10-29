@@ -52,3 +52,21 @@ Content-Type: application/json
 {"expected_sha256":"<hash actual>","command":{"operation":"rename_track","index":0,"name":"Voz"}}
 ```
 El hash se devuelve cuando se guarda el proyecto o se lee su `AssetRecord`. La comparación contra el SHA-256 esperado se realiza en la misma transacción de escritura SQLite que publica la nueva revisión; dos editores no pueden pisarse silenciosamente. No hay edición colaborativa en vivo ni merge automático.
+
+## Render Rust conectado a la interfaz
+
+`GET /api/v1/audio/projects/{id}/render` genera un WAV PCM16 de 48 kHz a
+partir de un documento `.vsaudio` persistido. Usa el motor real de mezcla,
+EQ, filtros, volumen, paneo, fades, reversa y automatización, verificando
+previamente SHA-256 de los audios. Solo se admiten fuentes WAV: otros
+códecs devuelven HTTP 422 sin simular una conversión.
+
+Desde el catálogo de proyectos de VSAudio o VSMix, **▶ Motor** permite
+previsualizar el resultado de Rust y **↓ WAV** lo prepara para descargar.
+El panel VSAudio incorporó controles para paneo (-100% a +100%), filtros
+pasa-altos/pasa-bajos (20–18000 Hz, si son válidos para la frecuencia de
+muestreo) y ganancia final opcional. Esos ajustes se guardan/recuperan en
+`clip_edits`; la escucha rápida del original no procesa estos controles.
+
+El servicio sigue siendo solo local (127.0.0.1), sin publicación pública,
+streaming ni integración Minecraft activa. No hay render comprimido.

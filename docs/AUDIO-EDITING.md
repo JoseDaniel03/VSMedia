@@ -110,3 +110,29 @@ para el espectro de frecuencias y `rms()` para medidores.
 
 Esta implementación es el motor de edición **por código fuente y formato**;
 no representa un editor web ya disponible ni una versión final del plugin.
+
+## FullCanvas — controles conectados y render Rust
+
+El backend local Axum admite ahora `GET /api/v1/audio/projects/{id}/render`,
+que recupera un `.vsaudio` almacenado, verifica los hashes SHA-256 de sus
+fuentes, decodifica **WAV** con `vsmedia-audio`, procesa la línea de tiempo
+con `render_project_advanced` y devuelve un WAV PCM16 (48 kHz estéreo).
+La operación se ejecuta con `spawn_blocking` para no bloquear el executor
+HTTP; los límites de tamaño son los mismos del Audio Engine.
+
+Los botones **▶ Motor** y **↓ WAV** del catálogo VSAudio/VSMix llaman a este
+endpoint para reproducir o descargar exactamente el resultado renderizado.
+La reproducción del archivo original que ya existía en VSAudio sigue siendo
+una escucha rápida sin procesamiento completo; no debe confundirse con la
+previsualización Rust.
+
+VSAudio ahora expone visualmente **paneo**, filtros pasa-altos y pasa-bajos
+(`Q=0.707`) y **automatización lineal del volumen al final del clip**.
+Estos valores se guardan en `clip_edits` y se recuperan al abrir un proyecto
+anterior. No se modifican los archivos fuente.
+
+El render nativo solo admite fuentes WAV por el momento. Los proyectos con
+MP3/FLAC/OGG/Opus/WebM reciben HTTP 422 con explicación; sus archivos
+pueden seguir almacenándose y reproduciéndose localmente. La integración
+con el editor visual de múltiples regiones y el resto de los efectos
+permanece pendiente.
