@@ -102,6 +102,12 @@ pub fn validate_edits<'a>(
         {
             return Err(invalid("invalid fade, pan or automation settings"));
         }
+        // Generic filter validation uses the highest supported rate.
+        // The renderer repeats validation against the actual sample rate
+        // so an EQ above its Nyquist frequency is rejected on export.
+        for filter in &edit.filters {
+            StereoBiquad::new(192_000,*filter)?;
+        }
         let mut previous=None;
         for point in &edit.gain_points {
             db_to_linear(point.gain_db)?;
