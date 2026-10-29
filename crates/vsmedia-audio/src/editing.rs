@@ -79,6 +79,52 @@ pub fn validate_track_edits<'a>(
     Ok(map)
 }
 
+/// Commands the future Audio Studio can apply one at a time. All edits are
+/// staged and validated together; an invalid command leaves state unchanged.
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(tag="operation",rename_all="snake_case")]
+pub enum AudioEditCommand {
+    UpsertClip { edit:ClipEdit },
+    RemoveClip { track_index:usize,clip_index:usize },
+    UpsertTrack { edit:TrackEdit },
+    RemoveTrack { track_index:usize },
+}
+pub fn apply_edit_command(
+    project:&AudioProject,
+    clip_edits:&mut Vec<ClipEdit>,
+    track_edits:&mut Vec<TrackEdit>,
+    command:AudioEditCommand
+)->MediaResult<()> {
+    let mut clips=clip_edits.clone();
+    let mut tracks=track_edits.clone();
+    match command {
+        AudioEditCommand::UpsertClip {edit} => {
+            clips.retain(|existing| {
+                existing.track_index!=edit.track_index ||
+                existing.clip_index!=edit.clip_index
+            });
+            clips.push(edit);
+        }
+        AudioEditCommand::RemoveClip {track_index,clip_index} => {
+            clips.retain(|edit|
+                edit.track_index!=track_index || edit.clip_index!=clip_index
+            );
+        }
+        AudioEditCommand::UpsertTrack {edit} => {
+            tracks.retain(|existing|existing.track_index!=edit.track_index);
+            tracks.push(edit);
+        }
+        AudioEditCommand::RemoveTrack {track_index} => {
+            tracks.retain(|edit|edit.track_index!=track_index);
+        }
+    }
+    validate_edits(project,&clips)?;
+    validate_track_edits(project,&tracks)?;
+    *clip_edits=clips;
+    *track_edits=tracks;
+    Ok(())
+}
+
 fn invalid(message:&str)->MediaError {
     MediaError::InvalidInput(message.into())
 }
@@ -253,6 +299,42 @@ mod tests {
             gain_points:vec![GainPoint{at_ms:400,gain_db:0.0},GainPoint{at_ms:300,gain_db:1.0}],
             ..item
         }]).is_err());
+    }
+    #[test]
+    fn editor_commands_upsert_remove_and_rollback_invalid_changes() {
+        let project=project();
+        let mut clips=Vec::new();
+        let mut tracks=Vec::new();
+        let set=AudioEditCommand::UpsertClip{edit:ClipEdit{
+            source_in_ms:200,fade_in_ms:100,..ClipEdit::default()
+        }};
+        apply_edit_command(&project,&mut clips,&mut tracks,set).unwrap();
+        assert_eq!(clips.len(),1);
+        assert_eq!(clips[0].source_in_ms,200);
+        let invalid=AudioEditCommand::UpsertClip{edit:ClipEdit{
+            clip_index:77,source_in_ms:300,..ClipEdit::default()
+        }};
+        assert!(apply_edit_command(&project,&mut clips,&mut tracks,invalid).is_err());
+        assert_eq!(clips.len(),1);
+        assert_eq!(clips[0].source_in_ms,200);
+        let change=AudioEditCommand::UpsertClip{edit:ClipEdit {
+            pan:0.6,..ClipEdit::default()
+        }};
+        apply_edit_command(&project,&mut clips,&mut tracks,change).unwrap();
+        assert_eq!(clips.len(),1);
+        assert_eq!(clips[0].pan,0.6);
+        apply_edit_command(&project,&mut clips,&mut tracks,
+            AudioEditCommand::UpsertTrack {edit:TrackEdit {
+                gain_db:-3.0,..TrackEdit::default()
+            }}).unwrap();
+        assert_eq!(tracks.len(),1);
+        apply_edit_command(&project,&mut clips,&mut tracks,
+            AudioEditCommand::RemoveClip{track_index:0,clip_index:0}).unwrap();
+        assert!(clips.is_empty());
+        let json=serde_json::to_string(&AudioEditCommand::RemoveTrack{track_index:0}).unwrap();
+        let command=serde_json::from_str::<AudioEditCommand>(&json).unwrap();
+        apply_edit_command(&project,&mut clips,&mut tracks,command).unwrap();
+        assert!(tracks.is_empty());
     }
     #[test]
     fn reverse_and_fades_never_change_original_source() {

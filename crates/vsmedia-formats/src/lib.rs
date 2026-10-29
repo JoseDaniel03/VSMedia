@@ -84,6 +84,18 @@ pub struct VSAudio {
     pub track_edits: Vec<TrackEdit>,
 }
 
+impl VSAudio {
+    /// Apply one validated editor command without changing stored source media.
+    /// Invalid edits cannot partially mutate the native project manifest.
+    pub fn apply_edit(&mut self,command:vsmedia_audio::editing::AudioEditCommand)
+        -> MediaResult<()>
+    {
+        vsmedia_audio::editing::apply_edit_command(
+            &self.timeline,&mut self.clip_edits,&mut self.track_edits,command
+        )
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImageLayer {
