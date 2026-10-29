@@ -8,7 +8,7 @@
 - [x] Modelo multipista y mezclador PCM mono básico.
 - [x] Mosaicos RGBA 128×128; todavía no mapas Bukkit.
 - [x] Generador inicial de documentos de fuente JSON.
-- [ ] Validar compilación Rust y Java con CI.
+- [x] Validar compilación Rust (11 tests) y Java API con GitHub Actions.
 - [ ] Versionar esquema de protocolo IPC con pruebas de compatibilidad.
 
 ## Fase 1 — Core de producción
