@@ -379,6 +379,8 @@ fn sync_mix(tracks: RwSignal<Vec<Track>>) {
 fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,selected: RwSignal<String>,
              status: RwSignal<String>,tracks: RwSignal<Vec<Track>>,recording: RwSignal<bool>,page: RwSignal<Page>) -> impl IntoView {
     let selected_track=RwSignal::new(String::new());
+    let saved_projects=RwSignal::new(Vec::<studio_api::SavedAudioProject>::new());
+    let show_saved=RwSignal::new(false);
     let script=RwSignal::new(media::storage_get("vsmedia:dubbing:script"));
     let scroll_speed=RwSignal::new(50.0f64);
     let script_running=RwSignal::new(false);
@@ -392,6 +394,12 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                 tracks.update(|list|list.push(Track{id:id.clone(),name:format!("Pista {}",count),asset_id:String::new(),volume:1.,muted:false,solo:false,fade_in:0.,fade_out:0.}));
                 selected_track.set(id);
             }>"＋ Pista"</button>
+            <button id="mix-open-projects" type="button" class="toolbar-button"
+                on:click=move |_| {
+                    let active=!show_saved.get_untracked();
+                    show_saved.set(active);
+                    if active {studio_api::refresh_projects(saved_projects,status);}
+                }>"☁ Abrir mezcla"</button>
             <button id="mix-save-project" type="button" class="toolbar-button accent"
                 title="Publica los audios asignados a cada pista y guarda una sesión multipista .vsaudio"
                 on:click=move |_|studio_api::save_mix_project(
@@ -424,6 +432,31 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                 <button type="button" class="toolbar-button record-button active" on:click=move |_|recording::stop(recording,status)>"■ Detener grabación"</button>
             </Show>
         </div>
+        <Show when=move ||show_saved.get()>
+            <section class="saved-projects-panel" aria-label="Mezclas guardadas">
+                <div class="pane-title"><span>"PROYECTOS DE AUDIO EN VSCORE"</span>
+                    <button type="button" class="toolbar-button"
+                        on:click=move |_|studio_api::refresh_projects(saved_projects,status)>"↻ Actualizar"</button>
+                </div>
+                <div class="saved-projects-list">
+                    <Show when=move ||saved_projects.get().is_empty()>
+                        <p class="field-note">"Sin proyectos guardados. Guardá una mezcla o comprobá el backend."</p>
+                    </Show>
+                    <For each=move ||saved_projects.get() key=|entry|entry.name.clone() children=move |entry|{
+                        let name=entry.name.clone();
+                        view!{<div class="version-row">
+                            <strong>{entry.name.clone()}</strong>
+                            <small>{format!("Revisión {}",entry.revision)}</small>
+                            <button type="button" class="action-secondary" on:click=move |_|{
+                                studio_api::open_saved_mix(name.clone(),assets,tracks,status);
+                                selected_track.set(String::new());
+                                show_saved.set(false);
+                            }>"Abrir en VSMix"</button>
+                        </div>}
+                    }/>
+                </div>
+            </section>
+        </Show>
         <div class="studio-grid mix-grid">
             <div class="studio-library"><Library assets folders selected status /></div>
             <section class="mix-stage">
