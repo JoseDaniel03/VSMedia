@@ -56,7 +56,9 @@ async fn health() -> Json<Value> {
         "storage_connected":true,"plugin_connected":false}))
 }
 async fn capabilities() -> Json<Value> {
-    Json(json!({"api_version":"v1","audio_process":false,
+    Json(json!({"api_version":"v1","audio_process":true,
+        "audio_render_formats":["wav"],
+        "audio_render_output":"wav_pcm16_48000_stereo",
         "radio_broadcast":false,"live_monitoring":false,
         "asset_storage":true,"audio_projects":true,
         "accepted_formats":["wav","flac","mp3","ogg","webm","opus"]}))
