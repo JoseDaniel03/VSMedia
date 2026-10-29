@@ -71,7 +71,7 @@ por largos períodos. Configurar las rutas públicas solamente para estos ZIPs.
 **Seguridad:** HTTP público únicamente en el dominio dedicado de packs;
 VSMedia IPC permanece en 127.0.0.1 y no debe exponerse jamás a Internet.
 
-## Integración futura Folia / VSEngine
+## Adaptador Folia / VSEngine (fuente, sin plugin final)
 
 Cuando se incorpore el plugin, al entrar el jugador:
 - Comprobar el pack actual del servidor. No enviar repetidamente la misma versión.
@@ -87,8 +87,31 @@ valida URL y SHA-1 antes de construir la oferta del pack.
 ## Pendiente, no declarar implementado
 
 - No hay servidor HTTP público dentro del proceso Rust; se usa Caddy/Nginx/CDN.
-- No se ha conectado todavía la API de envío al jugador de Folia.
+- Ya existe un adaptador Java fuente para Folia 26.3 y un coordinador de ofertas por jugador, pero todavía no se ha registrado como plugin ejecutable ni probado con jugadores reales.
 - No hay patch/delta nativo de Resource Packs vanilla: una actualización con un
   SHA-1 diferente generalmente requiere bajar el ZIP completo actualizado.
 - No se han medido descargas reales, tiempos de aplicación o rendimiento CDN.
 - La gestión de datapacks sigue aplazada hasta la última etapa del proyecto.
+
+## Coordinación de entrega por jugador
+
+El módulo fuente Java `vsmedia-folia-adapter` usa Paper API 26.3, compila
+con Java 25 y se construye en CI sin empaquetar un plugin. Separa responsabilidades:
+`ResourcePackSessionCoordinator` gestiona estados por jugador y UUID;
+`FoliaResourcePackController` envía la oferta mediante
+`player.getScheduler().run(...)`, y escucha `PlayerResourcePackStatusEvent`
+y `PlayerQuitEvent`. La descarga real de bytes continúa delegada al
+servidor HTTPS estático o CDN. No se ejecuta E/S de archivos ni red
+sobre los hilos regionales.
+
+El cliente Java puede interpretar el JSON administrativo generado por el
+motor Rust mediante `ResourcePackDescriptorReader`, que valida hashes,
+tamaño y URL de publicación. No se debe dar por válida una publicación que
+todavía no esté accesible desde Internet.
+
+**Límites:** el estado se conserva solo durante la sesión y hasta 4096
+asociaciones jugador/pack; las respuestas de estados provienen del cliente y
+no prueban integridad criptográfica. Los eventos de versiones distintas que
+reutilizan UUID pueden ser ambiguos, porque el protocolo no incluye el SHA-1
+en los callbacks. El flujo completo debe probarse con una instancia Paper/Folia
+26.3 y clientes reales antes de activarlo en Virgoland.

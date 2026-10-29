@@ -16,13 +16,14 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 | Image Engine | Tiles 128x128, Lanczos3, PNG/JPEG/WebP/GIF y fotogramas GIF/APNG | Paleta MapView, marcos, web URL segura |
 | Font Engine | Generación JSON bitmap, asignador de glifos | Composición final y formatos |
 | IPC v1 | Loopback autenticado, carga/descarga por bloques hasta 64 MiB y verificación SHA-256 | Reanudación, staging a disco, integración E2E y hardening |
-| Java API + Bridge | Interfaces + cliente socket asíncrono | Adaptador plugin Folia/Bukkit y ciclo de vida |
+| Java API + Bridge | Interfaces, socket asíncrono, parser de descriptor CDN y seguimiento de packs | Bootstrap y persistencia de configuración |
+| Folia Delivery Adapter | Módulo Java 25 + Paper 26.3, scheduler de jugador y eventos | Habilitar en el plugin servidor y probar con Minecraft real |
 | Panel web | No iniciado | Studio de audio e imágenes, gestión |
 | VSClient | No modificado | Voz y streaming, cliente Fabric |
 
 ## Pruebas sin empaquetar
 
-Requiere Rust stable, JDK 21 y Maven.
+Requiere Rust stable, **JDK 25** y Maven para compilar todo, incluido el módulo de Paper 26.3. Las APIs base Java conservan compatibilidad de código fuente con Java 21.
 
 ```bash
 cargo test --workspace --all-targets
@@ -30,7 +31,7 @@ mvn -B -f java/pom.xml test
 ```
 
 Los checks no publican releases ni suben archivos compilados. Ver [formatos nativos](docs/NATIVE-FORMATS.md), [arquitectura](docs/ARCHITECTURE.md),
-[protocolo IPC](docs/IPC.md), [Resource Pack rápido](docs/RESOURCE-PACK-DELIVERY.md), [matemáticas](docs/MATH-AND-PERFORMANCE.md), [referencias técnicas](docs/RESEARCH.md) y [roadmap](docs/ROADMAP.md).
+[protocolo IPC](docs/IPC.md), [Resource Pack rápido](docs/RESOURCE-PACK-DELIVERY.md), [adaptador Folia](docs/FOLIA-RESOURCE-PACK.md), [matemáticas](docs/MATH-AND-PERFORMANCE.md), [referencias técnicas](docs/RESEARCH.md) y [roadmap](docs/ROADMAP.md).
 
 ## Seguridad y compatibilidad
 

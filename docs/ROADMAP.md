@@ -12,7 +12,8 @@
 - [x] IPC subidas y descargas de hasta 64 MiB en chunks de 256 KiB, sesiones autenticadas, cuota en memoria y verificación SHA-256.
 - [ ] Reanudación de transferencias, disco staging, rotación de credenciales y auditoría.
 - [ ] Persistencia de jobs, progreso, cancelación remota y métricas.
-- [ ] Plugin bridge real de Folia/CanvasMC con ciclo de vida y schedulers.
+- [x] Adaptador de entrega Resource Pack para Paper/Folia 26.3 como fuente Java 25 (sin plugin ejecutable), usando scheduler de entidad y eventos.
+- [ ] Bootstrap del plugin VSMedia, lifecycle y schedulers de los demás engines.
 - [ ] Prueba end-to-end real entre proceso Rust y puente Java (hoy existen pruebas Rust y contrato con servidor mock en Java).
 - [ ] Cuotas agregadas por productor, recolección de objetos huérfanos y respaldo DB.
 
@@ -59,6 +60,7 @@ ni distribución todavía. `vspack` actualmente representa Resource Packs.
 - [x] Publicación atómica en carpeta estática, sin sobrescribir packs ya publicados.
 - [x] ZIP determinista con Store para medios comprimidos y Deflate para JSON.
 - [x] CLI administrativa para preparar un pack para servidor estático HTTPS/CDN.
-- [ ] Conectar envío del pack al jugador con schedulers Folia y estado de aceptación.
+- [x] API de oferta por jugador con estado, supresión de reenvíos y eventos, y adaptador de scheduler Folia fuente.
+- [ ] Integrar y habilitar el adaptador en un plugin VSMedia real; pruebas con jugadores.
 - [ ] Medir consumo de ancho de banda, caché real y latencia desde distintos clientes.
 - [ ] Configurar alojamiento HTTPS/CDN y descarga pública; no hay servicio HTTP abierto por defecto.
