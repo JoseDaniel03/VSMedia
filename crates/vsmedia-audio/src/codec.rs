@@ -38,11 +38,12 @@ pub fn decode_wav(bytes: &[u8]) -> MediaResult<StereoAudio> {
         return Err(MediaError::InvalidInput("WAV format or duration unsupported".into()));
     }
     let channels = spec.channels as usize;
+    let frame_count = reader.duration();
     let mut output = Vec::with_capacity(reader.duration() as usize);
     match spec.sample_format {
         SampleFormat::Float if spec.bits_per_sample == 32 => {
             let mut samples = reader.samples::<f32>();
-            for _ in 0..reader.duration() {
+            for _ in 0..frame_count {
                 let l = samples.next().ok_or_else(|| MediaError::InvalidInput("short WAV".into()))?
                     .map_err(wav_error)?;
                 let r = if channels == 2 {
@@ -58,7 +59,7 @@ pub fn decode_wav(bytes: &[u8]) -> MediaResult<StereoAudio> {
         SampleFormat::Int if matches!(spec.bits_per_sample, 8|16|24|32) => {
             let scale = (1_i64 << (spec.bits_per_sample - 1)) as f32;
             let mut samples = reader.samples::<i32>();
-            for _ in 0..reader.duration() {
+            for _ in 0..frame_count {
                 let l = samples.next().ok_or_else(|| MediaError::InvalidInput("short WAV".into()))?
                     .map_err(wav_error)? as f32 / scale;
                 let r = if channels == 2 {
