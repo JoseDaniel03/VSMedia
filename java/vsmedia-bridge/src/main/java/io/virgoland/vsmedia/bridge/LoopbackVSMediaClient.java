@@ -12,11 +12,14 @@ import io.virgoland.vsmedia.api.NativeFormatsApi;
 import io.virgoland.vsmedia.api.PackReceipt;
 import io.virgoland.vsmedia.api.VSMediaApi;
 
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Locale;
@@ -90,14 +93,73 @@ public final class LoopbackVSMediaClient implements VSMediaApi, NativeFormatsApi
     @Override
     public CompletionStage<byte[]> read(AssetId id) {
         Objects.requireNonNull(id);
-        return async(() -> {
-            String encoded = send(command("read", id)).path("content_base64").asText();
-            byte[] bytes = Base64.getDecoder().decode(encoded);
-            if (bytes.length > MAX_INLINE) {
-                throw new VSMediaTransportException("too_large", "Response exceeds IPC inline limit");
+        return async(() -> readByChunks(id));
+    }
+
+    /**
+     * One verified source read on the Rust side, then bounded sequential
+     * chunks. The digest is checked again on Java to detect IPC corruption.
+     * This method is executed only on the client's bounded worker pool.
+     */
+    private byte[] readByChunks(AssetId id) {
+        final int maxAsset = 64 * 1024 * 1024;
+        final int chunkLimit = 256 * 1024;
+        JsonNode opened = send(command("begin_read", id));
+        if (!"download".equals(opened.path("kind").asText())) {
+            throw new VSMediaTransportException("protocol", "Expected download session");
+        }
+        long expectedSize = opened.path("size").asLong(-1);
+        String transferId = opened.path("transfer_id").asText();
+        String expectedSha = opened.path("sha256").asText();
+        if (expectedSize < 0 || expectedSize > maxAsset ||
+                transferId.isBlank() || expectedSha.length() != 64) {
+            throw new VSMediaTransportException("protocol", "Invalid download metadata");
+        }
+        byte[] expectedDigest;
+        try {
+            expectedDigest = HexFormat.of().parseHex(expectedSha);
+        } catch (IllegalArgumentException e) {
+            throw new VSMediaTransportException("protocol", "Invalid content checksum", e);
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream((int) expectedSize);
+            long offset = 0;
+            boolean finished;
+            do {
+                ObjectNode request = simpleCommand("read_chunk");
+                request.put("transfer_id", transferId);
+                request.put("offset", offset);
+                JsonNode response = send(request);
+                if (!"chunk".equals(response.path("kind").asText()) ||
+                        response.path("offset").asLong(-1) != offset) {
+                    throw new VSMediaTransportException("protocol", "Unexpected download chunk");
+                }
+                byte[] bytes = Base64.getDecoder().decode(response.path("content_base64").asText());
+                finished = response.path("done").asBoolean(false);
+                if (bytes.length > chunkLimit || (bytes.length == 0 && !finished) ||
+                        bytes.length > expectedSize - offset) {
+                    throw new VSMediaTransportException("protocol", "Invalid download chunk length");
+                }
+                digest.update(bytes);
+                buffer.writeBytes(bytes);
+                offset += bytes.length;
+            } while (!finished);
+            if (offset != expectedSize || !MessageDigest.isEqual(digest.digest(), expectedDigest)) {
+                throw new VSMediaTransportException("integrity", "Download size or SHA-256 mismatch");
             }
-            return bytes;
-        });
+            return buffer.toByteArray();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new VSMediaTransportException("internal", "SHA-256 unavailable", e);
+        } finally {
+            ObjectNode close = simpleCommand("end_read");
+            close.put("transfer_id", transferId);
+            try {
+                send(close);
+            } catch (VSMediaTransportException ignored) {
+                // The server also expires abandoned transfers after inactivity.
+            }
+        }
     }
     @Override
     public CompletionStage<AssetReceipt> publishNative(
@@ -194,7 +256,11 @@ public final class LoopbackVSMediaClient implements VSMediaApi, NativeFormatsApi
             if (size <= 0 || size > MAX_FRAME) {
                 throw new VSMediaTransportException("protocol", "Invalid response frame size");
             }
-            JsonNode response = json.readTree(input.readNBytes(size));
+            byte[] received = input.readNBytes(size);
+            if (received.length != size) {
+                throw new VSMediaTransportException("protocol", "Truncated response frame");
+            }
+            JsonNode response = json.readTree(received);
             if (response == null || response.path("version").asInt() != API_VERSION
                     || !requestId.equals(response.path("request_id").asText())) {
                 throw new VSMediaTransportException("protocol", "Response ID or version mismatch");
