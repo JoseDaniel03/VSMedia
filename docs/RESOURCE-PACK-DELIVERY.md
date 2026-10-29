@@ -91,7 +91,7 @@ valida URL y SHA-1 antes de construir la oferta del pack.
 - No hay patch/delta nativo de Resource Packs vanilla: una actualización con un
   SHA-1 diferente generalmente requiere bajar el ZIP completo actualizado.
 - No se han medido descargas reales, tiempos de aplicación o rendimiento CDN.
-- La distribución opcional en capas necesita crear packs base y overlays separados; todavía no existe particionado automático ni reconciliación de capas eliminadas.
+- La distribución en capas ya permite particionado por prefijos explícitos de assets; faltan reglas automáticas y reconciliación de capas eliminadas.
 - La gestión de datapacks sigue aplazada hasta la última etapa del proyecto.
 
 ## Coordinación de entrega por jugador
@@ -116,3 +116,33 @@ no prueban integridad criptográfica. Los eventos de versiones distintas que
 reutilizan UUID pueden ser ambiguos, porque el protocolo no incluye el SHA-1
 en los callbacks. El flujo completo debe probarse con una instancia Paper/Folia
 26.3 y clientes reales antes de activarlo en Virgoland.
+
+## Particionado del Resource Pack por capas
+
+Para reducir actualizaciones grandes, VSMedia puede separar un pack ya
+fusionado en un **base** relativamente estático y uno o varios **overlays**
+de cambios frecuentes. Se configura con reglas de prefijos de rutas:
+
+```rust
+let rules = vec![OverlayRule {
+    logical_id: "ui".into(),
+    prefixes: vec!["assets/virgoland/textures/ui/".into()],
+}];
+let descriptors = compile_and_stage_layers(
+    &merged, "virgoland", &rules, limits, public_dir, public_url
+)?;
+```
+
+El módulo coloca cada asset en una sola capa, conserva `pack.mcmeta` en
+cada una, valida los nombres y prioriza el prefijo más específico. Las
+capas vacías no se publican. El ejemplo no genera un paquete final para
+descargar al usuario: es código fuente de la futura canalización.
+
+El cliente Minecraft recibe estos packs como una pila mediante Paper
+`addResourcePack`. Si cambia únicamente la interfaz, el SHA-1 y la URL
+del pack base **permanecen iguales**; solo el overlay requiere descarga
+actualizada. Esta invariancia tiene pruebas automáticas de Rust.
+
+No hay aún selección automática del mejor particionado por frecuencia de
+cambios ni un servidor/CDN publicado desde VSMedia. La mejora de velocidad
+real dependerá del patrón de cambios y de la red del jugador.

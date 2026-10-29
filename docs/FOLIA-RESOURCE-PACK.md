@@ -46,8 +46,10 @@ mientras un overlay más pequeño cambia con frecuencia.
 
 El orden de la lista importa: primero el pack base y después las capas
 de mayor prioridad. El SDK limita la pila a ocho capas y rechaza UUIDs
-o IDs lógicos repetidos. No cambia automáticamente la distribución de
-recursos; el administrador debe generar dos packs compatibles por separado.
+o IDs lógicos repetidos. El Pack Engine ahora ofrece una separación **explícita por prefijos de assets**
+con `vsmedia-pack::layers::split_into_layers(...)`. Al publicar, se usa
+`delivery::compile_and_stage_layers(...)` para generar descriptores por capa.
+La selección automática óptima de capas continúa pendiente.
 
 Al modificar la composición de la pila (eliminar capas o cambiar el orden),
 el futuro bootstrap debe reconciliar/remover los packs que ya no correspondan.

@@ -11,7 +11,7 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 |---|---|---|
 | Core Rust | SQLite v1, SHA-256 + revisiones, ACL transaccionales, jobs acotados | Jobs persistentes, cuotas globales, backups |
 | Formatos nativos | .vsaudio / .vsimage / .vsstream / .vspack / .vsproject, versión 1, referencias SHA-256 | Migración futura de manifiestos, edición web, control de permisos end-to-end |
-| Pack Engine | ZIP determinista, compresión según formato, URLs inmutables SHA-256 y SHA-1 para caché Minecraft | Distribución HTTP real, CDN, adaptador Folia y medición de rendimiento |
+| Pack Engine | ZIP determinista, compresión por formato, publicación HTTPS inmutable, separación explícita base/overlays y hashes SHA-1 | HTTP/CDN operativo, selección inteligente de capas y métricas reales |
 | Audio Engine | Modelo multipista, WAV PCM/float, render timeline, Rubato FFT SRC, EQ/FFT/RMS y espacial | MP3/FLAC/OGG, edición avanzada, Opus, streaming, voz |
 | Image Engine | Tiles 128x128, Lanczos3, PNG/JPEG/WebP/GIF y fotogramas GIF/APNG | Paleta MapView, marcos, web URL segura |
 | Font Engine | Generación JSON bitmap, asignador de glifos | Composición final y formatos |
