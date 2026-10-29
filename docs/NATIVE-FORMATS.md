@@ -123,3 +123,15 @@ automatización y mute/solo sin sobrescribir los medios originales.
 La futura UI debe convertir a identificadores persistentes al permitir
 reordenar o eliminar pistas, para evitar desplazar referencias por índice.
 Detalles: `docs/AUDIO-EDITING.md`.
+
+## Identidades de clips y pistas
+
+El manifiesto `.vsaudio` admite `identities` como campo opcional con IDs
+estables para la línea de tiempo. Los archivos anteriores se leen sin
+requerir ese campo. Las sesiones `AudioStudio` generan los IDs únicamente
+cuando se edita el proyecto, y los conservan al reordenar pistas o clips.
+
+Los ajustes existentes todavía se representan mediante índices para
+mantener compatibilidad, pero las operaciones de reordenamiento actualizan
+esos índices y las nuevas acciones aceptan IDs. Se valida que cada ID sea
+único y corresponda a un elemento real.

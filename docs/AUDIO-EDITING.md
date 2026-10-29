@@ -61,6 +61,34 @@ Estas operaciones aún no realizan persistencia SQLite por sí solas;
 el servicio de proyectos guardará una nueva revisión mediante el
 `AssetRepository` después de aplicar los comandos.
 
+
+## Identificadores estables y operaciones de línea de tiempo
+
+El módulo `vsmedia-formats::audio_studio` incorpora `AudioStudio`, que trabaja
+sobre un documento `.vsaudio` en memoria. Se pueden ejecutar comandos
+`StudioCommand` para mover, insertar, borrar y reemplazar clips, además de
+mover, crear, eliminar o renombrar pistas.
+
+El documento conserva identidades `t-N` y `c-N` en su campo opcional
+`identities`; los proyectos anteriores se leen sin cambios y obtienen esos
+identificadores en su primera edición. Al reordenar, el motor actualiza de
+forma coordinada los índices de los ajustes existentes.
+
+`EditClipById` y `EditTrackById` permiten modificar parámetros utilizando
+el ID en lugar de un índice, incluso después de reorganizar elementos.
+Se rechazan referencias a IDs inexistentes y documentos con IDs duplicados
+o desalineados respecto de la línea de tiempo.
+
+`AudioStudio::apply(command)` prepara una copia del manifiesto, comprueba
+las reglas y solo confirma el cambio si es válido. `undo()` y `redo()`
+restauran **la línea de tiempo completa, los ajustes y los IDs**, sin copiar
+los medios PCM. El historial mantiene un máximo global de 64 estados y 16 MiB
+compartidos entre deshacer y rehacer. Un cambio nuevo borra el historial redo.
+Este historial es temporal; todavía no se guarda en SQLite.
+
+El módulo se puede usar desde la futura API del editor, pero todavía no
+contiene interfaz web, selección visual ni arrastre de clips.
+
 ## Formas de onda y vista previa
 
 `vsmedia-audio::analysis::waveform_peaks(frames,frames_per_bucket)`
@@ -72,7 +100,7 @@ para el espectro de frecuencias y `rms()` para medidores.
 ## Pendiente: editor visual completo
 
 - UI de línea de tiempo con arrastre, ajuste y preview audible inmediato.
-- IDs persistentes de clips/pistas y operaciones de edición undo/redo.
+- Persistir el historial entre sesiones y soportar edición simultánea con detección de conflictos.
 - Edición de regiones, crossfades configurables, pitch/time-stretch,
   compresor, limitador, reverb, filtros avanzados y gestión de buses.
 - Códecs comprimidos MP3/FLAC/OGG y exportación OGG nativa para Minecraft.
