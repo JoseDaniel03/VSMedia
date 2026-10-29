@@ -180,10 +180,57 @@ impl SqliteAssetStore {
     pub fn publish_for(
         &self, producer: &str, key: AssetKey, kind: AssetKind, bytes: &[u8],
     ) -> MediaResult<AssetRecord> {
-        self.publish_impl(Some(producer), key, kind, bytes)
+        self.publish_impl(Some(producer), key, kind, bytes, None)
     }
+    /// Optimistic publish with the hash check INSIDE the immediate transaction.
+    /// Two concurrent editors cannot both commit updates against the same hash.
+    pub fn compare_and_publish_for(
+        &self, producer:&str, key:AssetKey, kind:AssetKind,
+        bytes:&[u8], expected_sha256:&str,
+    ) -> MediaResult<AssetRecord> {
+        if expected_sha256.len()!=64 ||
+            !expected_sha256.bytes().all(|b|b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
+            return Err(MediaError::InvalidInput("invalid expected SHA-256".into()));
+        }
+        self.publish_impl(Some(producer),key,kind,bytes,Some(expected_sha256))
+    }
+
+    /// List a bounded subset of a namespace without loading blob bodies.
+    /// Used for the Studio project chooser; no global cross-producer listing.
+    pub fn list_assets(
+        &self,namespace:&str,prefix:&str,limit:usize
+    )->MediaResult<Vec<AssetRecord>> {
+        AssetKey::new(namespace,"validate")?;
+        if limit==0 || limit>256 || prefix.len()>256 ||
+            (!prefix.is_empty() &&
+                AssetKey::new(namespace,format!("{prefix}x")).is_err()) {
+            return Err(MediaError::InvalidInput("invalid asset list filters".into()));
+        }
+        let conn=self.database.lock().map_err(lock_error)?;
+        let mut statement=conn.prepare(
+            "SELECT name,kind,sha256,size,revision FROM assets
+             WHERE namespace=?1 AND substr(name,1,length(?2))=?2
+             ORDER BY name LIMIT ?3"
+        ).map_err(db_error)?;
+        let rows=statement.query_map(params![namespace,prefix,limit as i64],|row| {
+            Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,
+                row.get::<_,String>(2)?,row.get::<_,i64>(3)?,row.get::<_,i64>(4)?))
+        }).map_err(db_error)?;
+        let mut results=Vec::new();
+        for entry in rows {
+            let (name,kind,sha256,size,revision)=entry.map_err(db_error)?;
+            results.push(AssetRecord {
+                key:AssetKey::new(namespace,name)?,
+                kind:serde_json::from_str(&kind).map_err(|e|MediaError::Io(e.to_string()))?,
+                sha256,size:size as u64,revision:revision as u64,
+            });
+        }
+        Ok(results)
+    }
+
     fn publish_impl(
-        &self, producer: Option<&str>, key: AssetKey, kind: AssetKind, bytes: &[u8],
+        &self, producer: Option<&str>, key: AssetKey, kind: AssetKind,
+        bytes: &[u8],expected:Option<&str>,
     ) -> MediaResult<AssetRecord> {
         key.validated()?;
         if bytes.len() > self.max_asset_bytes {
@@ -205,13 +252,18 @@ impl SqliteAssetStore {
                 return Err(MediaError::InvalidInput("producer lacks publish permission".into()));
             }
         }
-        // Never persist unauthorized bytes. Transactional ACL checks happen first.
-        self.persist_blob(&hash, bytes)?;
-        let old: Option<i64> = tx.query_row(
-            "SELECT revision FROM assets WHERE namespace=?1 AND name=?2",
-            params![key.namespace, key.name], |r| r.get(0),
+        let old: Option<(i64,String)> = tx.query_row(
+            "SELECT revision,sha256 FROM assets WHERE namespace=?1 AND name=?2",
+            params![key.namespace,key.name],|r|Ok((r.get(0)?,r.get(1)?))
         ).optional().map_err(db_error)?;
-        let revision = old.unwrap_or(0).checked_add(1)
+        if let Some(expected)=expected {
+            if old.as_ref().map(|(_,hash)|hash.as_str())!=Some(expected) {
+                return Err(MediaError::Conflict("asset revision changed; reload before saving".into()));
+            }
+        }
+        // Never persist unauthorized or stale-editor bytes.
+        self.persist_blob(&hash, bytes)?;
+        let revision = old.map(|(revision,_)|revision).unwrap_or(0).checked_add(1)
             .ok_or_else(|| MediaError::Io("asset revision overflow".into()))?;
         tx.execute(
             "INSERT INTO asset_versions(namespace,name,revision,kind,sha256,size)
@@ -232,7 +284,7 @@ impl SqliteAssetStore {
 }
 impl AssetRepository for SqliteAssetStore {
     fn publish(&self, key: AssetKey, kind: AssetKind, bytes: &[u8]) -> MediaResult<AssetRecord> {
-        self.publish_impl(None, key, kind, bytes)
+        self.publish_impl(None, key, kind, bytes, None)
     }
     fn metadata(&self, key: &AssetKey) -> MediaResult<AssetRecord> {
         self.lookup(key)
@@ -285,6 +337,33 @@ mod tests {
         drop(db);
         let _ = fs::remove_dir_all(root);
     }
+    #[test]
+    fn project_listing_and_atomic_compare_and_publish_prevent_lost_updates() {
+        let dir=root();
+        let db=SqliteAssetStore::open(&dir).unwrap();
+        db.grant("studio","studio",true,true).unwrap();
+        let key=AssetKey::new("studio","projects/song").unwrap();
+        let original=db.publish_for("studio",key.clone(),AssetKind::Other,b"first").unwrap();
+        db.publish_for("studio",AssetKey::new("studio","audio/song").unwrap(),
+            AssetKind::Sound,b"audio").unwrap();
+        let projects=db.list_assets("studio","projects/",64).unwrap();
+        assert_eq!(projects.len(),1);
+        assert_eq!(projects[0].key,key);
+        assert!(db.list_assets("studio","projects/",0).is_err());
+        let latest=db.compare_and_publish_for("studio",key.clone(),AssetKind::Other,
+            b"second",&original.sha256).unwrap();
+        assert_eq!(latest.revision,2);
+        assert!(matches!(
+            db.compare_and_publish_for("studio",key.clone(),AssetKind::Other,
+                b"lost update",&original.sha256),
+            Err(MediaError::Conflict(_))
+        ));
+        assert_eq!(db.read(&key).unwrap(),b"second");
+        assert_eq!(db.history(&key).unwrap().len(),2);
+        drop(db);
+        let _=fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn catalog_upgrades_legacy_version_zero_and_rejects_unknown_future_versions() {
         let root=root();
