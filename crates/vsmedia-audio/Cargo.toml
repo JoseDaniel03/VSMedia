@@ -10,4 +10,4 @@ serde.workspace = true
 rustfft = "6.4"
 hound = "3.5.1"
 rubato = "5.0.1"
-audioadapter-buffers = "4.0"
+audioadapter-buffers = "5.2.0"
