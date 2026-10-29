@@ -18,7 +18,7 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 | IPC v1 | Loopback autenticado, carga/descarga por bloques hasta 64 MiB y verificación SHA-256 | Reanudación, staging a disco, integración E2E y hardening |
 | Java API + Bridge | Interfaces, socket asíncrono, parser de descriptor CDN y seguimiento de packs | Bootstrap y persistencia de configuración |
 | Folia Delivery Adapter | Java 25/Paper 26.3, scheduler de jugador, estados, base/overlay y retiro de capas propias | Bootstrap en servidor, CDN y pruebas con Minecraft real |
-| Panel web | Frontend FullCanvas Rust/Leptos importado, VSAudio, VSMix, VSRadio, biblioteca y puente Axum local conectado al CAS y proyectos nativos | Persistencia multipista, frontend producción, autenticación y conexión con Folia |
+| Panel web | FullCanvas Leptos, VSAudio/VSMix con guardar/abrir proyectos del CAS, catálogo nativo y comandos optimistas transaccionales; VSRadio local | Regiones multipista avanzadas, autenticación, radio remota y conexión Folia |
 | VSClient | No modificado | Voz y streaming, cliente Fabric |
 
 ## Pruebas sin empaquetar
@@ -28,7 +28,7 @@ Requiere Rust stable, **JDK 25** y Maven para compilar todo, incluido el módulo
 ```bash
 cargo test --workspace --all-targets
 mvn -B -f java/pom.xml test
-cargo check --manifest-path studio/backend/Cargo.toml
+cargo test --manifest-path studio/backend/Cargo.toml --all-targets
 cargo check --manifest-path studio/Cargo.toml --target wasm32-unknown-unknown
 ```
 
@@ -56,14 +56,17 @@ adaptadores de Minecraft. **La gestión de Data Packs queda aplazada para el
 La web de Leptos/WebAssembly aportada para VSMedia está integrada en
 `studio/`, con el puente Axum en `studio/backend/`. Mantiene el diseño
 FullCanvas claro, VSAudio, VSMix, VSRadio, importación local y carpetas.
-El botón **Guardar proyecto** de VSAudio publica audio en SQLite/CAS
-con SHA-256 y almacena su versión como documento `.vsaudio`.
+Los editores **VSAudio y VSMix** permiten guardar y recuperar proyectos
+`.vsaudio` del catálogo SQLite/CAS, con fuentes identificadas por SHA-256.
+Las ediciones por comandos del backend usan comparación optimista atómica
+para evitar sobrescrituras concurrentes.
 
 En CachyOS instalar Rust, el objetivo `wasm32-unknown-unknown` y Trunk;
 arrancar con `cd studio && ./start.sh`. La web queda en el puerto 3060
 y el bridge local en el 3061. El bridge HTTP **no se debe exponer a Internet**.
 
-Las herramientas de mezcla y radio conservan sus operaciones locales; los
-endpoints remotos de streaming/voz todavía no están implementados.
+El mezclador sigue reproduciendo localmente; guardar su estado en el Core no
+implica emisión a Minecraft. Los endpoints remotos de streaming/voz siguen
+sin implementar.
 Ver [integración Studio](docs/STUDIO-INTEGRATION.md) y
 [manual técnico](studio/docs/INTEGRATION.md).
