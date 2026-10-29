@@ -423,6 +423,7 @@ mod tests {
                 ]}
             ]},
             sources: vec![AssetRef { key: sample_key, sha256: sound.sha256, codec: MediaCodec::Wav }],
+            clip_edits:vec![],
         }));
         let saved_audio = publish(db, audio_key.clone(), &audio).unwrap();
         let project_key = AssetKey::new("demo", "projects/intro").unwrap();
@@ -532,7 +533,8 @@ mod tests {
                     AudioClip {asset:voice.clone(),start_ms:0,duration_ms:100,gain_db:0.0}
                 ]}
             ]},
-            sources:vec![AssetRef {key:voice,sha256:sound.sha256,codec:MediaCodec::Wav}]
+            sources:vec![AssetRef {key:voice,sha256:sound.sha256,codec:MediaCodec::Wav}],
+            clip_edits:vec![]
         }));
         let pinned=publish(&db,dialogue.clone(),&doc).unwrap();
         let root=AssetKey::new("public","projects/hello").unwrap();

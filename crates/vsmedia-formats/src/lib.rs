@@ -7,7 +7,7 @@ pub mod portable;
 use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use vsmedia_api::{AssetKey, AssetKind, AssetRecord, AssetRepository, MediaError, MediaResult};
-use vsmedia_audio::AudioProject;
+use vsmedia_audio::{AudioProject,editing::{ClipEdit,validate_edits}};
 
 pub const MAGIC: &str = "VSMEDIA";
 pub const SCHEMA_VERSION: u32 = 1;
@@ -76,6 +76,10 @@ pub struct VSAudio {
     /// Existing engine timeline format; edits are non-destructive.
     pub timeline: AudioProject,
     pub sources: Vec<AssetRef>,
+    /// Non-destructive edits indexed by track and clip. Legacy manifests
+    /// omit this field and remain byte-compatible on reserialization.
+    #[serde(default, skip_serializing_if="Vec::is_empty")]
+    pub clip_edits: Vec<ClipEdit>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -187,6 +191,7 @@ impl NativeDocument {
         match &self.payload {
             NativePayload::Audio(audio) => {
                 audio.timeline.validate()?;
+                validate_edits(&audio.timeline,&audio.clip_edits)?;
                 if audio.sources.len() > MAX_ITEMS { return Err(invalid("too many audio sources")); }
                 let mut resources = BTreeSet::new();
                 for source in &audio.sources {
@@ -401,7 +406,7 @@ mod tests {
     fn all_five_formats_round_trip_and_reject_wrong_extensions() {
         let samples = vec![
             NativePayload::Audio(VSAudio {
-                timeline:AudioProject { name:"intro".into(), tracks:vec![] }, sources:vec![]
+                timeline:AudioProject { name:"intro".into(), tracks:vec![] }, sources:vec![],clip_edits:vec![]
             }),
             NativePayload::Image(VSImage {
                 name:"Billboard".into(), canvas_width:128,canvas_height:256,
@@ -452,6 +457,15 @@ mod tests {
         assert!(doc.validate().is_err());
     }
     #[test]
+    fn original_vsaudio_json_remains_valid_without_clip_edits() {
+        let raw=br#"{"timeline":{"name":"test","tracks":[]},"sources":[]}"#;
+        let audio:VSAudio=serde_json::from_slice(raw).unwrap();
+        assert!(audio.clip_edits.is_empty());
+        let serialized=serde_json::to_value(&audio).unwrap();
+        assert!(serialized.get("clip_edits").is_none());
+        NativeDocument::new(NativePayload::Audio(audio)).validate().unwrap();
+    }
+    #[test]
     fn rejects_future_version_and_type_confusion() {
         let mut doc=NativeDocument::new(NativePayload::Project(project()));
         doc.version=2;
@@ -498,7 +512,7 @@ mod repository_tests {
         let repository=SqliteAssetStore::open(&path).unwrap();
         let sound_id=AssetKey::new("demo","scene/dialogue").unwrap();
         let audio=NativeDocument::new(NativePayload::Audio(VSAudio {
-            timeline:AudioProject {name:"First".into(),tracks:vec![]}, sources:vec![]
+            timeline:AudioProject {name:"First".into(),tracks:vec![]}, sources:vec![],clip_edits:vec![]
         }));
         let first=publish(&repository,sound_id.clone(),&audio).unwrap();
         let project=VSProject {
@@ -517,7 +531,7 @@ mod repository_tests {
         publish(&repository,id.clone(),&envelope).unwrap();
         assert_eq!(load(&repository,&id,"vsproject").unwrap().kind(),NativeKind::Project);
         let updated=NativeDocument::new(NativePayload::Audio(VSAudio {
-            timeline:AudioProject {name:"Replaced".into(),tracks:vec![]},sources:vec![]
+            timeline:AudioProject {name:"Replaced".into(),tracks:vec![]},sources:vec![],clip_edits:vec![]
         }));
         publish(&repository,sound_id,&updated).unwrap();
         assert!(verify_links(&repository,&project).is_err());
