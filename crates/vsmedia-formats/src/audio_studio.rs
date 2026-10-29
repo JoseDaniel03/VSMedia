@@ -239,8 +239,8 @@ impl AudioStudio {
             return Err(invalid("audio manifest exceeds 2 MiB"));
         }
         self.undo.push_back(std::mem::replace(&mut self.document,candidate));
-        trim_history(&mut self.undo,&mut self.redo);
         self.redo.clear();
+        trim_history(&mut self.undo,&mut self.redo);
         Ok(())
     }
     pub fn undo(&mut self)->bool {
@@ -253,7 +253,7 @@ impl AudioStudio {
     pub fn redo(&mut self)->bool {
         if let Some(next)=self.redo.pop_back() {
             self.undo.push_back(std::mem::replace(&mut self.document,next));
-            trim(&mut self.undo);
+            trim_history(&mut self.undo,&mut self.redo);
             true
         } else {false}
     }
