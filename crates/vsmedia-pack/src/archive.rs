@@ -105,11 +105,17 @@ pub fn export_zip(output: &MergeOutput, limits: ArchiveLimits) -> MediaResult<Ve
     }
     let writer = Cursor::new(Vec::new());
     let mut zip = ZipWriter::new(writer);
-    let options = SimpleFileOptions::default()
-        .compression_method(CompressionMethod::Deflated)
-        .last_modified_time(zip::DateTime::default());
-    // BTreeMap ensures deterministic ordering and stable ZIP output.
+    // Keep already-compressed PNG, JPEG, WebP and OGG bytes stored rather than
+    // wasting CPU attempting to compress them again. JSON still uses DEFLATE.
     for (path, data) in &output.files {
+        let compression = if already_compressed(path) {
+            CompressionMethod::Stored
+        } else {
+            CompressionMethod::Deflated
+        };
+        let options = SimpleFileOptions::default()
+            .compression_method(compression)
+            .last_modified_time(zip::DateTime::default());
         zip.start_file(path, options).map_err(zip_error)?;
         zip.write_all(data).map_err(io_error)?;
     }
@@ -118,6 +124,11 @@ pub fn export_zip(output: &MergeOutput, limits: ArchiveLimits) -> MediaResult<Ve
         return Err(MediaError::InvalidInput("compressed pack exceeds quota".into()));
     }
     Ok(archive)
+}
+fn already_compressed(path: &str) -> bool {
+    matches!(path.rsplit('.').next().unwrap_or_default().to_ascii_lowercase().as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "ogg" | "mp3" |
+        "flac" | "webm" | "mp4" | "zip")
 }
 fn io_error(e: std::io::Error) -> MediaError { MediaError::Io(e.to_string()) }
 fn zip_error(e: zip::result::ZipError) -> MediaError { MediaError::InvalidInput(e.to_string()) }
@@ -149,6 +160,23 @@ mod tests {
         assert_eq!(one, two);
         let imported = import_zip(&one, "demo", 1, ArchiveLimits::default()).unwrap();
         assert_eq!(merge(&imported).unwrap().files, output.files);
+    }
+    #[test]
+    fn chooses_stored_for_compressed_media_and_deflate_for_json() {
+        let files = BTreeMap::from([
+            ("pack.mcmeta".into(), br#"{"pack":{"description":"Test"}}"#.to_vec()),
+            ("assets/demo/textures/a.png".into(), vec![0x89,0x50,0x4e,0x47]),
+            ("assets/demo/sounds/a.ogg".into(), vec![79,103,103,83]),
+            ("assets/demo/models/a.json".into(), br#"{"parent":"item/generated"}"#.to_vec()),
+        ]);
+        let data=export_zip(&MergeOutput { files, conflicts:vec![] },ArchiveLimits::default()).unwrap();
+        let mut zip=ZipArchive::new(Cursor::new(data)).unwrap();
+        assert_eq!(zip.by_name("assets/demo/textures/a.png").unwrap().compression(),
+            CompressionMethod::Stored);
+        assert_eq!(zip.by_name("assets/demo/sounds/a.ogg").unwrap().compression(),
+            CompressionMethod::Stored);
+        assert_eq!(zip.by_name("assets/demo/models/a.json").unwrap().compression(),
+            CompressionMethod::Deflated);
     }
     #[test]
     fn rejects_unsafe_pack_paths() {
