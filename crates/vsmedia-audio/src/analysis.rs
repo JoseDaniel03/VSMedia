@@ -39,6 +39,50 @@ pub fn rms(samples:&[f32]) -> MediaResult<f32> {
     let energy=samples.iter().map(|v|f64::from(*v)*f64::from(*v)).sum::<f64>();
     Ok((energy/samples.len() as f64).sqrt() as f32)
 }
+/// Compact stereo peak/RMS values for a zoomable waveform timeline.
+/// Each bucket can represent hundreds of original frames without sending PCM
+/// through a web panel or allocating one point per sample.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WaveformPeak {
+    pub left_min:f32,
+    pub left_max:f32,
+    pub right_min:f32,
+    pub right_max:f32,
+    pub rms:f32,
+}
+pub fn waveform_peaks(
+    frames:&[[f32;2]], frames_per_bucket:usize,
+) -> MediaResult<Vec<WaveformPeak>> {
+    const MAX_SOURCE_FRAMES:usize=5_000_000;
+    const MAX_BUCKETS:usize=8192;
+    if frames_per_bucket==0 || frames.len()>MAX_SOURCE_FRAMES ||
+        frames.len().div_ceil(frames_per_bucket)>MAX_BUCKETS ||
+        frames.iter().any(|f|f.iter().any(|v|!v.is_finite()))
+    {
+        return Err(MediaError::InvalidInput("invalid waveform preview size or PCM".into()));
+    }
+    let mut output=Vec::with_capacity(frames.len().div_ceil(frames_per_bucket));
+    for bucket in frames.chunks(frames_per_bucket) {
+        let mut left_min=f32::INFINITY;
+        let mut left_max=f32::NEG_INFINITY;
+        let mut right_min=f32::INFINITY;
+        let mut right_max=f32::NEG_INFINITY;
+        let mut energy=0.0f64;
+        for [left,right] in bucket.iter().copied() {
+            left_min=left_min.min(left);
+            left_max=left_max.max(left);
+            right_min=right_min.min(right);
+            right_max=right_max.max(right);
+            energy+=f64::from(left)*f64::from(left)+f64::from(right)*f64::from(right);
+        }
+        output.push(WaveformPeak {
+            left_min,left_max,right_min,right_max,
+            rms:(energy/(bucket.len()*2) as f64).sqrt() as f32,
+        });
+    }
+    Ok(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,6 +93,21 @@ mod tests {
         let peak=bins.iter().enumerate().max_by(|a,b|a.1.magnitude.total_cmp(&b.1.magnitude)).unwrap().0;
         assert_eq!(bins[peak].frequency_hz,1000.0);
         assert!((bins[peak].magnitude-1.0).abs()<0.02);
+    }
+    #[test]
+    fn waveform_preview_keeps_stereo_extrema_and_level() {
+        let frames=[[0.25,-0.5],[-0.75,0.25],[0.1,0.4],[0.2,0.2],[0.8,-0.1]];
+        let buckets=waveform_peaks(&frames,2).unwrap();
+        assert_eq!(buckets.len(),3);
+        assert_eq!(buckets[0].left_min,-0.75);
+        assert_eq!(buckets[0].left_max,0.25);
+        assert_eq!(buckets[0].right_min,-0.5);
+        assert_eq!(buckets[0].right_max,0.25);
+        assert!((buckets[2].rms-((0.64+0.01)/2.0f32).sqrt()).abs()<1e-6);
+        assert!(waveform_peaks(&frames,0).is_err());
+        assert!(waveform_peaks(&[[f32::NAN,0.0]],1).is_err());
+        assert!(waveform_peaks(&vec![[0.0,0.0];9000],1).is_err());
+        assert!(waveform_peaks(&[],16).unwrap().is_empty());
     }
     #[test]
     fn rms_of_constant_signal_and_nan_validation() {
