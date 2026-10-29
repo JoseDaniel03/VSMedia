@@ -15,3 +15,6 @@ tower-http = { version = "0.6", features = ["cors"] }
 vsmedia-api = { path = "../../crates/vsmedia-api" }
 vsmedia-core = { path = "../../crates/vsmedia-core" }
 vsmedia-formats = { path = "../../crates/vsmedia-formats" }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

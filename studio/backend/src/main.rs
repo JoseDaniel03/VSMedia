@@ -210,3 +210,99 @@ async fn main()->Result<(),Box<dyn std::error::Error>> {
     axum::serve(listener,router(db)).await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::{Body,to_bytes},http::Request};
+    use std::sync::atomic::{AtomicUsize,Ordering};
+    use tower::ServiceExt;
+    static NEXT:AtomicUsize=AtomicUsize::new(0);
+    fn store()->(Store,PathBuf) {
+        let dir=std::env::temp_dir().join(format!("vsmedia-studio-http-{}-{}",
+            std::process::id(),NEXT.fetch_add(1,Ordering::Relaxed)));
+        let store=Arc::new(SqliteAssetStore::open(&dir).unwrap());
+        store.grant("studio","studio",true,true).unwrap();
+        (store,dir)
+    }
+    fn request(method:Method,uri:&str,body:Vec<u8>)->Request<Body> {
+        Request::builder().method(method).uri(uri)
+            .header(header::ORIGIN,"http://127.0.0.1:3060")
+            .header(header::CONTENT_TYPE,"application/json")
+            .body(Body::from(body)).unwrap()
+    }
+    #[tokio::test]
+    async fn catalog_retrieval_and_editor_commands_work_end_to_end() {
+        let (db,dir)=store();
+        let sound_key=AssetKey::new("studio","audio/fixture").unwrap();
+        let sound=db.publish_for("studio",sound_key.clone(),
+            AssetKind::Sound,b"example PCM bytes").unwrap();
+        let payload=json!({"magic":"VSMEDIA","version":1,
+            "payload":{"kind":"audio","data":{
+                "timeline":{"name":"Fixture","tracks":[
+                    {"name":"Voz","muted":false,"clips":[
+                        {"asset":sound_key,"start_ms":0,"duration_ms":1000,"gain_db":0}
+                    ]}
+                ]},
+                "sources":[{"key":{"namespace":"studio","name":"audio/fixture"},
+                    "sha256":sound.sha256,"codec":"wav"}]
+            }}
+        });
+        let app=router(db.clone());
+        let created=app.clone().oneshot(request(Method::POST,
+            "/api/v1/audio/projects/fixture",serde_json::to_vec(&payload).unwrap()
+        )).await.unwrap();
+        assert_eq!(created.status(),StatusCode::OK);
+        let initial:Value=serde_json::from_slice(&to_bytes(created.into_body(),2*1024*1024)
+            .await.unwrap()).unwrap();
+        let hash=initial["sha256"].as_str().unwrap();
+        let list=app.clone().oneshot(request(Method::GET,"/api/v1/audio/projects",vec![]))
+            .await.unwrap();
+        assert_eq!(list.status(),StatusCode::OK);
+        let rows:Value=serde_json::from_slice(&to_bytes(list.into_body(),2*1024*1024)
+            .await.unwrap()).unwrap();
+        assert_eq!(rows.as_array().unwrap().len(),1);
+        assert_eq!(rows[0]["key"]["name"],"projects/fixture");
+        let command=json!({"expected_sha256":hash,
+            "command":{"operation":"rename_track","index":0,"name":"Nueva voz"}});
+        let updated=app.clone().oneshot(request(Method::POST,
+            "/api/v1/audio/projects/fixture/commands",serde_json::to_vec(&command).unwrap()
+        )).await.unwrap();
+        assert_eq!(updated.status(),StatusCode::OK);
+        let stale=app.clone().oneshot(request(Method::POST,
+            "/api/v1/audio/projects/fixture/commands",serde_json::to_vec(&command).unwrap()
+        )).await.unwrap();
+        assert_eq!(stale.status(),StatusCode::CONFLICT);
+        let metadata=app.clone().oneshot(request(Method::GET,
+            "/api/v1/audio/projects/fixture/metadata",vec![]
+        )).await.unwrap();
+        assert_eq!(metadata.status(),StatusCode::OK);
+        let restored=app.clone().oneshot(request(Method::GET,
+            "/api/v1/audio/projects/fixture",vec![]
+        )).await.unwrap();
+        assert_eq!(restored.status(),StatusCode::OK);
+        let native:Value=serde_json::from_slice(&to_bytes(restored.into_body(),2*1024*1024)
+            .await.unwrap()).unwrap();
+        assert_eq!(native["payload"]["data"]["timeline"]["tracks"][0]["name"],
+            "Nueva voz");
+        let audio=app.clone().oneshot(request(Method::GET,
+            "/api/v1/assets/fixture",vec![]
+        )).await.unwrap();
+        assert_eq!(audio.status(),StatusCode::OK);
+        drop(app);
+        drop(db);
+        let _=std::fs::remove_dir_all(dir);
+    }
+    #[tokio::test]
+    async fn studio_local_writes_reject_external_origins() {
+        let (db,dir)=store();
+        let invalid=Request::builder().method(Method::POST)
+            .uri("/api/v1/assets/a")
+            .header(header::ORIGIN,"http://malicious.example")
+            .body(Body::from("data")).unwrap();
+        let result=router(db.clone()).oneshot(invalid).await.unwrap();
+        assert_eq!(result.status(),StatusCode::FORBIDDEN);
+        drop(db);
+        let _=std::fs::remove_dir_all(dir);
+    }
+}
