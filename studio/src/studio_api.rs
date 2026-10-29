@@ -120,3 +120,144 @@ pub fn save_audio_project(
         status.set(message);
     });
 }
+
+#[derive(Clone,Debug,PartialEq,Eq)]
+pub struct SavedAudioProject {
+    pub name:String,
+    pub revision:u64,
+    pub sha256:String,
+}
+pub fn refresh_projects(projects:RwSignal<Vec<SavedAudioProject>>,status:RwSignal<String>) {
+    status.set("Consultando los proyectos de VSCore…".into());
+    spawn_local(async move {
+        match request("/audio/projects","GET",JsValue::NULL,"").await {
+            Ok(data)=>{
+                let Some(rows)=data.as_array() else {
+                    status.set("VSCore devolvió una lista inválida.".into());
+                    return;
+                };
+                let entries=rows.iter().filter_map(|record|{
+                    let name=record.pointer("/key/name")?.as_str()?.strip_prefix("projects/")?;
+                    let revision=record.get("revision")?.as_u64()?;
+                    let hash=record.get("sha256")?.as_str()?;
+                    Some(SavedAudioProject {
+                        name:name.to_owned(),revision,sha256:hash.to_owned()
+                    })
+                }).collect::<Vec<_>>();
+                status.set(format!("{} proyectos de audio disponibles en VSCore.",entries.len()));
+                projects.set(entries);
+            }
+            Err(error)=>status.set(format!("No se pudo consultar VSCore: {error}")),
+        }
+    });
+}
+async fn fetch_source_blob(name:&str)->Result<web_sys::Blob,String> {
+    let req=Request::new_with_str_and_init(
+        &format!("{BASE}/assets/{name}"),&RequestInit::new()
+    ).map_err(|_|"No se pudo crear la solicitud de audio")?;
+    let window=web_sys::window().ok_or("No hay ventana")?;
+    let value=JsFuture::from(window.fetch_with_request(&req)).await
+        .map_err(|_|"No se pudo descargar el archivo desde VSCore")?;
+    let response:Response=value.dyn_into().map_err(|_|"Respuesta de audio inválida")?;
+    if !response.ok(){return Err("VSCore no encontró el audio del proyecto".into());}
+    let object=JsFuture::from(response.blob()
+        .map_err(|_|"No se pudo preparar el archivo de audio")?).await
+        .map_err(|_|"Falló la descarga de audio")?;
+    object.dyn_into().map_err(|_|"El servidor no devolvió un archivo válido".into())
+}
+async fn load_saved(name:&str,assets:RwSignal<Vec<AudioAsset>>,
+    selected:RwSignal<String>,versions:RwSignal<Vec<Version>>,
+    current_version:RwSignal<String>,status:RwSignal<String>
+)->Result<String,String> {
+    if name.is_empty() || !name.bytes().all(|b|
+        b.is_ascii_alphanumeric() || matches!(b,b'-'|b'_'|b'.')) {
+        return Err("Identificador de proyecto inválido".into());
+    }
+    let doc=request(&format!("/audio/projects/{name}"),"GET",JsValue::NULL,"").await?;
+    if doc.pointer("/payload/kind").and_then(Value::as_str)!=Some("audio") {
+        return Err("El proyecto guardado no es de tipo VSAudio".into());
+    }
+    let timeline=doc.pointer("/payload/data/timeline")
+        .ok_or("Proyecto sin línea de tiempo")?;
+    let tracks=timeline.get("tracks").and_then(Value::as_array)
+        .ok_or("Estructura de pistas inválida")?;
+    if tracks.len()!=1 {
+        return Err("Este proyecto tiene varias pistas: se abrirá desde VSMix cuando esté conectado.".into());
+    }
+    let clips=tracks[0].get("clips").and_then(Value::as_array)
+        .ok_or("Proyecto sin clips")?;
+    if clips.len()!=1 {return Err("La edición de varios clips corresponde a VSMix.".into());}
+    let clip=&clips[0];
+    let asset_key=clip.get("asset").ok_or("Clip sin audio de origen")?;
+    if asset_key.get("namespace").and_then(Value::as_str)!=Some("studio") {
+        return Err("El proyecto referencia un namespace ajeno a Studio".into());
+    }
+    let asset_name=asset_key.get("name").and_then(Value::as_str)
+        .and_then(|s|s.strip_prefix("audio/"))
+        .ok_or("El clip referencia un audio inválido")?;
+    if !asset_name.bytes().all(|b|
+        b.is_ascii_alphanumeric() || matches!(b,b'-'|b'_'|b'.')) {
+        return Err("El identificador del audio es inválido".into());
+    }
+    let expected_hash=doc.pointer("/payload/data/sources")
+        .and_then(Value::as_array)
+        .and_then(|sources|sources.iter().find(|source|
+            source.pointer("/key/name").and_then(Value::as_str)==
+                Some(&format!("audio/{asset_name}") as &str)))
+        .and_then(|source|source.get("sha256")).and_then(Value::as_str)
+        .ok_or("El proyecto no contiene la referencia SHA-256 del audio")?;
+    let metadata=request(&format!("/assets/{asset_name}/metadata"),"GET",
+        JsValue::NULL,"").await?;
+    if metadata.get("sha256").and_then(Value::as_str)!=Some(expected_hash) {
+        return Err("El archivo fuente cambió desde que se guardó el proyecto.".into());
+    }
+    let blob=fetch_source_blob(asset_name).await?;
+    if blob.size()<=0. || blob.size()>16.*1024.*1024. {
+        return Err("El audio supera el límite de importación local (16 MiB).".into());
+    }
+    let name_hint=timeline.get("name").and_then(Value::as_str)
+        .unwrap_or("Proyecto recuperado").to_owned();
+    let source_in=doc.pointer("/payload/data/clip_edits/0/source_in_ms")
+        .and_then(Value::as_u64).unwrap_or(0) as f64/1000.;
+    let length=clip.get("duration_ms").and_then(Value::as_u64)
+        .ok_or("Duración del clip inválida")? as f64/1000.;
+    let edit=doc.pointer("/payload/data/clip_edits/0");
+    let gain_db=edit.and_then(|v|v.pointer("/gain_points/0/gain_db"))
+        .and_then(Value::as_f64).unwrap_or(0.);
+    let fade_in=edit.and_then(|v|v.get("fade_in_ms"))
+        .and_then(Value::as_u64).unwrap_or(0) as f64/1000.;
+    let fade_out=edit.and_then(|v|v.get("fade_out_ms"))
+        .and_then(Value::as_u64).unwrap_or(0) as f64/1000.;
+    let reversed=edit.and_then(|v|v.get("reversed"))
+        .and_then(Value::as_bool).unwrap_or(false);
+    let source_codec=doc.pointer("/payload/data/sources/0/codec")
+        .and_then(Value::as_str).unwrap_or("wav");
+    let extension=match source_codec {
+        "wav"=>"wav","flac"=>"flac","mp3"=>"mp3",
+        "ogg_vorbis"=>"ogg","opus"=>"opus","webm"=>"webm",_=>"wav"
+    };
+    let id=media::add_blob(blob,format!("{name_hint}.{extension}"),assets,status)
+        .ok_or("No fue posible abrir el audio recuperado")?;
+    let version=Version {
+        id:media::uid("version"),asset_id:id.clone(),label:name_hint,
+        start:source_in,end:source_in+length,
+        gain:10_f64.powf(gain_db/20.).clamp(0.,2.),
+        fade_in,fade_out,reversed,
+    };
+    selected.set(id);
+    versions.update(|all|all.push(version.clone()));
+    current_version.set(version.id);
+    Ok(format!("Proyecto {name} recuperado. El editor abrió una copia local; Guardar crea una nueva revisión de proyecto independiente."))
+}
+pub fn open_saved_project(name:String,assets:RwSignal<Vec<AudioAsset>>,
+    selected:RwSignal<String>,versions:RwSignal<Vec<Version>>,
+    current_version:RwSignal<String>,status:RwSignal<String>
+) {
+    status.set(format!("Abriendo {name} desde VSCore…"));
+    spawn_local(async move {
+        let msg=match load_saved(&name,assets,selected,versions,current_version,status).await {
+            Ok(ok)=>ok,Err(error)=>format!("No se pudo abrir {name}: {error}")
+        };
+        status.set(msg);
+    });
+}

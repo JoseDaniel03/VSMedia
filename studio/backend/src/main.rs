@@ -89,6 +89,13 @@ async fn list_audio_projects(
         .filter(|record|record.kind==AssetKind::Other)
         .collect()))
 }
+async fn get_asset_metadata(
+    State(store):State<Store>,Path(name):Path<String>
+)->Result<Json<AssetRecord>,ApiError> {
+    let record=store.metadata(&key(format!("audio/{name}"))?).map_err(not_found)?;
+    if record.kind!=AssetKind::Sound {return Err(bad("Not an audio asset"));}
+    Ok(Json(record))
+}
 async fn get_audio_metadata(
     State(store):State<Store>,Path(name):Path<String>
 )->Result<Json<AssetRecord>,ApiError> {
@@ -179,6 +186,7 @@ fn router(store:Store)->Router {
     Router::new()
         .route("/api/v1/health",get(health))
         .route("/api/v1/capabilities",get(capabilities))
+        .route("/api/v1/assets/{name}/metadata",get(get_asset_metadata))
         .route("/api/v1/assets/{name}",post(put_asset).get(get_asset))
         .route("/api/v1/audio/projects",get(list_audio_projects))
         .route("/api/v1/audio/projects/{name}/metadata",get(get_audio_metadata))
