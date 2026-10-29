@@ -137,6 +137,44 @@ mod tests {
         assert!((output.frames[800][0]-0.5).abs()<0.0001);
     }
     #[test]
+    fn edited_render_trims_source_and_applies_pan_and_fades_without_modifying_source() {
+        let p=project();
+        let key=AssetKey::new("demo","dialogue/hello").unwrap();
+        let original=StereoAudio {sample_rate:8_000,
+            frames:(0..1_600).map(|i|[i as f32 / 1600.0,0.5]).collect()};
+        let sources=HashMap::from([(key,original.clone())]);
+        let edit=ClipEdit {
+            source_in_ms:50,pan:-1.0,fade_in_ms:50,fade_out_ms:50,
+            ..ClipEdit::default()
+        };
+        let output=render_project_edited(&p,&sources,8_000,&[edit]).unwrap();
+        assert_eq!(output.frames.len(),1_200);
+        assert_eq!(output.frames[0],[0.0,0.0]);
+        assert!((output.frames[400][0]-0.5).abs()<0.0001);
+        assert_eq!(output.frames[400][1],0.0);
+        assert_eq!(output.frames[1199],[0.0,0.0]);
+        assert_eq!(sources.values().next().unwrap().frames, original.frames);
+    }
+
+    #[test]
+    fn edited_render_supports_muting_and_reverse_without_changing_legacy_path() {
+        let p=project();
+        let key=AssetKey::new("demo","dialogue/hello").unwrap();
+        let source=StereoAudio {sample_rate:8_000,frames:vec![[0.25,0.25];1600]};
+        let sources=HashMap::from([(key,source)]);
+        let mut edit=ClipEdit {muted:true,..ClipEdit::default()};
+        assert!(render_project_edited(&p,&sources,8_000,&[edit.clone()])
+            .unwrap().frames.is_empty());
+        edit.muted=false;
+        edit.reversed=true;
+        let rendered=render_project_edited(&p,&sources,8_000,&[edit]).unwrap();
+        assert_eq!(rendered.frames.len(),1600);
+        assert_eq!(rendered.frames[0],[0.25,0.25]);
+        assert_eq!(rendered.frames[1599],[0.25,0.25]);
+        assert_eq!(render_project(&p,&sources,8_000).unwrap().frames,rendered.frames);
+    }
+
+    #[test]
     fn reports_missing_audio_and_bounds_timeline() {
         assert!(render_project(&project(),&HashMap::new(),48000).is_err());
         let mut project=project();
