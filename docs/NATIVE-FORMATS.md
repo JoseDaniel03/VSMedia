@@ -6,7 +6,7 @@ El motor sigue procesando/decodificando mediante bibliotecas existentes.
 
 | Extensión | Contenido | Uso principal |
 |---|---|---|
-| `.vsaudio` | Timeline, fuentes pinneadas SHA-256, mezcla sin destruir originales | Audio Studio |
+| `.vsaudio` | Timeline, fuentes pinneadas SHA-256, edición de clips y pistas con defaults retrocompatibles | Audio Studio |
 | `.vsimage` | Tamaño de lienzo, capas, opacidad, FPS y fuentes | Image Studio |
 | `.vsstream` | Canal, playlist, buffer y espacialidad | Radio/streaming (todavía no operativo) |
 | `.vspack` | Fuentes de assets, rutas de Resource Pack y prioridad | Pack Engine |
@@ -112,3 +112,14 @@ desconocida para evitar daños accidentales. Los cinco formatos nativos utilizan
 `version: 1`: todavía **no hay una versión nativa anterior real** que migrar.
 Las futuras migraciones de manifiestos deben ser explícitas, con pruebas de ida y
 vuelta y sin perder referencias SHA-256.
+
+## Edición no destructiva dentro de VSAudio
+
+Los campos opcionales `clip_edits` y `track_edits` son compatibles con los
+manifiestos v1 originales: si faltan, el engine usa sus valores por defecto.
+Los ajustes están indexados por número de pista/clip y se validan antes de
+guardar. Esto permite controlar recorte, reversa, ganancia, EQ, fades,
+automatización y mute/solo sin sobrescribir los medios originales.
+La futura UI debe convertir a identificadores persistentes al permitir
+reordenar o eliminar pistas, para evitar desplazar referencias por índice.
+Detalles: `docs/AUDIO-EDITING.md`.

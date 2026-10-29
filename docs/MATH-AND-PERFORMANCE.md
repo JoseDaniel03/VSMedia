@@ -24,7 +24,9 @@ No se reservan nuevos buffers en `StereoBiquad::process`.
 `vsmedia-audio/src/analysis.rs` usa `rustfft` y ventana Hann:
 `w[n] = 0.5 - 0.5*cos(2*pi*n/(N-1))`. El resultado es espectro de amplitud unilateral,
 con normalización aproximada de ventana y bins en Hz. Test: pico de seno de 1 kHz.
-Las FFT se calculan **offline**, no sobre hilos de región.
+Las FFT se calculan **offline**, no sobre hilos de región. Para pintar la línea de
+tiempo, `waveform_peaks` produce por bucket mínimos, máximos y RMS estéreo
+con máximo 8192 buckets, sin enviar PCM completo a la futura interfaz.
 
 ## 3. Spatial Audio
 
@@ -61,8 +63,10 @@ decodificación de MP3, FLAC u OGG, aún pendiente.
 `vsmedia-audio/src/timeline.rs` reutiliza `dsp::mix_stereo`, aplica la
 ganancia en dB al clip, omite pistas muteadas, cachea una sola versión
 remuestreada por asset y limita tanto el largo final como la memoria combinada
-de capas. Es render de secuencias básico, todavía sin offsets de fuente,
-automatizaciones por muestra ni exportación OGG.
+de capas. El módulo `editing.rs` añade inicio de fuente, inversión,
+automatización lineal por punto en amplitud, fades, EQ y control por pista.
+`render_project_advanced` utiliza estos datos sin mutar los PCM de origen.
+Aún no exporta OGG ni hace time-stretching con preservación de tono.
 
 ## 6. Pack Engine
 

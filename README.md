@@ -12,12 +12,12 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 | Core Rust | SQLite v1, SHA-256 + revisiones, ACL transaccionales, jobs acotados | Jobs persistentes, cuotas globales, backups |
 | Formatos nativos | .vsaudio / .vsimage / .vsstream / .vspack / .vsproject, versión 1, referencias SHA-256 | Migración futura de manifiestos, edición web, control de permisos end-to-end |
 | Pack Engine | ZIP determinista, compresión por formato, publicación HTTPS inmutable, separación explícita base/overlays y hashes SHA-1 | HTTP/CDN operativo, selección inteligente de capas y métricas reales |
-| Audio Engine | Modelo multipista, WAV PCM/float, render timeline, Rubato FFT SRC, EQ/FFT/RMS y espacial | MP3/FLAC/OGG, edición avanzada, Opus, streaming, voz |
+| Audio Engine | Multipista, WAV PCM/float, remuestreo FFT, trims/fades/pan, EQ por clip, automatización, solo/mute por track y waveforms | UI completa, MP3/FLAC/OGG, más efectos, Opus y voz |
 | Image Engine | Tiles 128x128, Lanczos3, PNG/JPEG/WebP/GIF y fotogramas GIF/APNG | Paleta MapView, marcos, web URL segura |
 | Font Engine | Generación JSON bitmap, asignador de glifos | Composición final y formatos |
 | IPC v1 | Loopback autenticado, carga/descarga por bloques hasta 64 MiB y verificación SHA-256 | Reanudación, staging a disco, integración E2E y hardening |
 | Java API + Bridge | Interfaces, socket asíncrono, parser de descriptor CDN y seguimiento de packs | Bootstrap y persistencia de configuración |
-| Folia Delivery Adapter | Módulo Java 25 + Paper 26.3, scheduler de jugador, eventos y capas base/overlay | Bootstrap en servidor, reconciliación de capas y pruebas con Minecraft real |
+| Folia Delivery Adapter | Java 25/Paper 26.3, scheduler de jugador, estados, base/overlay y retiro de capas propias | Bootstrap en servidor, CDN y pruebas con Minecraft real |
 | Panel web | No iniciado | Studio de audio e imágenes, gestión |
 | VSClient | No modificado | Voz y streaming, cliente Fabric |
 
@@ -31,7 +31,7 @@ mvn -B -f java/pom.xml test
 ```
 
 Los checks no publican releases ni suben archivos compilados. Ver [formatos nativos](docs/NATIVE-FORMATS.md), [arquitectura](docs/ARCHITECTURE.md),
-[protocolo IPC](docs/IPC.md), [Resource Pack rápido](docs/RESOURCE-PACK-DELIVERY.md), [adaptador Folia](docs/FOLIA-RESOURCE-PACK.md), [matemáticas](docs/MATH-AND-PERFORMANCE.md), [referencias técnicas](docs/RESEARCH.md) y [roadmap](docs/ROADMAP.md).
+[protocolo IPC](docs/IPC.md), [Resource Pack rápido](docs/RESOURCE-PACK-DELIVERY.md), [adaptador Folia](docs/FOLIA-RESOURCE-PACK.md), [edición de audio](docs/AUDIO-EDITING.md), [matemáticas](docs/MATH-AND-PERFORMANCE.md), [referencias técnicas](docs/RESEARCH.md) y [roadmap](docs/ROADMAP.md).
 
 ## Seguridad y compatibilidad
 

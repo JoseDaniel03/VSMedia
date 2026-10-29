@@ -68,3 +68,11 @@ Este primer adaptador solo añade y actualiza las capas deseadas.
 
 Fuente de compatibilidad: https://docs.papermc.io/paper/dev/folia-support/
 API de packs: https://docs.papermc.io/adventure/resource-pack/
+
+## Eliminación de overlays obsoletos
+
+`ResourcePackSessionCoordinator.obsolete(player, desired)` identifica UUIDs
+que VSMedia ofreció antes y ya no están en la pila vigente. Dentro del
+EntityScheduler, el adaptador llama a `Player.removeResourcePack(uuid)` y
+solo olvida ese estado cuando la llamada se realiza correctamente. No
+elimina Resource Packs de otros plugins ni los instalados por el usuario.
