@@ -235,7 +235,7 @@ mod tests {
             request(WireCommand::Publish { key: key.clone(), kind: AssetKind::Sound,
                 content_base64: STANDARD.encode(b"hello") }));
         assert!(pub_result.error.is_none());
-        let read_result = dispatch(&db, &tokens, &transfers(), request(WireCommand::Read { key }));
+        let read_result = dispatch(&db, &tokens, &transfers(), &uploads(), request(WireCommand::Read { key }));
         match read_result.result.unwrap() {
             WireResult::Content { content_base64 } => assert_eq!(STANDARD.decode(content_base64).unwrap(), b"hello"),
             _ => panic!("expected content"),
@@ -280,10 +280,10 @@ mod tests {
     fn credentials_and_acl_are_both_checked() {
         let (root, db, tokens) = setup();
         let key = AssetKey::new("private", "data").unwrap();
-        assert_eq!(dispatch(&db, &tokens, &transfers(), request(WireCommand::Lookup { key })).error.unwrap().code, "forbidden");
+        assert_eq!(dispatch(&db, &tokens, &transfers(), &uploads(), request(WireCommand::Lookup { key })).error.unwrap().code, "forbidden");
         let mut forged = request(WireCommand::Ping);
         forged.token = "wrong".into();
-        assert_eq!(dispatch(&db, &tokens, &transfers(), forged).error.unwrap().code, "unauthorized");
+        assert_eq!(dispatch(&db, &tokens, &transfers(), &uploads(), forged).error.unwrap().code, "unauthorized");
         drop(db);
         let _ = fs::remove_dir_all(root);
     }
