@@ -7,6 +7,7 @@ members = [
   "crates/vsmedia-audio",
   "crates/vsmedia-image",
   "crates/vsmedia-font",
+  "crates/vsmedia-formats",
   "crates/vsmedia-protocol",
   "crates/vsmedia-engine",
 ]
