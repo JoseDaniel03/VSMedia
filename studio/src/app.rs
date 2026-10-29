@@ -203,6 +203,8 @@ fn mutate_version(versions: RwSignal<Vec<Version>>,current_version: RwSignal<Str
 #[component]
 fn SimpleAudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,selected: RwSignal<String>,
                status: RwSignal<String>,versions: RwSignal<Vec<Version>>,current_version: RwSignal<String>,page: RwSignal<Page>) -> impl IntoView {
+    let saved_projects=RwSignal::new(Vec::<studio_api::SavedAudioProject>::new());
+    let project_picker=RwSignal::new(false);
     let selected_version=move ||versions.get().into_iter().find(|v|v.id==current_version.get());
     let clip_versions=move ||versions.get().into_iter().filter(|v|v.asset_id==selected.get()).collect::<Vec<Version>>();
     let selected_asset=move || assets.get().into_iter().find(|a|a.id==selected.get());
@@ -218,6 +220,12 @@ fn SimpleAudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                 if let (Some(a),Some(v))=(selected_asset(),selected_version()) {export::export_wav(a,v,status);}
                 else {status.set("Elegí un clip y creá una versión antes de exportar.".to_owned());}
             }>"↓ Exportar WAV"</button>
+            <button id="audio-open-projects" type="button" class="toolbar-button"
+                on:click=move |_| {
+                    let opened=!project_picker.get_untracked();
+                    project_picker.set(opened);
+                    if opened { studio_api::refresh_projects(saved_projects,status); }
+                }>"☁ Proyectos guardados"</button>
             <button id="audio-save-project" type="button" class="toolbar-button"
                 title="Sube el audio seleccionado y guarda esta versión como proyecto nativo .vsaudio"
                 on:click=move |_| {
@@ -234,6 +242,30 @@ fn SimpleAudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                     }
                 }>"☁ Guardar proyecto"</button>
         </div>
+        <Show when=move ||project_picker.get()>
+            <section class="saved-projects-panel" aria-label="Proyectos de audio guardados">
+                <div class="pane-title"><span>"PROYECTOS DEL MOTOR"</span>
+                    <button type="button" class="toolbar-button"
+                        on:click=move |_|studio_api::refresh_projects(saved_projects,status)>"↻ Actualizar"</button>
+                </div>
+                <div class="saved-projects-list">
+                    <Show when=move ||saved_projects.get().is_empty()>
+                        <p class="field-note">"Sin proyectos disponibles. Guardá una versión o comprobá que VSCore esté iniciado."</p>
+                    </Show>
+                    <For each=move ||saved_projects.get() key=|entry|entry.name.clone() children=move |entry|{
+                        let name=entry.name.clone();
+                        view!{<div class="version-row">
+                            <strong>{entry.name.clone()}</strong>
+                            <small>{format!("Revisión {}",entry.revision)}</small>
+                            <button type="button" class="action-secondary" on:click=move |_|{
+                                studio_api::open_saved_project(name.clone(),assets,selected,versions,current_version,status);
+                                project_picker.set(false);
+                            }>"Abrir"</button>
+                        </div>}
+                    }/>
+                </div>
+            </section>
+        </Show>
         <div class="studio-grid single-grid">
             <div class="studio-library"><Library assets folders selected status /></div>
             <div class="single-stage">

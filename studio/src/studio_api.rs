@@ -202,8 +202,8 @@ async fn load_saved(name:&str,assets:RwSignal<Vec<AudioAsset>>,
     let expected_hash=doc.pointer("/payload/data/sources")
         .and_then(Value::as_array)
         .and_then(|sources|sources.iter().find(|source|
-            source.pointer("/key/name").and_then(Value::as_str)==
-                Some(&format!("audio/{asset_name}") as &str)))
+            source.pointer("/key/name").and_then(Value::as_str)
+                .and_then(|full|full.strip_prefix("audio/"))==Some(asset_name)))
         .and_then(|source|source.get("sha256")).and_then(Value::as_str)
         .ok_or("El proyecto no contiene la referencia SHA-256 del audio")?;
     let metadata=request(&format!("/assets/{asset_name}/metadata"),"GET",
