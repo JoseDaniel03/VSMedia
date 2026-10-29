@@ -113,3 +113,21 @@ pub trait AtomicAssetRepository: AssetRepository {
         &self, inputs: &[AssetImport],
     ) -> MediaResult<Vec<AssetRecord>>;
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssetAccess {
+    Read,
+    Publish,
+}
+
+/// Access checks are separate from raw storage because services may also use
+/// the repository for trusted maintenance and recovery operations.
+pub trait AccessControlledRepository: AssetRepository {
+    fn check_access(&self, producer: &str, key: &AssetKey, mode: AssetAccess) -> MediaResult<()>;
+}
+
+/// An ACL check performed outside a transaction is not sufficient for imports:
+/// rights must still be valid at the exact moment the catalog is changed.
+pub trait AuthorizedAtomicAssetRepository: AtomicAssetRepository + AccessControlledRepository {
+    fn import_as(&self, producer: &str, inputs: &[AssetImport]) -> MediaResult<Vec<AssetRecord>>;
+}

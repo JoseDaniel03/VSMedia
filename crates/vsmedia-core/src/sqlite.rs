@@ -9,7 +9,7 @@ use std::{
     sync::{atomic::{AtomicU64, Ordering}, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use vsmedia_api::{AssetImport, AssetKey, AssetKind, AssetRecord, AssetRepository, AtomicAssetRepository, MediaError, MediaResult};
+use vsmedia_api::{AccessControlledRepository, AssetAccess, AssetImport, AssetKey, AssetKind, AssetRecord, AssetRepository, AtomicAssetRepository, AuthorizedAtomicAssetRepository, MediaError, MediaResult};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub const DEFAULT_MAX_ASSET_BYTES: usize = 64 * 1024 * 1024;
@@ -264,10 +264,8 @@ mod tests {
 /// The content objects may leave harmless orphans after a crash, but the
 /// transaction guarantees the catalog is either fully updated or unchanged.
 /// Concurrent imports are serialized by the SQLite IMMEDIATE transaction.
-impl AtomicAssetRepository for SqliteAssetStore {
-    fn import_if_absent_or_identical(
-        &self, inputs: &[AssetImport],
-    ) -> MediaResult<Vec<AssetRecord>> {
+impl SqliteAssetStore {
+    fn import_batch(&self, inputs: &[AssetImport], producer: Option<&str>) -> MediaResult<Vec<AssetRecord>> {
         const MAX_IMPORT_OBJECTS: usize = 512;
         const MAX_IMPORT_BYTES: usize = 128 * 1024 * 1024;
         if inputs.is_empty() || inputs.len() > MAX_IMPORT_OBJECTS {
@@ -292,6 +290,24 @@ impl AtomicAssetRepository for SqliteAssetStore {
         let mut connection = self.database.lock().map_err(lock_error)?;
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
+        if let Some(producer) = producer {
+            validate_producer(producer)?;
+            let mut checked = std::collections::BTreeSet::new();
+            for item in inputs {
+                if checked.insert(&item.key.namespace) {
+                    let permission: Option<bool> = tx.query_row(
+                        "SELECT can_publish FROM producers WHERE producer=?1 AND namespace=?2",
+                        params![producer, item.key.namespace],
+                        |row| row.get(0),
+                    ).optional().map_err(db_error)?;
+                    if permission != Some(true) {
+                        return Err(MediaError::InvalidInput(
+                            "producer lacks permission for import namespace".into()
+                        ));
+                    }
+                }
+            }
+        }
         let mut records = Vec::with_capacity(inputs.len());
         // All conflicts are detected before a single new catalog entry is committed.
         for (input, hash) in inputs.iter().zip(&hashes) {
@@ -344,6 +360,26 @@ impl AtomicAssetRepository for SqliteAssetStore {
 }
 
 
+impl AtomicAssetRepository for SqliteAssetStore {
+    fn import_if_absent_or_identical(&self, inputs: &[AssetImport]) -> MediaResult<Vec<AssetRecord>> {
+        self.import_batch(inputs, None)
+    }
+}
+
+impl AccessControlledRepository for SqliteAssetStore {
+    fn check_access(&self, producer: &str, key: &AssetKey, mode: AssetAccess) -> MediaResult<()> {
+        key.validated()?;
+        self.authorize(producer, &key.namespace, matches!(mode, AssetAccess::Publish))
+    }
+}
+
+impl AuthorizedAtomicAssetRepository for SqliteAssetStore {
+    fn import_as(&self, producer: &str, inputs: &[AssetImport]) -> MediaResult<Vec<AssetRecord>> {
+        self.import_batch(inputs, Some(producer))
+    }
+}
+
+
 #[cfg(test)]
 mod batch_import_tests {
     use super::*;
@@ -381,6 +417,28 @@ mod batch_import_tests {
         let reopened=SqliteAssetStore::open(&path).unwrap();
         assert_eq!(reopened.read(&AssetKey::new("test","new").unwrap()).unwrap(),b"new bytes");
         drop(reopened);
+        let _=fs::remove_dir_all(path);
+    }
+    #[test]
+    fn scoped_import_checks_every_namespace_inside_transaction() {
+        let path=temporary();
+        let db=SqliteAssetStore::open(&path).unwrap();
+        db.grant("plugin_a","alpha",true,true).unwrap();
+        let entries=[
+            AssetImport { key:AssetKey::new("alpha","sound").unwrap(),
+                kind:AssetKind::Sound, bytes:b"sound".to_vec() },
+            AssetImport { key:AssetKey::new("beta","texture").unwrap(),
+                kind:AssetKind::Texture, bytes:b"texture".to_vec() },
+        ];
+        assert!(db.import_as("plugin_a",&entries).is_err());
+        assert!(db.metadata(&entries[0].key).is_err());
+        assert!(db.metadata(&entries[1].key).is_err());
+        assert!(db.check_access("plugin_a",&entries[0].key,AssetAccess::Read).is_ok());
+        assert!(db.check_access("plugin_a",&entries[1].key,AssetAccess::Read).is_err());
+        db.grant("plugin_a","beta",true,false).unwrap();
+        assert_eq!(db.import_as("plugin_a",&entries).unwrap().len(),2);
+        assert_eq!(db.import_as("plugin_a",&entries).unwrap()[0].revision,1);
+        drop(db);
         let _=fs::remove_dir_all(path);
     }
     #[test]
