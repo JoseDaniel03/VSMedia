@@ -8,7 +8,8 @@ fn help() -> ! {
     eprintln!("Usage:
   vsmedia-engine status
   vsmedia-engine grant <data-dir> <producer> <namespace> <read|write|both>
-  vsmedia-engine serve <data-dir> <tokens-json> [port]");
+  vsmedia-engine serve <data-dir> <tokens-json> [port]
+  vsmedia-engine pack-stage <source-zip> <static-dir> <https-base-url> <logical-id>");
     std::process::exit(2);
 }
 #[tokio::main]
@@ -29,6 +30,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             db.grant(&args[3], &args[4], publish, read)?;
             println!("Updated producer permissions");
+        }
+        Some("pack-stage") if args.len() == 6 => {
+            // Administration-only, offline operation. Never bind the pack
+            // publication directory to the authenticated IPC listener.
+            let source = Path::new(&args[2]);
+            let metadata = fs::metadata(source)?;
+            if !metadata.is_file() ||
+                metadata.len() > vsmedia_pack::delivery::MAX_DELIVERY_ZIP as u64 {
+                return Err("resource-pack source must be a ZIP no larger than 64 MiB".into());
+            }
+            let bytes = fs::read(source)?;
+            let delivery=vsmedia_pack::delivery::stage(
+                &bytes,&args[5],Path::new(&args[3]),&args[4]
+            )?;
+            println!("{}",serde_json::to_string_pretty(&delivery)?);
         }
         Some("serve") if args.len() == 4 || args.len() == 5 => {
             let port: u16 = args.get(4).map_or(Ok(3059), |s| s.parse())?;
