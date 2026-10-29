@@ -221,10 +221,14 @@ mod tests {
         let bytes=serde_json::to_vec(&edit).unwrap();
         let parsed:ClipEdit=serde_json::from_slice(&bytes).unwrap();
         assert_eq!(parsed,edit);
-        let mut frames=vec![[0.25,-0.25];800];
+        // Alternating 4 kHz signal at 8 kHz is strongly attenuated by a
+        // 1 kHz low-pass. DC would not be a valid filter-response assertion.
+        let mut frames=(0..800).map(|i| if i%2==0 {
+            [0.25,-0.25]
+        } else {[-0.25,0.25]}).collect::<Vec<_>>();
         process_clip_frames(&mut frames,8_000,&parsed).unwrap();
         assert!(frames.iter().all(|frame|frame.iter().all(|x|x.is_finite())));
-        assert!((frames[799][0]-0.25).abs()>0.001);
+        assert!(frames[799][0].abs()<0.2);
         let invalid=ClipEdit {
             filters:vec![FilterKind::LowPass{frequency_hz:100_000.0,q:0.707}],
             ..ClipEdit::default()
