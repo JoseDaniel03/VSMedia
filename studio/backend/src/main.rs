@@ -79,6 +79,26 @@ async fn get_asset(
     let bytes=store.read(&key(format!("audio/{name}"))?).map_err(not_found)?;
     Ok(([(header::CONTENT_TYPE,"application/octet-stream")],bytes).into_response())
 }
+/// Only Studio's audio-project namespace is enumerable from this endpoint.
+async fn list_audio_projects(
+    State(store):State<Store>
+)->Result<Json<Vec<AssetRecord>>,ApiError> {
+    let entries=store.list_assets(STUDIO_NAMESPACE,"projects/",256)
+        .map_err(not_found)?;
+    Ok(Json(entries.into_iter()
+        .filter(|record|record.kind==AssetKind::Other)
+        .collect()))
+}
+async fn get_audio_metadata(
+    State(store):State<Store>,Path(name):Path<String>
+)->Result<Json<AssetRecord>,ApiError> {
+    let record=store.metadata(&key(format!("projects/{name}"))?)
+        .map_err(not_found)?;
+    if record.kind!=AssetKind::Other {
+        return Err(bad("Not a native project"));
+    }
+    Ok(Json(record))
+}
 async fn get_audio(
     State(store):State<Store>,Path(name):Path<String>
 )->Result<Json<NativeDocument>,ApiError> {
@@ -119,6 +139,8 @@ async fn command_audio(
 )->Result<Json<CommandResult>,ApiError> {
     authorize_origin(&headers)?;
     let key=key(format!("projects/{name}"))?;
+    // Load the immutable document and use its current SHA-256 as an optimistic
+    // precondition checked atomically by SQLite at commit time.
     let current=store.metadata(&key).map_err(not_found)?;
     if current.sha256!=request.expected_sha256 {
         return Err(ApiError(StatusCode::CONFLICT,
@@ -132,10 +154,10 @@ async fn command_audio(
     studio.apply(request.command).map_err(bad)?;
     let updated=NativeDocument::new(NativePayload::Audio(studio.into_document()));
     let bytes=vsmedia_formats::prepare_publish(&key,&updated).map_err(bad)?;
-    // Version check above is optimistic, not a serializable CAS transaction.
-    // The service is single-editor development only until atomic compare-and-publish.
-    let record=store.publish_for(
-        STUDIO_NAMESPACE,key,AssetKind::Other,&bytes
+    // Atomic precondition in the SQLite IMMEDIATE write transaction:
+    // concurrent editors cannot overwrite each other after passing a stale check.
+    let record=store.compare_and_publish_for(
+        STUDIO_NAMESPACE,key,AssetKind::Other,&bytes,&request.expected_sha256
     ).map_err(not_found)?;
     Ok(Json(CommandResult{record,document:updated}))
 }
@@ -158,6 +180,8 @@ fn router(store:Store)->Router {
         .route("/api/v1/health",get(health))
         .route("/api/v1/capabilities",get(capabilities))
         .route("/api/v1/assets/{name}",post(put_asset).get(get_asset))
+        .route("/api/v1/audio/projects",get(list_audio_projects))
+        .route("/api/v1/audio/projects/{name}/metadata",get(get_audio_metadata))
         .route("/api/v1/audio/projects/{name}",post(put_audio).get(get_audio))
         .route("/api/v1/audio/projects/{name}/commands",post(command_audio))
         .route("/api/v1/media/jobs",post(unsupported))
