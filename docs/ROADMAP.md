@@ -9,10 +9,11 @@
 - [x] Jobs locales con cola limitada, workers y cancelación cooperativa.
 - [x] IPC loopback JSON versionado con token, ACL y cuotas de mensajes.
 - [x] Cliente IPC Java asíncrono y pruebas de contrato simulado.
-- [ ] IPC transferencia de recursos grandes/chunks, rotación de credenciales y auditoría.
+- [x] IPC subidas y descargas de hasta 64 MiB en chunks de 256 KiB, sesiones autenticadas, cuota en memoria y verificación SHA-256.
+- [ ] Reanudación de transferencias, disco staging, rotación de credenciales y auditoría.
 - [ ] Persistencia de jobs, progreso, cancelación remota y métricas.
 - [ ] Plugin bridge real de Folia/CanvasMC con ciclo de vida y schedulers.
-- [ ] Prueba end-to-end real entre proceso Rust y puente Java.
+- [ ] Prueba end-to-end real entre proceso Rust y puente Java (hoy existen pruebas Rust y contrato con servidor mock en Java).
 - [ ] Cuotas agregadas por productor, recolección de objetos huérfanos y respaldo DB.
 
 ## Formatos nativos de proyectos (fase de esquemas)
@@ -43,3 +44,9 @@ No se genera **JAR, ZIP descargable, release ni paquete final** mientras sigamos
 Los checks compilan y ejecutan pruebas del **código fuente**. No hay publicación de artefactos.
 Se mantiene VSMedia independiente de VSRender, Typewriter y VSUiRemake.
 VSClient se actualizará después para streaming/voz; vanilla conserva sonidos de pack y mapas.
+
+## Data Packs — etapa final (aplazada)
+
+La compatibilidad con Data Packs se estudiará **al terminar Core, Audio,
+Image, Font, Pack de recursos, interfaces y APIs**. No se añade su importación
+ni distribución todavía. `vspack` actualmente representa Resource Packs.

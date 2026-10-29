@@ -15,7 +15,7 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 | Audio Engine | Modelo multipista, WAV PCM/float, render timeline, Rubato FFT SRC, EQ/FFT/RMS y espacial | MP3/FLAC/OGG, edición avanzada, Opus, streaming, voz |
 | Image Engine | Tiles 128x128, Lanczos3, PNG/JPEG/WebP/GIF y fotogramas GIF/APNG | Paleta MapView, marcos, web URL segura |
 | Font Engine | Generación JSON bitmap, asignador de glifos | Composición final y formatos |
-| IPC v1 | Servicio Rust loopback con tokens y límites | Transferencia masiva, E2E contra Java, hardening |
+| IPC v1 | Loopback autenticado, carga/descarga por bloques hasta 64 MiB y verificación SHA-256 | Reanudación, staging a disco, integración E2E y hardening |
 | Java API + Bridge | Interfaces + cliente socket asíncrono | Adaptador plugin Folia/Bukkit y ciclo de vida |
 | Panel web | No iniciado | Studio de audio e imágenes, gestión |
 | VSClient | No modificado | Voz y streaming, cliente Fabric |
@@ -41,3 +41,9 @@ Los sonidos de Resource Packs, fuentes y mapas podrán usarse sin mod una vez in
 
 **Regla central:** VSRender, Typewriter, VSUiRemake y otros producen/consumen assets mediante la API pública.
 No se agregan dependencias de estos proyectos al Core.
+
+## Secuencia de desarrollo
+
+Continuamos con Core, APIs y multimedia antes de construir el panel y los
+adaptadores de Minecraft. **La gestión de Data Packs queda aplazada para el
+último tramo del proyecto**, sin modificar su comportamiento actual.
