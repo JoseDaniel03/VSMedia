@@ -61,3 +61,38 @@ cuando el contrato Java/Rust esté sincronizado.
 **No existe aún soporte para exportar paquetes portables que incluyan todos los blobs**
 ni integración de los formatos desde el panel web. Nunca asumir que un archivo
 `.vsproject` por sí mismo contiene videos, imágenes o sonidos.
+
+
+## Exportación/importación portátil (nueva base)
+
+Los cinco formatos siguen siendo manifiestos JSON editables. Para mover un
+proyecto **con todos sus recursos** se genera bajo demanda un archivo de transporte
+separado, denominado de trabajo **\`.vsbundle\`**. Su contenedor interno es ZIP,
+pero no es un Minecraft Resource Pack ni sustituye \`.vsproject\`.
+
+\`vsmedia-formats::portable::export(repo, root_key)\` recorre \`.vsproject\`
+y todos sus documentos nativos, incluidos subproyectos, y recopila los recursos
+pinneados por SHA-256 (audio, imágenes y datos de packs). El archivador guarda
+\`bundle.json\` y \`objects/<sha256>\`, deduplicando blobs idénticos.
+
+\`inspect(bytes)\` realiza una lectura acotada sin extraer rutas a disco: valida
+índice, rutas, número y tamaño de entradas, objetos presentes, SHA-256 y
+dependencias transitivas. **Los medios no se procesan ni ejecutan** en esta etapa.
+
+\`import(repo,bytes)\` exige el contrato \`AtomicAssetRepository\` que implementa
+\`SqliteAssetStore\`. Prevalida el archivo, lo importa en una sola transacción
+SQLite y rechaza colisiones de claves con hashes/tipos diferentes.
+Una segunda importación idéntica es idempotente y no aumenta las revisiones.
+
+- Máximo **512 recursos**, **128 MiB** de datos y **16 niveles** de documentos.
+- Cada recurso individual no debe superar **64 MiB**.
+- No sobrescribir assets existentes ni aceptar rutas arbitrarias del archivo.
+- Sin descarga externa: el importador recibe bytes de un origen que la capa
+  de administración tendrá que autorizar y limitar.
+- La importación portátil todavía **no está expuesta por IPC público**; antes de
+  conectarla al panel hay que añadir autorización transversal de namespaces.
+- No se entregan archivos ZIP/JAR/release finales en esta fase: el proyecto
+  implementa únicamente los algoritmos y sus pruebas.
+
+El archivo de transporte es para intercambiar/copiar proyectos; la edición diaria
+continúa usando los cinco manifiestos nativos ligeros.

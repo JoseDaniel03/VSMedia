@@ -11,7 +11,7 @@ La dirección es unidireccional. VSMedia no importa clases de los plugins consum
 - `crates/vsmedia-api`: identificadores versionados, tipos, metadatos y trait de almacenamiento.
 - `crates/vsmedia-core`: SQLite transaccional con historial, hashes SHA-256 y trabajos con cola/worker pool. `FsAssetStore` es un backend legado de prueba, no apto para producción.
 - `crates/vsmedia-protocol`: esquema de mensajes tipados y límites de tamaño IPC.
-- `crates/vsmedia-formats`: formatos editables VSAudio, VSImage, VSStream, VSPack y VSProject; validación de recursos pinneados por SHA-256 y grafos de proyecto.
+- `crates/vsmedia-formats`: formatos editables VSAudio, VSImage, VSStream, VSPack y VSProject; validación de SHA-256 y grafos; snapshot portátil ZIP determinista y verificación de cierre transitivo.
 - `crates/vsmedia-engine`: proceso Rust de desarrollo que sirve IPC autenticado solo por 127.0.0.1. En tareas de lectura/escritura usa `spawn_blocking`.
 - `crates/vsmedia-pack`: fusión determinista y prioridad por productor, ZIP import/export, cuotas y validación de rutas.
 - `crates/vsmedia-audio`: modelo multipista y rutinas primitivas DSP PCM.
@@ -50,3 +50,18 @@ por defecto. Minecraft vanilla utiliza sonidos ya presentes en Resource Packs.
 Las pruebas actuales verifican algoritmos de engines y contratos de red con mocks. No se han
 validado todavía mapas reales en Minecraft, builds de plugin, VSClient, cargas de producción o
 la interoperabilidad completa Rust↔Java sobre un proceso real.
+
+
+## Portabilidad y atomicidad
+
+El adaptador \`vsmedia-formats::portable\` exporta e inspecciona snapshots
+autocontenidos sin disco ni acceso a red. El importador **solo administrativo**
+usa \`AtomicAssetRepository::import_if_absent_or_identical\`. La implementación
+SQLite garantiza commit o rollback de todas las entradas del catálogo y no
+reemplaza una clave existente si cambió su hash/tipo.
+
+Los objetos de contenido se escriben antes del commit; una falla de proceso
+puede dejar objetos huérfanos, pero **nunca referencias de catálogo parciales**.
+Se incorporará garbage collection seguro antes de habilitar exportaciones masivas.
+No conectar este método directamente a productores remotos: es necesario
+verificar ACL de lectura de origen y permisos de escritura por cada namespace.

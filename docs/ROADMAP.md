@@ -23,7 +23,9 @@
 - [x] Almacenamiento mediante el AssetRepository existente; pruebas de persistencia SQLite y revisión desactualizada.
 - [x] API IPC `publish_native` / `read_native` y contratos Java `NativeFormatsApi`.
 - [ ] Resolver dependencias entre proyectos anidados globalmente y asegurar ACL de lectura por referencia.
-- [ ] Portabilidad: paquete autocontenido opcional, import/export transaccional, rollback y migración de esquemas.
+- [x] Snapshot portátil opcional con closure de referencias, hashes, deduplicación y ZIP determinista.
+- [x] Importación atómica SQLite con detección de conflictos y reimportación idempotente.
+- [ ] Migraciones de esquema, firma/confianza del origen, cuotas por productor y autorización transversal de namespaces.
 - [ ] Herramientas del editor para crear, abrir, duplicar, importar y exportar proyectos.
 
 ## Engines
