@@ -19,6 +19,6 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
       # Test/compile only; no package, release or artifact upload until completion.
       - run: mvn -B -f java/pom.xml test
