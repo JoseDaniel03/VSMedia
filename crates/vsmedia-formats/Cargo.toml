@@ -10,3 +10,6 @@ vsmedia-audio = { path = "../vsmedia-audio" }
 vsmedia-pack = { path = "../vsmedia-pack" }
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+vsmedia-core = { path = "../vsmedia-core" }

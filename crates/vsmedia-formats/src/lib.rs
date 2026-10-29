@@ -449,3 +449,47 @@ mod tests {
         assert!(decode(&bytes,".vsaudio").is_err());
     }
 }
+
+#[cfg(test)]
+mod repository_tests {
+    use super::*;
+    use std::{fs, sync::atomic::{AtomicU64, Ordering}};
+    use vsmedia_core::sqlite::SqliteAssetStore;
+    static NEXT:AtomicU64=AtomicU64::new(0);
+    fn root()->std::path::PathBuf {
+        std::env::temp_dir().join(format!("vsmedia-native-{}-{}",
+            std::process::id(),NEXT.fetch_add(1,Ordering::SeqCst)))
+    }
+    #[test]
+    fn project_pins_real_documents_and_detects_changed_revisions() {
+        let path=root();
+        let repository=SqliteAssetStore::open(&path).unwrap();
+        let sound_id=AssetKey::new("demo","scene/dialogue").unwrap();
+        let audio=NativeDocument::new(NativePayload::Audio(VSAudio {
+            timeline:AudioProject {name:"First".into(),tracks:vec![]}, sources:vec![]
+        }));
+        let first=publish(&repository,sound_id.clone(),&audio).unwrap();
+        let project=VSProject {
+            name:"Feature project".into(),
+            nodes:vec![ProjectNode {
+                id:"dialogue".into(),
+                document:Some(DocumentLink {
+                    key:sound_id.clone(),kind:NativeKind::Audio,sha256:first.sha256.clone()
+                }),depends_on:vec![]
+            }],
+            entry_points:vec!["dialogue".into()],
+        };
+        verify_links(&repository,&project).unwrap();
+        let id=AssetKey::new("demo","projects/feature").unwrap();
+        let envelope=NativeDocument::new(NativePayload::Project(project.clone()));
+        publish(&repository,id.clone(),&envelope).unwrap();
+        assert_eq!(load(&repository,&id,"vsproject").unwrap().kind(),NativeKind::Project);
+        let updated=NativeDocument::new(NativePayload::Audio(VSAudio {
+            timeline:AudioProject {name:"Replaced".into(),tracks:vec![]},sources:vec![]
+        }));
+        publish(&repository,sound_id,&updated).unwrap();
+        assert!(verify_links(&repository,&project).is_err());
+        drop(repository);
+        let _=fs::remove_dir_all(path);
+    }
+}
