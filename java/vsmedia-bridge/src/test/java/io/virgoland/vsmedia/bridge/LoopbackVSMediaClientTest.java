@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.virgoland.vsmedia.api.AssetId;
 import io.virgoland.vsmedia.api.AssetType;
+import io.virgoland.vsmedia.api.NativeFormat;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
@@ -66,6 +69,64 @@ class LoopbackVSMediaClientTest {
             assertEquals(AssetType.SOUND, record.type());
             assertEquals(1L, record.revision());
             serverTask.get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void nativeProjectCommandsSendTypedExtensionAndManifest() throws Exception {
+        ObjectMapper json = new ObjectMapper();
+        String raw = "{\\"magic\\":\\"VSMEDIA\\",\\"version\\":1,\\"payload\\":{\\"kind\\":\\"project\\",\\"data\\":{\\"name\\":\\"Adventure\\",\\"nodes\\":[],\\"entry_points\\":[]}}}";
+        byte[] manifest = raw.getBytes(StandardCharsets.UTF_8);
+        try (ServerSocket server = new ServerSocket(0, 2, InetAddress.getLoopbackAddress());
+             var executor = Executors.newSingleThreadExecutor();
+             LoopbackVSMediaClient client =
+                     new LoopbackVSMediaClient(server.getLocalPort(), "demo", "x".repeat(32))) {
+            var serverTask = executor.submit(() -> {
+                for (int i = 0; i < 2; i++) {
+                    try (Socket socket = server.accept()) {
+                        var input = new DataInputStream(socket.getInputStream());
+                        var request = json.readTree(input.readNBytes(input.readInt()));
+                        var command = request.path("command");
+                        assertEquals("vsproject", command.path("extension").asText());
+                        var response = json.createObjectNode();
+                        response.put("version", 1);
+                        response.put("request_id", request.path("request_id").asText());
+                        var result = response.putObject("result");
+                        if (i == 0) {
+                            assertEquals("publish_native",command.path("operation").asText());
+                            assertArrayEquals(manifest,
+                                    Base64.getDecoder().decode(command.path("content_base64").asText()));
+                            result.put("kind","asset");
+                            var record = result.putObject("record");
+                            var key = record.putObject("key");
+                            key.put("namespace","demo");
+                            key.put("name","project/scene");
+                            record.put("kind","other");
+                            record.put("sha256","b".repeat(64));
+                            record.put("size",manifest.length);
+                            record.put("revision",1);
+                        } else {
+                            assertEquals("read_native",command.path("operation").asText());
+                            result.put("kind","content");
+                            result.put("content_base64",Base64.getEncoder().encodeToString(manifest));
+                        }
+                        byte[] data = json.writeValueAsBytes(response);
+                        var output = new DataOutputStream(socket.getOutputStream());
+                        output.writeInt(data.length);
+                        output.write(data);
+                        output.flush();
+                    }
+                }
+                return null;
+            });
+            AssetId key = new AssetId("demo","project/scene");
+            var saved = client.publishNative(key,NativeFormat.PROJECT,manifest)
+                    .toCompletableFuture().get(5,TimeUnit.SECONDS);
+            assertEquals(AssetType.OTHER,saved.type());
+            byte[] restored = client.readNative(key,NativeFormat.PROJECT)
+                    .toCompletableFuture().get(5,TimeUnit.SECONDS);
+            assertArrayEquals(manifest,restored);
+            serverTask.get(5,TimeUnit.SECONDS);
         }
     }
 }
