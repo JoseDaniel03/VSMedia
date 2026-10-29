@@ -392,6 +392,11 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                 tracks.update(|list|list.push(Track{id:id.clone(),name:format!("Pista {}",count),asset_id:String::new(),volume:1.,muted:false,solo:false,fade_in:0.,fade_out:0.}));
                 selected_track.set(id);
             }>"＋ Pista"</button>
+            <button id="mix-save-project" type="button" class="toolbar-button accent"
+                title="Publica los audios asignados a cada pista y guarda una sesión multipista .vsaudio"
+                on:click=move |_|studio_api::save_mix_project(
+                    assets.get_untracked(),tracks.get_untracked(),status
+                )}>"☁ Guardar mezcla"</button>
             <button id="mix-play" type="button" class="toolbar-button" on:click=move |_|{
                 for track in tracks.get_untracked(){
                     if let Some(p)=media::player(&format!("track-{}",track.id)) {
