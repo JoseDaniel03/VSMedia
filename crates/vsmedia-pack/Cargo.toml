@@ -1,0 +1,8 @@
+[package]
+name = "vsmedia-pack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vsmedia-api = { path = "../vsmedia-api" }

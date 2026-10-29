@@ -1,0 +1,13 @@
+[package]
+name = "vsmedia-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vsmedia-api = { path = "../vsmedia-api" }
+vsmedia-core = { path = "../vsmedia-core" }
+vsmedia-pack = { path = "../vsmedia-pack" }
+vsmedia-audio = { path = "../vsmedia-audio" }
+vsmedia-image = { path = "../vsmedia-image" }
+vsmedia-font = { path = "../vsmedia-font" }

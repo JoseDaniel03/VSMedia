@@ -1,0 +1,9 @@
+[package]
+name = "vsmedia-audio"
+version.workspace = true
+edition.workspace = "2021"
+license.workspace = true
+
+[dependencies]
+vsmedia-api = { path = "../vsmedia-api" }
+serde.workspace = true
