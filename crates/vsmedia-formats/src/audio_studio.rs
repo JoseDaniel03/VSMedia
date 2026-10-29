@@ -1,7 +1,7 @@
 //! Stable timeline element identities and reorder-aware editing commands.
-use crate::{NativeDocument,NativePayload,VSAudio};
+use crate::{NativeDocument,NativePayload,VSAudio,MAX_DOCUMENT_BYTES};
 use serde::{Serialize,Deserialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet,VecDeque};
 use vsmedia_api::{MediaResult,MediaError};
 use vsmedia_audio::{AudioProject,AudioClip,AudioTrack,editing::AudioEditCommand};
 
@@ -162,4 +162,165 @@ pub fn apply_to_document(doc:&mut VSAudio,command:StudioCommand)->MediaResult<()
         }
     }
     NativeDocument::new(NativePayload::Audio(doc.clone())).validate()
+}
+
+pub const MAX_UNDO_STEPS:usize=64;
+pub const MAX_HISTORY_BYTES:usize=16 * 1024 * 1024;
+
+/// In-memory editing session. Only manifests are copied (never decoded PCM).
+/// Undo and redo restore the timeline and edits, including persistent IDs.
+pub struct AudioStudio {
+    document:VSAudio,
+    undo:VecDeque<VSAudio>,
+    redo:VecDeque<VSAudio>,
+}
+fn size(document:&VSAudio)->MediaResult<usize> {
+    serde_json::to_vec(document).map(|data|data.len())
+        .map_err(|e|invalid(&format!("invalid audio document: {e}")))
+}
+fn trim(stack:&mut VecDeque<VSAudio>) {
+    while stack.len()>MAX_UNDO_STEPS ||
+        stack.iter().map(|item|size(item).unwrap_or(MAX_DOCUMENT_BYTES+1))
+            .sum::<usize>()>MAX_HISTORY_BYTES
+    {stack.pop_front();}
+}
+impl AudioStudio {
+    pub fn open(document:VSAudio)->MediaResult<Self> {
+        NativeDocument::new(NativePayload::Audio(document.clone())).validate()?;
+        if size(&document)?>MAX_DOCUMENT_BYTES {
+            return Err(invalid("audio manifest exceeds 2 MiB"));
+        }
+        Ok(Self{document,undo:VecDeque::new(),redo:VecDeque::new()})
+    }
+    pub fn document(&self)->&VSAudio {&self.document}
+    pub fn can_undo(&self)->bool {!self.undo.is_empty()}
+    pub fn can_redo(&self)->bool {!self.redo.is_empty()}
+    pub fn undo_depth(&self)->usize {self.undo.len()}
+    pub fn apply(&mut self,command:StudioCommand)->MediaResult<()> {
+        let mut candidate=self.document.clone();
+        apply_to_document(&mut candidate,command)?;
+        if size(&candidate)?>MAX_DOCUMENT_BYTES {
+            return Err(invalid("audio manifest exceeds 2 MiB"));
+        }
+        self.undo.push_back(std::mem::replace(&mut self.document,candidate));
+        trim(&mut self.undo);
+        self.redo.clear();
+        Ok(())
+    }
+    pub fn undo(&mut self)->bool {
+        if let Some(previous)=self.undo.pop_back() {
+            self.redo.push_back(std::mem::replace(&mut self.document,previous));
+            trim(&mut self.redo);
+            true
+        } else {false}
+    }
+    pub fn redo(&mut self)->bool {
+        if let Some(next)=self.redo.pop_back() {
+            self.undo.push_back(std::mem::replace(&mut self.document,next));
+            trim(&mut self.undo);
+            true
+        } else {false}
+    }
+    pub fn into_document(self)->VSAudio {self.document}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AssetRef,MediaCodec};
+    use vsmedia_api::AssetKey;
+    use vsmedia_audio::editing::{ClipEdit,TrackEdit};
+    fn sample()->VSAudio {
+        let asset=AssetKey::new("demo","audio/source").unwrap();
+        let clip=|start|AudioClip{
+            asset:asset.clone(),start_ms:start,duration_ms:1000,gain_db:0.0
+        };
+        VSAudio {
+            timeline:AudioProject{name:"Studio".into(),tracks:vec![
+                AudioTrack{name:"Voice".into(),clips:vec![clip(0),clip(1000)],muted:false},
+                AudioTrack{name:"Music".into(),clips:vec![clip(250)],muted:false}
+            ]},
+            sources:vec![AssetRef{key:asset,sha256:"a".repeat(64),codec:MediaCodec::Wav}],
+            clip_edits:vec![ClipEdit{track_index:0,clip_index:1,pan:0.7,..ClipEdit::default()}],
+            track_edits:vec![TrackEdit{track_index:1,gain_db:-6.0,..TrackEdit::default()}],
+            identities:None,
+        }
+    }
+    #[test]
+    fn old_documents_gain_persistent_identifiers_only_when_edited() {
+        let mut studio=AudioStudio::open(sample()).unwrap();
+        assert!(studio.document().identities.is_none());
+        studio.apply(StudioCommand::MoveTrack{from:0,to:1}).unwrap();
+        let ids=studio.document().identities.as_ref().unwrap();
+        assert_eq!(ids.tracks[0].id,"t-3");
+        assert_eq!(ids.tracks[1].id,"t-0");
+        assert_eq!(studio.document().clip_edits[0].track_index,1);
+        assert_eq!(studio.document().track_edits[0].track_index,0);
+        let old_clip_id=ids.tracks[1].clip_ids[1].clone();
+        studio.apply(StudioCommand::MoveClip{track_index:1,from:1,to:0}).unwrap();
+        assert_eq!(studio.document().identities.as_ref().unwrap().tracks[1].clip_ids[0],old_clip_id);
+        assert_eq!(studio.document().clip_edits[0].clip_index,0);
+    }
+    #[test]
+    fn insert_delete_and_undo_redo_restore_timeline_and_edits() {
+        let mut studio=AudioStudio::open(sample()).unwrap();
+        studio.apply(StudioCommand::InsertTrack{index:1,name:"FX".into()}).unwrap();
+        assert_eq!(studio.document().track_edits[0].track_index,2);
+        studio.apply(StudioCommand::DeleteClip{track_index:0,index:0}).unwrap();
+        assert_eq!(studio.document().clip_edits[0].clip_index,0);
+        assert!(studio.undo());
+        assert_eq!(studio.document().timeline.tracks[0].clips.len(),2);
+        assert!(studio.undo());
+        assert_eq!(studio.document().timeline.tracks.len(),2);
+        assert!(studio.document().identities.is_none());
+        assert!(!studio.undo());
+        assert!(studio.redo());
+        assert_eq!(studio.document().timeline.tracks.len(),3);
+        assert!(studio.redo());
+        assert_eq!(studio.document().timeline.tracks[0].clips.len(),1);
+    }
+    #[test]
+    fn invalid_command_keeps_document_and_redo_unchanged() {
+        let mut studio=AudioStudio::open(sample()).unwrap();
+        studio.apply(StudioCommand::RenameTrack{index:0,name:"First".into()}).unwrap();
+        studio.undo();
+        let before=serde_json::to_vec(studio.document()).unwrap();
+        assert!(studio.apply(StudioCommand::RenameTrack{index:0,name:"".into()}).is_err());
+        assert_eq!(serde_json::to_vec(studio.document()).unwrap(),before);
+        assert!(studio.can_redo());
+        assert!(studio.redo());
+        assert_eq!(studio.document().timeline.tracks[0].name,"First");
+        studio.apply(StudioCommand::RenameTrack{index:0,name:"Second".into()}).unwrap();
+        assert!(!studio.can_redo());
+    }
+    #[test]
+    fn insertion_shifts_edits_and_json_round_trips_stable_ids() {
+        let original=sample();
+        assert!(serde_json::to_value(&original).unwrap().get("identities").is_none());
+        let mut editor=AudioStudio::open(original).unwrap();
+        editor.apply(StudioCommand::InsertClip{track_index:0,index:0,clip:AudioClip{
+            asset:AssetKey::new("demo","audio/source").unwrap(),
+            start_ms:700,duration_ms:300,gain_db:0.0,
+        }}).unwrap();
+        assert_eq!(editor.document().clip_edits[0].clip_index,2);
+        let saved=serde_json::to_vec(editor.document()).unwrap();
+        let loaded:VSAudio=serde_json::from_slice(&saved).unwrap();
+        assert_eq!(loaded.identities,editor.document().identities);
+        let mut ids=loaded.identities.unwrap();
+        ids.tracks[0].clip_ids[0]=ids.tracks[0].id.clone();
+        assert!(ids.validate(&editor.document().timeline).is_err());
+    }
+    #[test]
+    fn undo_is_bounded_and_does_not_duplicate_pcm() {
+        let mut studio=AudioStudio::open(sample()).unwrap();
+        for i in 0..(MAX_UNDO_STEPS+6) {
+            studio.apply(StudioCommand::RenameTrack{
+                index:0,name:format!("Name {i}")
+            }).unwrap();
+        }
+        assert_eq!(studio.undo_depth(),MAX_UNDO_STEPS);
+        for _ in 0..MAX_UNDO_STEPS {assert!(studio.undo());}
+        assert!(!studio.undo());
+        assert!(studio.can_redo());
+    }
 }
