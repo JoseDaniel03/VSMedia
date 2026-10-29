@@ -11,3 +11,8 @@ vsmedia-pack = { path = "../vsmedia-pack" }
 vsmedia-audio = { path = "../vsmedia-audio" }
 vsmedia-image = { path = "../vsmedia-image" }
 vsmedia-font = { path = "../vsmedia-font" }
+vsmedia-protocol = { path = "../vsmedia-protocol" }
+serde_json.workspace = true
+base64 = "0.22"
+subtle = "2.6"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }

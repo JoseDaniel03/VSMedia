@@ -6,3 +6,5 @@
 .vscode/
 .env
 data/
+local-tokens.json
+**/local-tokens.json
