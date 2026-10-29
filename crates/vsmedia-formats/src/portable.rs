@@ -8,7 +8,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::{Cursor, Read, Write},
 };
-use vsmedia_api::{AssetKey, AssetKind, AssetRecord, AssetRepository, MediaError, MediaResult};
+use vsmedia_api::{AssetImport, AssetKey, AssetKind, AssetRecord, AssetRepository, AtomicAssetRepository, MediaError, MediaResult};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 pub const BUNDLE_VERSION: u32 = 1;
@@ -305,6 +305,21 @@ pub fn inspect(bytes: &[u8]) -> MediaResult<PreparedBundle> {
     Ok(PreparedBundle { manifest, assets })
 }
 
+/// Import after full ZIP, graph, checksum and size preflight. The atomic repository
+/// rejects collisions without changing any existing catalog entry. Calling it again
+/// with the same bundle is safe and does not increase asset revisions.
+/// This API is reserved for trusted administrative code until per-ref ACL checks exist.
+pub fn import<R: AtomicAssetRepository>(
+    repo: &R, archive: &[u8],
+) -> MediaResult<AssetKey> {
+    let prepared = inspect(archive)?;
+    let entries: Vec<_> = prepared.assets.into_iter().map(|(record, bytes)| {
+        AssetImport { key: record.key, kind: record.kind, bytes }
+    }).collect();
+    repo.import_if_absent_or_identical(&entries)?;
+    Ok(prepared.manifest.root)
+}
+
 struct ArchiveView<'a> {
     assets: &'a [(BundleEntry, Vec<u8>)],
 }
@@ -391,6 +406,42 @@ mod tests {
         db.publish(AssetKey::new("demo", "sounds/intro.wav").unwrap(), AssetKind::Sound, b"changed").unwrap();
         assert!(export(&db, &key).is_err());
         let _ = fs::remove_dir_all(path);
+    }
+    #[test]
+    fn imports_into_clean_store_without_overwriting_and_is_idempotent() {
+        let (source_dir, source_db) = store();
+        let root = project_with_shared_sources(&source_db);
+        let bytes = export(&source_db, &root).unwrap();
+        let (dest_dir, dest_db) = store();
+        assert_eq!(import(&dest_db, &bytes).unwrap(), root);
+        assert_eq!(import(&dest_db, &bytes).unwrap(), root);
+        let document=crate::load(&dest_db, &root, "vsproject").unwrap();
+        assert_eq!(document.kind(), NativeKind::Project);
+        let sound=AssetKey::new("demo","sounds/intro.wav").unwrap();
+        assert_eq!(dest_db.read(&sound).unwrap(),b"audio bytes");
+        assert_eq!(dest_db.metadata(&sound).unwrap().revision,1);
+        drop(dest_db);
+        drop(source_db);
+        let _=fs::remove_dir_all(source_dir);
+        let _=fs::remove_dir_all(dest_dir);
+    }
+    #[test]
+    fn conflicting_destination_rolls_back_entire_portable_import() {
+        let (source_dir, source_db) = store();
+        let root = project_with_shared_sources(&source_db);
+        let bytes = export(&source_db,&root).unwrap();
+        let (dest_dir,dest_db)=store();
+        let existing=AssetKey::new("demo","studio/dialogue").unwrap();
+        dest_db.publish(existing.clone(),AssetKind::Other,b"different").unwrap();
+        assert!(import(&dest_db,&bytes).is_err());
+        assert_eq!(dest_db.read(&existing).unwrap(),b"different");
+        assert!(dest_db.metadata(&root).is_err());
+        let sample=AssetKey::new("demo","sounds/intro.wav").unwrap();
+        assert!(dest_db.metadata(&sample).is_err());
+        drop(dest_db);
+        drop(source_db);
+        let _=fs::remove_dir_all(source_dir);
+        let _=fs::remove_dir_all(dest_dir);
     }
     #[test]
     fn malformed_archive_is_rejected() {
