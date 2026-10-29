@@ -1,6 +1,6 @@
 //! Immutable static resource pack publishing. Minecraft downloads over HTTPS
 //! from an external static server/CDN; the private IPC is never exposed.
-use crate::archive::{import_zip, ArchiveLimits};
+use crate::{archive::{export_zip, import_zip, ArchiveLimits}, MergeOutput};
 use serde::{Deserialize, Serialize};
 use sha1::{Digest as _, Sha1};
 use sha2::Sha256;
@@ -30,6 +30,31 @@ fn io_error(e:impl std::fmt::Display) -> MediaError { MediaError::Io(e.to_string
 pub fn stage(zip_bytes:&[u8], logical_id:&str, static_dir:&Path, base_url:&str)
     -> MediaResult<DeliveryDescriptor>
 {
+    // Strict ZIP validation happens before the file becomes public.
+    let files=import_zip(zip_bytes,"delivery",0,ArchiveLimits::default())?;
+    let meta=files.iter().find(|x|x.path=="pack.mcmeta")
+        .ok_or_else(||invalid("pack.mcmeta missing"))?;
+    let parsed:serde_json::Value=serde_json::from_slice(&meta.data)
+        .map_err(|_|invalid("pack.mcmeta is invalid JSON"))?;
+    if !parsed.get("pack").is_some_and(serde_json::Value::is_object) {
+        return Err(invalid("pack.mcmeta lacks pack object"));
+    }
+    stage_verified(zip_bytes,logical_id,static_dir,base_url)
+}
+
+/// Compile directly from the validated in-memory pack model without
+/// decompressing and rescanning the ZIP after we just created it.
+pub fn compile_and_stage(
+    pack: &MergeOutput, limits: ArchiveLimits,
+    logical_id: &str, static_dir: &Path, base_url: &str,
+) -> MediaResult<DeliveryDescriptor> {
+    let bytes=export_zip(pack,limits)?;
+    stage_verified(&bytes,logical_id,static_dir,base_url)
+}
+
+fn stage_verified(
+    zip_bytes:&[u8],logical_id:&str,static_dir:&Path,base_url:&str
+) -> MediaResult<DeliveryDescriptor> {
     if logical_id.is_empty() || logical_id.len()>64 ||
         !logical_id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() ||
             b==b'_' || b==b'-')
@@ -46,15 +71,6 @@ pub fn stage(zip_bytes:&[u8], logical_id:&str, static_dir:&Path, base_url:&str)
         !base.path().ends_with('/')
     {
         return Err(invalid("public base URL must be an HTTPS directory URL"));
-    }
-    // Strict ZIP validation happens before the file becomes public.
-    let files=import_zip(zip_bytes,"delivery",0,ArchiveLimits::default())?;
-    let meta=files.iter().find(|x|x.path=="pack.mcmeta")
-        .ok_or_else(||invalid("pack.mcmeta missing"))?;
-    let parsed:serde_json::Value=serde_json::from_slice(&meta.data)
-        .map_err(|_|invalid("pack.mcmeta is invalid JSON"))?;
-    if !parsed.get("pack").is_some_and(serde_json::Value::is_object) {
-        return Err(invalid("pack.mcmeta lacks pack object"));
     }
     let sha256=format!("{:x}",Sha256::digest(zip_bytes));
     let sha1=format!("{:x}",Sha1::digest(zip_bytes));
@@ -140,6 +156,21 @@ mod tests {
         assert_ne!(a.sha1,c.sha1);
         assert_ne!(a.url,c.url);
         assert_eq!(a.uuid,c.uuid);
+        let _=fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn compiling_pack_directly_uses_same_immutable_publication() {
+        let dir=temp();
+        let output=MergeOutput { files:BTreeMap::from([
+            ("pack.mcmeta".into(),br#"{"pack":{"description":"Test"}}"#.to_vec()),
+            ("assets/demo/models/test.json".into(),b"{}".to_vec())
+        ]),conflicts:vec![] };
+        let from_builder=compile_and_stage(&output,ArchiveLimits::default(),"virgoland",
+            &dir,"https://packs.example.test/").unwrap();
+        let bytes=export_zip(&output,ArchiveLimits::default()).unwrap();
+        let from_import=stage(&bytes,"virgoland",&dir,"https://packs.example.test/").unwrap();
+        assert_eq!(from_builder,from_import);
+        assert_eq!(fs::read_dir(&dir).unwrap().count(),1);
         let _=fs::remove_dir_all(dir);
     }
     #[test]
