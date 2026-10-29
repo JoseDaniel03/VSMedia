@@ -319,13 +319,18 @@ pub fn import<R: AtomicAssetRepository>(
     repo: &R, archive: &[u8],
 ) -> MediaResult<AssetKey> {
     let prepared = inspect(archive)?;
-    let entries: Vec<_> = prepared.manifest.entries.iter().map(|record| {
+    let entries = import_entries(&prepared)?;
+    repo.import_if_absent_or_identical(&entries)?;
+    Ok(prepared.manifest.root)
+}
+
+/// Single preparation path for both administrative and authenticated import.
+fn import_entries(prepared: &PreparedBundle) -> MediaResult<Vec<AssetImport>> {
+    prepared.manifest.entries.iter().map(|record| {
         let bytes = prepared.objects.get(&record.sha256)
             .ok_or_else(|| invalid("missing object after validation"))?.clone();
         Ok(AssetImport { key: record.key.clone(), kind: record.kind, bytes })
-    }).collect::<MediaResult<_>>()?;
-    repo.import_if_absent_or_identical(&entries)?;
-    Ok(prepared.manifest.root)
+    }).collect()
 }
 
 /// Producer-safe bundle export: every transitive document and media read
@@ -343,11 +348,7 @@ pub fn import_for<R: AuthorizedAtomicAssetRepository>(
     repo: &R, producer: &str, archive: &[u8],
 ) -> MediaResult<AssetKey> {
     let prepared = inspect(archive)?;
-    let entries: Vec<_> = prepared.manifest.entries.iter().map(|record| {
-        let bytes = prepared.objects.get(&record.sha256)
-            .ok_or_else(|| invalid("missing object after validation"))?.clone();
-        Ok(AssetImport { key: record.key.clone(), kind: record.kind, bytes })
-    }).collect::<MediaResult<_>>()?;
+    let entries = import_entries(&prepared)?;
     repo.import_as(producer, &entries)?;
     Ok(prepared.manifest.root)
 }
