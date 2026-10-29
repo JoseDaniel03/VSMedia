@@ -404,7 +404,7 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                 title="Publica los audios asignados a cada pista y guarda una sesión multipista .vsaudio"
                 on:click=move |_|studio_api::save_mix_project(
                     assets.get_untracked(),tracks.get_untracked(),status
-                )}>"☁ Guardar mezcla"</button>
+                )>"☁ Guardar mezcla"</button>
             <button id="mix-play" type="button" class="toolbar-button" on:click=move |_|{
                 for track in tracks.get_untracked(){
                     if let Some(p)=media::player(&format!("track-{}",track.id)) {
