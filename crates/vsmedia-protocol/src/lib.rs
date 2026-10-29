@@ -32,6 +32,10 @@ pub enum WireCommand {
     BeginRead { key: AssetKey },
     ReadChunk { transfer_id: String, offset: u64 },
     EndRead { transfer_id: String },
+    BeginUpload { key: AssetKey, kind: AssetKind, size: u64, sha256: String },
+    UploadChunk { transfer_id: String, offset: u64, content_base64: String },
+    CompleteUpload { transfer_id: String },
+    AbortUpload { transfer_id: String },
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WireResponse {
@@ -48,6 +52,7 @@ pub enum WireResult {
     Pong,
     Acknowledged,
     Download { transfer_id: String, size: u64, sha256: String },
+    Upload { transfer_id: String, offset: u64 },
     Chunk { offset: u64, content_base64: String, done: bool },
     Asset { record: AssetRecord },
     Content { content_base64: String },

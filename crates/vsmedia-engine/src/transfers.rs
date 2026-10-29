@@ -159,3 +159,157 @@ mod tests {
         let _=fs::remove_dir_all(root);
     }
 }
+
+
+/// Buffered upload sessions. The declared maximum size is reserved up-front,
+/// so several concurrent upload clients cannot evade the aggregate quota.
+struct Upload {
+    owner: String,
+    key: AssetKey,
+    kind: vsmedia_api::AssetKind,
+    expected_size: u64,
+    expected_sha256: String,
+    data: Vec<u8>,
+    touched: Instant,
+}
+#[derive(Default)]
+pub struct UploadRegistry {
+    sessions: Mutex<HashMap<String, Upload>>,
+}
+impl UploadRegistry {
+    fn prune(sessions: &mut HashMap<String, Upload>) {
+        sessions.retain(|_, entry| entry.touched.elapsed() < SESSION_TTL);
+    }
+    pub fn begin(
+        &self, owner: &str, key: AssetKey, kind: vsmedia_api::AssetKind,
+        expected_size: u64, expected_sha256: String,
+    ) -> MediaResult<String> {
+        key.validated()?;
+        if expected_size > MAX_TRANSFER_BYTES as u64 ||
+            expected_sha256.len() != 64 ||
+            !expected_sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(MediaError::InvalidInput("invalid upload size or SHA-256".into()));
+        }
+        let mut sessions = self.sessions.lock()
+            .map_err(|_| MediaError::Io("upload registry poisoned".into()))?;
+        Self::prune(&mut sessions);
+        let reserved: u64 = sessions.values().map(|v|v.expected_size).sum();
+        if sessions.len() >= MAX_SESSIONS ||
+            expected_size > (MAX_STAGED_BYTES as u64).saturating_sub(reserved) {
+            return Err(MediaError::Conflict("upload memory quota exceeded".into()));
+        }
+        let id = Uuid::new_v4().to_string();
+        sessions.insert(id.clone(), Upload {
+            owner: owner.into(), key, kind, expected_size, expected_sha256,
+            data: Vec::new(), touched: Instant::now(),
+        });
+        Ok(id)
+    }
+    pub fn chunk(&self, owner: &str, id: &str, offset: u64, bytes: &[u8])
+        -> MediaResult<u64>
+    {
+        if bytes.is_empty() || bytes.len() > CHUNK_BYTES {
+            return Err(MediaError::InvalidInput("invalid upload chunk length".into()));
+        }
+        let mut sessions = self.sessions.lock()
+            .map_err(|_| MediaError::Io("upload registry poisoned".into()))?;
+        Self::prune(&mut sessions);
+        let session = sessions.get_mut(id).filter(|v|v.owner == owner)
+            .ok_or_else(|| MediaError::NotFound("upload session".into()))?;
+        if offset != session.data.len() as u64 ||
+            bytes.len() as u64 > session.expected_size.saturating_sub(offset) {
+            return Err(MediaError::Conflict("upload offset or length mismatch".into()));
+        }
+        session.data.extend_from_slice(bytes);
+        session.touched = Instant::now();
+        Ok(session.data.len() as u64)
+    }
+    pub fn finish(&self, store: &SqliteAssetStore, owner: &str, id: &str)
+        -> MediaResult<vsmedia_api::AssetRecord>
+    {
+        let session = {
+            let mut sessions = self.sessions.lock()
+                .map_err(|_| MediaError::Io("upload registry poisoned".into()))?;
+            Self::prune(&mut sessions);
+            if sessions.get(id).is_none_or(|v|v.owner != owner) {
+                return Err(MediaError::NotFound("upload session".into()));
+            }
+            sessions.remove(id).expect("validated upload session")
+        };
+        if session.data.len() as u64 != session.expected_size ||
+            format!("{:x}", Sha256::digest(&session.data)) != session.expected_sha256 {
+            return Err(MediaError::Conflict("upload SHA-256 or size mismatch".into()));
+        }
+        // Recheck producer ACL inside the same SQLite transaction that updates
+        // the catalog. Revoking access mid-upload cannot commit the asset.
+        store.publish_for(owner, session.key, session.kind, &session.data)
+    }
+    pub fn abort(&self, owner: &str, id: &str) -> MediaResult<()> {
+        let mut sessions = self.sessions.lock()
+            .map_err(|_| MediaError::Io("upload registry poisoned".into()))?;
+        Self::prune(&mut sessions);
+        if sessions.get(id).is_none_or(|v|v.owner != owner) {
+            return Err(MediaError::NotFound("upload session".into()));
+        }
+        sessions.remove(id);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+    use sha2::Sha256;
+    use std::{fs, sync::atomic::{AtomicU64, Ordering}};
+    use vsmedia_api::{AssetKind, AssetRepository};
+    fn root()->std::path::PathBuf {
+        static N: AtomicU64=AtomicU64::new(0);
+        std::env::temp_dir().join(format!("vsmedia-upload-{}-{}",
+            std::process::id(),N.fetch_add(1,Ordering::Relaxed)))
+    }
+    #[test]
+    fn large_upload_is_committed_only_after_complete_sha_match() {
+        let path=root();
+        let db=SqliteAssetStore::open(&path).unwrap();
+        db.grant("plugin","demo",true,true).unwrap();
+        let key=AssetKey::new("demo","sounds/large.ogg").unwrap();
+        let bytes=vec![29u8;2*1024*1024+17];
+        let hash=format!("{:x}",Sha256::digest(&bytes));
+        let uploads=UploadRegistry::default();
+        let id=uploads.begin("plugin",key.clone(),AssetKind::Sound,bytes.len() as u64,hash).unwrap();
+        assert!(db.metadata(&key).is_err());
+        assert!(uploads.chunk("other",&id,0,&bytes[..32]).is_err());
+        assert!(uploads.chunk("plugin",&id,16,&bytes[..32]).is_err());
+        let mut offset=0;
+        for chunk in bytes.chunks(CHUNK_BYTES) {
+            offset=uploads.chunk("plugin",&id,offset,chunk).unwrap();
+        }
+        assert_eq!(offset,bytes.len() as u64);
+        assert_eq!(uploads.finish(&db,"plugin",&id).unwrap().revision,1);
+        assert_eq!(db.read(&key).unwrap(),bytes);
+        assert!(uploads.finish(&db,"plugin",&id).is_err());
+        drop(db);
+        let _=fs::remove_dir_all(path);
+    }
+    #[test]
+    fn revoked_acl_and_tampered_uploads_never_publish() {
+        let path=root();
+        let db=SqliteAssetStore::open(&path).unwrap();
+        db.grant("plugin","demo",true,true).unwrap();
+        let key=AssetKey::new("demo","one").unwrap();
+        let uploads=UploadRegistry::default();
+        let sha=format!("{:x}",Sha256::digest(b"correct"));
+        let id=uploads.begin("plugin",key.clone(),AssetKind::Sound,7,sha.clone()).unwrap();
+        uploads.chunk("plugin",&id,0,b"wrong!!").unwrap();
+        assert!(uploads.finish(&db,"plugin",&id).is_err());
+        assert!(db.metadata(&key).is_err());
+        let id=uploads.begin("plugin",key.clone(),AssetKind::Sound,7,sha).unwrap();
+        uploads.chunk("plugin",&id,0,b"correct").unwrap();
+        db.grant("plugin","demo",false,true).unwrap();
+        assert!(uploads.finish(&db,"plugin",&id).is_err());
+        assert!(db.metadata(&key).is_err());
+        drop(db);
+        let _=fs::remove_dir_all(path);
+    }
+}
