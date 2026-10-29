@@ -3,7 +3,7 @@
 Infraestructura multimedia independiente para VSEngine / CanvasMC / Folia.
 Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consumen VSMedia**, VSMedia no depende de ellos.
 
-> **Estado: desarrollo activo.** Solo código fuente, pruebas y documentación. No existe aún ningún JAR, ZIP final, release ni plugin instalable. Voice Chat y streaming NO están implementados.
+> **Estado: desarrollo activo.** Solo código fuente, pruebas y documentación. No se ha publicado ningún JAR, ZIP final, release ni plugin instalable. Voice Chat y streaming NO están implementados.
 
 ## Arquitectura
 
@@ -11,8 +11,8 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 |---|---|---|
 | Core Rust | SQLite + SHA-256 + revisiones, ACL, jobs acotados | Jobs persistentes, quotas globales, backups |
 | Pack Engine | Merge, conflictos, ZIP seguro, export determinista y unión de sounds.json | Otros esquemas JSON, resource-pack 26.3, distribución |
-| Audio Engine | Modelo multipista, EQ biquad, FFT/RMS, cadena de efectos, fades, audio espacial | Codecs, edición avanzada, Opus, streaming, voice chat |
-| Image Engine | Tiles RGBA 128x128, Lanczos3 y deltas para animaciones | Decodificación PNG/JPEG/GIF/APNG, paleta MapView, marcos |
+| Audio Engine | Modelo multipista, WAV PCM/float, render timeline, Rubato FFT SRC, EQ/FFT/RMS y espacial | MP3/FLAC/OGG, edición avanzada, Opus, streaming, voz |
+| Image Engine | Tiles 128x128, Lanczos3, PNG/JPEG/WebP/GIF y fotogramas GIF/APNG | Paleta MapView, marcos, web URL segura |
 | Font Engine | Generación JSON bitmap, asignador de glifos | Composición final y formatos |
 | IPC v1 | Servicio Rust loopback con tokens y límites | Transferencia masiva, E2E contra Java, hardening |
 | Java API + Bridge | Interfaces + cliente socket asíncrono | Adaptador plugin Folia/Bukkit y ciclo de vida |

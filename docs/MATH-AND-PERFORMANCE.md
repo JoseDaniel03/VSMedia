@@ -45,9 +45,26 @@ El método nearest existente se conserva para pixel-art y texturas, donde el fil
 podría difuminar bordes. Las dimensiones y memoria de salida se validan antes de
 comenzar la operación. Luego ambos usan el mismo mosaico `to_map_tiles`.
 
-No está implementada aún la paleta del mapa nativo ni decodificación GIF/APNG.
+La decodificación estática PNG/JPEG/WebP/GIF usa ImageReader con límites; los fotogramas GIF/APNG se decodifican bajo cuotas de bytes y duración. No está implementada aún la paleta del mapa nativo ni colocación en MapView.
 
-## 5. Pack Engine
+## 5. Remuestreo y mezclas multipista
+
+`vsmedia-audio/src/resample.rs` utiliza Rubato 5 con `Fft<f32>` y
+`FixedSync::Both`. `process_all()` evita el desplazamiento temporal inicial
+del resampler e incluye el final de la señal. El remuestreo se limita a cinco
+millones de fotogramas y se reutiliza dentro de cada render por asset/frecuencia.
+
+`vsmedia-audio/src/codec.rs` importa WAV mono/estéreo PCM o float32,
+expone el PCM estéreo validado y exporta WAV PCM16 cuantizado. No atribuirle
+decodificación de MP3, FLAC u OGG, aún pendiente.
+
+`vsmedia-audio/src/timeline.rs` reutiliza `dsp::mix_stereo`, aplica la
+ganancia en dB al clip, omite pistas muteadas, cachea una sola versión
+remuestreada por asset y limita tanto el largo final como la memoria combinada
+de capas. Es render de secuencias básico, todavía sin offsets de fuente,
+automatizaciones por muestra ni exportación OGG.
+
+## 6. Pack Engine
 
 `merge_structured` agrupa contribuciones por ruta y trata
 `assets/<namespace>/sounds.json` como esquema de eventos: cada clave se resuelve por
@@ -55,7 +72,7 @@ prioridad de productor; claves distintas coexisten. Los datos JSON se serializan
 orden determinista; se rechazan colisiones de igual prioridad y se acota el tamaño.
 `merge` se conserva como política única para binarios y esquemas desconocidos.
 
-## 6. Evaluación
+## 7. Evaluación
 
 - Límite de memoria antes de reservar buffers grandes; validar NaN/infinito.
 - No realocar ni decodificar por muestra en streaming; procesar por bloques.
