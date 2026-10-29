@@ -84,6 +84,33 @@ async fn save(asset:AudioAsset,version:Version,duration:f64)->Result<String,Stri
     let gain_db=if version.gain==0. {-120.0} else {
         20.*version.gain.log10()
     };
+    if !version.pan.is_finite() || !(-1.0..=1.0).contains(&version.pan) {
+        return Err("El paneo debe estar entre -100 y +100".into());
+    }
+    let mut filters=Vec::<Value>::new();
+    for (frequency,kind) in [
+        (version.high_pass_hz,"high_pass"),
+        (version.low_pass_hz,"low_pass"),
+    ] {
+        if let Some(hz)=frequency {
+            if !hz.is_finite() || !(20.0..=18_000.0).contains(&hz) {
+                return Err("La frecuencia EQ debe estar entre 20 y 18000 Hz".into());
+            }
+            filters.push(json!({"type":kind,"frequency_hz":hz,"q":0.707}));
+        }
+    }
+    if version.high_pass_hz.zip(version.low_pass_hz)
+        .is_some_and(|(high,low)|high>=low) {
+        return Err("El pasa-altos debe ser menor que el pasa-bajos".into());
+    }
+    let mut gain_points=vec![json!({"at_ms":0,"gain_db":gain_db})];
+    if let Some(end_gain)=version.end_gain {
+        if !end_gain.is_finite() || !(0.0..=2.0).contains(&end_gain) {
+            return Err("Ganancia final inválida".into());
+        }
+        let end_db=if end_gain==0. {-120.0} else {20.*end_gain.log10()};
+        gain_points.push(json!({"at_ms":length,"gain_db":end_db}));
+    }
     let name=if version.label.trim().is_empty() {
         "Proyecto de audio".to_owned()
     } else {version.label.clone()};
@@ -99,9 +126,9 @@ async fn save(asset:AudioAsset,version:Version,duration:f64)->Result<String,Stri
                 "sha256":sha,"codec":codec}],
             "clip_edits":[{
                 "track_index":0,"clip_index":0,"source_in_ms":start,
-                "pan":0.0,"fade_in_ms":fade_in,"fade_out_ms":fade_out,
+                "pan":version.pan,"fade_in_ms":fade_in,"fade_out_ms":fade_out,
                 "reversed":version.reversed,"muted":false,
-                "gain_points":[{"at_ms":0,"gain_db":gain_db}],"filters":[]
+                "gain_points":gain_points,"filters":filters
             }]
         }}
     });
@@ -240,11 +267,25 @@ async fn load_saved(name:&str,assets:RwSignal<Vec<AudioAsset>>,
     };
     let id=media::add_blob(blob,format!("{name_hint}.{extension}"),assets,status)
         .ok_or("No fue posible abrir el audio recuperado")?;
+    let filters=edit.and_then(|v|v.get("filters")).and_then(Value::as_array);
+    let frequency=|kind:&str| filters.and_then(|filters|filters.iter().find(|filter|
+        filter.get("type").and_then(Value::as_str)==Some(kind)))
+        .and_then(|filter|filter.get("frequency_hz")).and_then(Value::as_f64);
+    let end_gain=edit.and_then(|v|v.get("gain_points"))
+        .and_then(Value::as_array).and_then(|list| {
+            if list.len()>1 {list.last()} else {None}
+        }).and_then(|point|point.get("gain_db")).and_then(Value::as_f64)
+        .map(|db|10_f64.powf(db/20.).clamp(0.,2.));
     let version=Version {
         id:media::uid("version"),asset_id:id.clone(),label:name_hint,
         start:source_in,end:source_in+length,
         gain:10_f64.powf(gain_db/20.).clamp(0.,2.),
         fade_in,fade_out,reversed,
+        pan:edit.and_then(|v|v.get("pan")).and_then(Value::as_f64)
+            .unwrap_or(0.),
+        low_pass_hz:frequency("low_pass"),
+        high_pass_hz:frequency("high_pass"),
+        end_gain,
     };
     selected.set(id);
     versions.update(|all|all.push(version.clone()));

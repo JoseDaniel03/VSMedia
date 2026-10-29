@@ -47,6 +47,16 @@ pub struct Version {
     pub id: String, pub asset_id: String, pub label: String,
     pub start: f64, pub end: f64, pub gain: f64,
     pub fade_in: f64, pub fade_out: f64, pub reversed: bool,
+    /// Extra per-clip controls stored in VSAudio and rendered by VSCore.
+    #[serde(default)]
+    pub pan: f64,
+    #[serde(default)]
+    pub low_pass_hz: Option<f64>,
+    #[serde(default)]
+    pub high_pass_hz: Option<f64>,
+    /// Optional gain at the end of the clip, interpolated from `gain`.
+    #[serde(default)]
+    pub end_gain: Option<f64>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Playlist { pub id: String, pub name: String, pub items: Vec<String> }
