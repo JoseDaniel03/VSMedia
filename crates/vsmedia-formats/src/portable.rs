@@ -8,7 +8,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::{Cursor, Read, Write},
 };
-use vsmedia_api::{AssetImport, AssetKey, AssetKind, AssetRecord, AssetRepository, AtomicAssetRepository, MediaError, MediaResult};
+use vsmedia_api::{AccessControlledRepository, AssetAccess, AssetImport, AssetKey, AssetKind, AssetRecord, AssetRepository, AtomicAssetRepository, AuthorizedAtomicAssetRepository, MediaError, MediaResult};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 pub const BUNDLE_VERSION: u32 = 1;
@@ -328,6 +328,50 @@ pub fn import<R: AtomicAssetRepository>(
     Ok(prepared.manifest.root)
 }
 
+/// Producer-safe bundle export: every transitive document and media read
+/// checks the producer's *current* read permission, including foreign namespaces.
+pub fn export_for<R: AccessControlledRepository>(
+    repo: &R, producer: &str, root: &AssetKey,
+) -> MediaResult<Vec<u8>> {
+    export(&ReadAclView { repo, producer }, root)
+}
+
+/// Producer-safe import: the repository enforces all write ACLs in the same
+/// SQLite transaction as the catalog publication. The archive is validated
+/// fully before the first catalog mutation.
+pub fn import_for<R: AuthorizedAtomicAssetRepository>(
+    repo: &R, producer: &str, archive: &[u8],
+) -> MediaResult<AssetKey> {
+    let prepared = inspect(archive)?;
+    let entries: Vec<_> = prepared.manifest.entries.iter().map(|record| {
+        let bytes = prepared.objects.get(&record.sha256)
+            .ok_or_else(|| invalid("missing object after validation"))?.clone();
+        Ok(AssetImport { key: record.key.clone(), kind: record.kind, bytes })
+    }).collect::<MediaResult<_>>()?;
+    repo.import_as(producer, &entries)?;
+    Ok(prepared.manifest.root)
+}
+
+/// Read-only, fail-closed adapter. No more generic storage-layer ACL
+/// checks are needed in the traversal: all paths use repository methods.
+struct ReadAclView<'a, R> {
+    repo: &'a R,
+    producer: &'a str,
+}
+impl<R: AccessControlledRepository> AssetRepository for ReadAclView<'_, R> {
+    fn metadata(&self, key: &AssetKey) -> MediaResult<AssetRecord> {
+        self.repo.check_access(self.producer, key, AssetAccess::Read)?;
+        self.repo.metadata(key)
+    }
+    fn read(&self, key: &AssetKey) -> MediaResult<Vec<u8>> {
+        self.repo.check_access(self.producer, key, AssetAccess::Read)?;
+        self.repo.read(key)
+    }
+    fn publish(&self, _: AssetKey, _: AssetKind, _: &[u8]) -> MediaResult<AssetRecord> {
+        Err(invalid("ACL read-only repository cannot publish"))
+    }
+}
+
 struct ArchiveView<'a> {
     entries: &'a [BundleEntry],
     objects: &'a BTreeMap<String, Vec<u8>>,
@@ -474,6 +518,57 @@ mod tests {
         assert_eq!(result.manifest.entries.len(),4);
         assert_eq!(result.objects.len(),4);
         let _=fs::remove_dir_all(path);
+    }
+    #[test]
+    fn export_for_checks_every_transitive_foreign_namespace_read() {
+        let (path, db)=store();
+        let voice=AssetKey::new("private","voice.wav").unwrap();
+        let sound=db.publish(voice.clone(),AssetKind::Sound,b"private voice").unwrap();
+        let dialogue=AssetKey::new("public","dialogue").unwrap();
+        let doc=NativeDocument::new(NativePayload::Audio(VSAudio {
+            timeline:AudioProject { name:"Dialogue".into(),tracks:vec![
+                AudioTrack { name:"Voice".into(),muted:false,clips:vec![
+                    AudioClip {asset:voice.clone(),start_ms:0,duration_ms:100,gain_db:0.0}
+                ]}
+            ]},
+            sources:vec![AssetRef {key:voice,sha256:sound.sha256,codec:MediaCodec::Wav}]
+        }));
+        let pinned=publish(&db,dialogue.clone(),&doc).unwrap();
+        let root=AssetKey::new("public","projects/hello").unwrap();
+        publish(&db,root.clone(),&NativeDocument::new(NativePayload::Project(VSProject {
+            name:"Story".into(),entry_points:vec!["dialogue".into()],
+            nodes:vec![ProjectNode {id:"dialogue".into(),depends_on:vec![],
+                document:Some(DocumentLink {key:dialogue,kind:NativeKind::Audio,
+                    sha256:pinned.sha256})}]
+        }))).unwrap();
+        db.grant("writer","public",true,true).unwrap();
+        assert!(export_for(&db,"writer",&root).is_err());
+        db.grant("writer","private",false,true).unwrap();
+        let archive=export_for(&db,"writer",&root).unwrap();
+        assert_eq!(inspect(&archive).unwrap().manifest.entries.len(),3);
+        db.grant("writer","private",false,false).unwrap();
+        assert!(export_for(&db,"writer",&root).is_err());
+        drop(db);
+        let _=fs::remove_dir_all(path);
+    }
+    #[test]
+    fn import_for_denies_cross_namespace_writes_without_partial_catalog() {
+        let (source_dir, source_db)=store();
+        let root=project_with_shared_sources(&source_db);
+        let bundle=export(&source_db,&root).unwrap();
+        let (dest_dir,dest_db)=store();
+        assert!(import_for(&dest_db,"writer",&bundle).is_err());
+        assert!(dest_db.metadata(&root).is_err());
+        dest_db.grant("writer","demo",false,true).unwrap();
+        assert!(import_for(&dest_db,"writer",&bundle).is_err());
+        assert!(dest_db.metadata(&root).is_err());
+        dest_db.grant("writer","demo",true,true).unwrap();
+        assert_eq!(import_for(&dest_db,"writer",&bundle).unwrap(),root);
+        assert_eq!(import_for(&dest_db,"writer",&bundle).unwrap(),root);
+        drop(dest_db);
+        drop(source_db);
+        let _=fs::remove_dir_all(source_dir);
+        let _=fs::remove_dir_all(dest_dir);
     }
     #[test]
     fn altered_portable_object_fails_integrity_validation() {
