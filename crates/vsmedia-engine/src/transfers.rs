@@ -6,6 +6,7 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant},
 };
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use vsmedia_api::{AssetKey, AssetRepository, MediaError, MediaResult};
 use vsmedia_core::sqlite::SqliteAssetStore;
@@ -34,22 +35,26 @@ impl DownloadRegistry {
     pub fn begin(&self, store: &SqliteAssetStore, owner: &str, key: &AssetKey)
         -> MediaResult<(String, u64, String)>
     {
-        // Existing SqliteStore::read validates SHA-256 once, before serving
-        // any bytes to the caller. ACL checks are performed by the dispatcher.
+        // Reserve space *before* reading: otherwise simultaneous clients could
+        // each allocate a 64 MiB buffer and bypass the session-memory quota.
+        // This initial implementation serializes the verified load under the
+        // short-lived registry lock. Future versions can use reservations.
         let record = store.metadata(key)?;
         if record.size > MAX_TRANSFER_BYTES as u64 {
             return Err(MediaError::InvalidInput("asset exceeds IPC download limit".into()));
-        }
-        let data = store.read(key)?;
-        if data.len() as u64 != record.size {
-            return Err(MediaError::Conflict("asset changed during download setup".into()));
         }
         let mut sessions = self.sessions.lock()
             .map_err(|_| MediaError::Io("download registry poisoned".into()))?;
         Self::prune(&mut sessions);
         let occupied: usize = sessions.values().map(|entry|entry.data.len()).sum();
-        if sessions.len() >= MAX_SESSIONS || occupied + data.len() > MAX_STAGED_BYTES {
+        if sessions.len() >= MAX_SESSIONS ||
+            (record.size as usize) > MAX_STAGED_BYTES.saturating_sub(occupied) {
             return Err(MediaError::Conflict("download session memory quota exceeded".into()));
+        }
+        let data = store.read(key)?;
+        if data.len() as u64 != record.size ||
+            format!("{:x}", Sha256::digest(&data)) != record.sha256 {
+            return Err(MediaError::Conflict("asset changed during download setup".into()));
         }
         let transfer_id = Uuid::new_v4().to_string();
         let size = data.len() as u64;
