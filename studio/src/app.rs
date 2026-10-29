@@ -322,7 +322,10 @@ fn SimpleAudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                             if asset_id.is_empty(){return;}
                             let count=versions.get_untracked().iter().filter(|v|v.asset_id==asset_id).count()+1;
                             let id=media::uid("version");
-                            versions.update(|list|list.push(Version {id:id.clone(),asset_id,label:format!("Versión {}",count),start:0.,end:0.,gain:1.,fade_in:0.,fade_out:0.,reversed:false}));
+                            versions.update(|list|list.push(Version {id:id.clone(),asset_id,
+                                label:format!("Versión {}",count),start:0.,end:0.,
+                                gain:1.,fade_in:0.,fade_out:0.,reversed:false,
+                                pan:0.,low_pass_hz:None,high_pass_hz:None,end_gain:None}));
                             current_version.set(id);
                         }>"＋ Nueva versión"</button>
                     </div>
@@ -367,6 +370,68 @@ fn SimpleAudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                                         if let Some(p)=media::player("simple-player"){p.set_volume((val/100.).min(1.));}
                                     }} />
                             </label>
+                            <div class="fx-controls">
+                                <div class="pane-title">"EFECTOS Y AUTOMATIZACIÓN · MOTOR RUST"</div>
+                                <label class="range-field">"Paneo (izquierda ↔ derecha)"
+                                    <span>{move ||format!("{:+.0}%",selected_version()
+                                        .map(|v|v.pan*100.).unwrap_or(0.))}</span>
+                                    <input type="range" min="-100" max="100" step="5"
+                                        prop:value=move ||selected_version()
+                                            .map(|v|(v.pan*100.).round().to_string()).unwrap_or_default()
+                                        on:input=move |ev| {
+                                            if let Ok(v)=event_target_value(&ev).parse::<f64>() {
+                                                mutate_version(versions,current_version,
+                                                    |clip|clip.pan=(v/100.).clamp(-1.,1.));
+                                            }
+                                        }/>
+                                </label>
+                                <div class="controls-quad">
+                                    <label>"Pasa-altos (Hz; vacío = desactivado)"
+                                        <input type="number" min="20" max="18000" step="10"
+                                            placeholder="Desactivado"
+                                            prop:value=move ||selected_version()
+                                                .and_then(|v|v.high_pass_hz)
+                                                .map(|hz|hz.to_string()).unwrap_or_default()
+                                            on:change=move |ev|{
+                                                let raw=event_target_value(&ev);
+                                                let hz=if raw.trim().is_empty(){None}
+                                                    else{raw.parse::<f64>().ok()
+                                                        .filter(|value|value.is_finite() && (20.0..=18_000.0).contains(value))};
+                                                mutate_version(versions,current_version,|clip|clip.high_pass_hz=hz);
+                                            }/>
+                                    </label>
+                                    <label>"Pasa-bajos (Hz; vacío = desactivado)"
+                                        <input type="number" min="20" max="18000" step="10"
+                                            placeholder="Desactivado"
+                                            prop:value=move ||selected_version()
+                                                .and_then(|v|v.low_pass_hz)
+                                                .map(|hz|hz.to_string()).unwrap_or_default()
+                                            on:change=move |ev|{
+                                                let raw=event_target_value(&ev);
+                                                let hz=if raw.trim().is_empty(){None}
+                                                    else{raw.parse::<f64>().ok()
+                                                        .filter(|value|value.is_finite() && (20.0..=18_000.0).contains(value))};
+                                                mutate_version(versions,current_version,|clip|clip.low_pass_hz=hz);
+                                            }/>
+                                    </label>
+                                    <label>"Ganancia al final del clip (0–200%; vacío = constante)"
+                                        <input type="number" min="0" max="200" step="5"
+                                            placeholder="Sin automatización"
+                                            prop:value=move ||selected_version()
+                                                .and_then(|v|v.end_gain)
+                                                .map(|g|(g*100.).round().to_string()).unwrap_or_default()
+                                            on:change=move |ev|{
+                                                let raw=event_target_value(&ev);
+                                                let final_gain=if raw.trim().is_empty(){None}
+                                                    else{raw.parse::<f64>().ok()
+                                                        .filter(|value|value.is_finite() && (0.0..=200.0).contains(value))
+                                                        .map(|value|value/100.)};
+                                                mutate_version(versions,current_version,|clip|clip.end_gain=final_gain);
+                                            }/>
+                                    </label>
+                                </div>
+                                <small class="field-note">"Estos controles se guardan en .vsaudio y se oyen con ▶ Motor en Proyectos guardados. La reproducción local y el WAV rápido no aplican todavía EQ ni paneo."</small>
+                            </div>
                             <label class="checkbox-field"><input type="checkbox"
                                 prop:checked=move ||selected_version().map(|v|v.reversed).unwrap_or(false)
                                 on:change=move |ev|{let val=event_target_checked(&ev);mutate_version(versions,current_version,|v|v.reversed=val);}/>
