@@ -6,3 +6,5 @@ license.workspace = true
 
 [dependencies]
 vsmedia-api = { path = "../vsmedia-api" }
+serde_json.workspace = true
+zip = { version = "2.4", default-features = false, features = ["deflate"] }

@@ -1,44 +1,30 @@
-# Roadmap de desarrollo — VSMedia Remake 26.3
+# Roadmap — VSMedia Remake 26.3
 
-## Fase 0 — Fundaciones (actual)
-- [x] Workspace Rust con cuatro engines aislados.
-- [x] Contratos de API Rust y Java sin referencias a otros plugins.
-- [x] Almacenamiento por SHA-256 con catálogo local.
-- [x] Merge determinista de entradas con conflictos y prioridades.
-- [x] Modelo multipista y mezclador PCM mono básico.
-- [x] Mosaicos RGBA 128×128; todavía no mapas Bukkit.
-- [x] Generador inicial de documentos de fuente JSON.
-- [x] Validar compilación Rust (11 tests) y Java API con GitHub Actions.
-- [ ] Versionar esquema de protocolo IPC con pruebas de compatibilidad.
+## Core y contratos
 
-## Fase 1 — Core de producción
-- [ ] Base de metadatos transaccional y almacenamiento de objetos atómico.
-- [ ] Control de permisos, rate limits, cuotas, auditoría y métricas.
-- [ ] API de jobs (progreso, cancelación, prioridades y persistencia).
-- [ ] IPC local autenticado y APIs estables de publicación/consulta.
-- [ ] Bridge Java + plugin Folia/CanvasMC con schedulers seguros.
+- [x] Workspace Rust + 4 engines aislados + API Java.
+- [x] Registro de assets por SHA-256 y versión.
+- [x] SQLite transaccional con historial por revision.
+- [x] Permisos por productor/namespace (denegar por defecto).
+- [x] Jobs locales con cola limitada, workers y cancelación cooperativa.
+- [x] IPC loopback JSON versionado con token, ACL y cuotas de mensajes.
+- [x] Cliente IPC Java asíncrono y pruebas de contrato simulado.
+- [ ] IPC transferencia de recursos grandes/chunks, rotación de credenciales y auditoría.
+- [ ] Persistencia de jobs, progreso, cancelación remota y métricas.
+- [ ] Plugin bridge real de Folia/CanvasMC con ciclo de vida y schedulers.
+- [ ] Prueba end-to-end real entre proceso Rust y puente Java.
+- [ ] Cuotas agregadas por productor, recolección de objetos huérfanos y respaldo DB.
 
-## Fase 2 — Packs, fuentes e imágenes
-- [ ] Import ZIP seguro, merge de JSON tipado, pack.mcmeta, ZIP reproducible.
-- [ ] Detección de cambios, historial, distribución y rolling versions.
-- [ ] Decodificadores de imagen, GIF/APNG y protección contra descompresión masiva.
-- [ ] Paleta de mapas vanilla, API de MapView y marcos, carteles animados con límites.
-- [ ] Gestión de glyph allocations y colisiones de providers.
+## Engines
 
-## Fase 3 — Audio Studio
-- [ ] Decodificación/encoding WAV, OGG, MP3, FLAC según bibliotecas/licencias.
-- [ ] Mezcla estéreo, resampling, timeline multipista, EQ, fades, pitch y time stretch.
-- [ ] Export OGG + sounds.json para Minecraft.
-- [ ] Web Audio Studio: grabación con consentimiento, UI multipista y export.
+- **Pack:** merge con prioridades, detección de conflictos, importación ZIP segura y export ZIP determinista. Pendiente resolución JSON tipada, formato específico 26.3 y distribución.
+- **Audio:** modelo multipista, mezclador PCM mono básico. Pendiente edición no destructiva completa, exportación OGG, streaming/Opus/voz y Web Studio.
+- **Image:** escalado RGBA y mosaicos de mapas 128×128. Pendiente decodificadores, GIF/APNG y conversión paleta/vistas MapView.
+- **Font:** generador JSON de fuentes bitmap. Pendiente fuentes completas, asignador glifos, integración con pack y verificación de compatibilidad.
 
-## Fase 4 — Streaming y Voice Chat
-- [ ] Server Rust de media con Opus + transporte autenticado y cifrado.
-- [ ] Posicionamiento por proximidad, canales, mute y herramientas de privacidad.
-- [ ] Adaptación de VSClient (repositorio independiente, cambio explícito futuro).
-- [ ] Fuentes en vivo autorizadas y estaciones de radio.
-- [ ] Benchmark de CPU, ancho de banda, paquetes perdidos y jitter.
+## Distribución y estado
 
-### Límites conocidos
-El proyecto aún **no incluye** un plugin JAR instalable, cliente de voz,
-decodificación real de audio ni reproducción de GIF/mapas en Minecraft.
-Los algoritmos iniciales son pruebas de base, no features de producción.
+No se genera **JAR, ZIP descargable, release ni paquete final** mientras sigamos construyendo.
+Los checks compilan y ejecutan pruebas del **código fuente**. No hay publicación de artefactos.
+Se mantiene VSMedia independiente de VSRender, Typewriter y VSUiRemake.
+VSClient se actualizará después para streaming/voz; vanilla conserva sonidos de pack y mapas.
