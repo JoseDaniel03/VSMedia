@@ -142,6 +142,40 @@ mod tests {
         assert_eq!(output.frames[0],[0.25,-0.25]);
     }
     #[test]
+    fn equal_power_crossfade_renders_overlap_with_expected_gain() {
+        use crate::editing::FadeCurve;
+        let key=AssetKey::new("demo","crossfade").unwrap();
+        let original=StereoAudio {sample_rate:8_000,
+            frames:vec![[0.25,0.25];8_000]};
+        let sources=HashMap::from([(key.clone(),original.clone())]);
+        let project=AudioProject {
+            name:"Equal power overlap".into(),
+            tracks:vec![AudioTrack {
+                name:"Music".into(),muted:false,
+                clips:vec![
+                    AudioClip{asset:key.clone(),start_ms:0,duration_ms:1000,gain_db:0.0},
+                    AudioClip{asset:key,start_ms:500,duration_ms:1000,gain_db:0.0},
+                ],
+            }],
+        };
+        let edits=[
+            ClipEdit{track_index:0,clip_index:0,fade_out_ms:500,
+                fade_curve:FadeCurve::EqualPower,..ClipEdit::default()},
+            ClipEdit{track_index:0,clip_index:1,fade_in_ms:500,
+                fade_curve:FadeCurve::EqualPower,..ClipEdit::default()},
+        ];
+        let rendered=render_project_edited(&project,&sources,8_000,&edits).unwrap();
+        assert_eq!(rendered.frames.len(),12_000);
+        // At the overlap midpoint two 0.25-amplitude clips receive
+        // sqrt(1/2) each: power is preserved before the final mix.
+        assert!((rendered.frames[6_000][0]-(2.0*0.25*std::f32::consts::FRAC_1_SQRT_2)).abs()<0.001);
+        let mut linear_edits=edits.clone();
+        for edit in &mut linear_edits {edit.fade_curve=FadeCurve::Linear;}
+        let linear=render_project_edited(&project,&sources,8_000,&linear_edits).unwrap();
+        assert!((linear.frames[6_000][0]-0.25).abs()<0.001);
+        assert_eq!(original.frames[6_000],[0.25,0.25]);
+    }
+    #[test]
     fn reuses_same_source_across_multiple_clip_positions() {
         let key=AssetKey::new("demo","dialogue/hello").unwrap();
         let mut project=project();
