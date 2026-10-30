@@ -72,8 +72,17 @@ async fn put_asset(
         return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,
             "Asset upload must contain 1..16 MiB".into()));
     }
+    let key=key(format!("audio/{name}"))?;
+    let hash=format!("{:x}",Sha256::digest(&body));
+    // Repeated draft previews reuse the same source instead of generating
+    // unnecessary catalog revisions and invalidating other project pins.
+    if let Ok(existing)=store.metadata(&key) {
+        if existing.kind==AssetKind::Sound && existing.sha256==hash {
+            return Ok(Json(existing));
+        }
+    }
     let record=store.publish_for(
-        STUDIO_NAMESPACE,key(format!("audio/{name}"))?,AssetKind::Sound,&body
+        STUDIO_NAMESPACE,key,AssetKind::Sound,&body
     ).map_err(not_found)?;
     Ok(Json(record))
 }
@@ -461,6 +470,27 @@ mod tests {
         drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
     }
 
+    #[tokio::test]
+    async fn uploading_identical_audio_twice_reuses_existing_catalog_revision() {
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let first=app.clone().oneshot(request(Method::POST,
+            "/api/v1/assets/idempotent",b"same audio".to_vec()
+        )).await.unwrap();
+        assert_eq!(first.status(),StatusCode::OK);
+        let a:Value=serde_json::from_slice(&to_bytes(first.into_body(),4096)
+            .await.unwrap()).unwrap();
+        let second=app.clone().oneshot(request(Method::POST,
+            "/api/v1/assets/idempotent",b"same audio".to_vec()
+        )).await.unwrap();
+        assert_eq!(second.status(),StatusCode::OK);
+        let b:Value=serde_json::from_slice(&to_bytes(second.into_body(),4096)
+            .await.unwrap()).unwrap();
+        assert_eq!(a["sha256"],b["sha256"]);
+        assert_eq!(a["revision"],b["revision"]);
+        assert_eq!(a["revision"],1);
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
     #[tokio::test]
     async fn unsaved_render_respects_overlapping_regions_and_clip_pan() {
         let (db,dir)=store();
