@@ -4,6 +4,7 @@
 use crate::media::Track;
 
 const MAX_STATES:usize=80;
+const MAX_HISTORY_BYTES:usize=12*1024*1024;
 const MAX_SNAPSHOT_BYTES:usize=2*1024*1024;
 
 #[derive(Clone)]
@@ -40,8 +41,11 @@ impl MixHistory {
         }
         self.states.truncate(self.cursor+1);
         self.states.push(Snapshot{tracks,fingerprint});
-        if self.states.len()>MAX_STATES {
-            self.states.remove(0);
+        let mut bytes=self.states.iter().map(|state|state.fingerprint.len()).sum::<usize>();
+        while self.states.len()>1 && (self.states.len()>MAX_STATES ||
+                bytes>MAX_HISTORY_BYTES) {
+            let removed=self.states.remove(0);
+            bytes-=removed.fingerprint.len();
         }
         self.cursor=self.states.len()-1;
         self.oversized=false;
