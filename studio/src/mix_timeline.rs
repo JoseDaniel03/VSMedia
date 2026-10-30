@@ -538,13 +538,25 @@ pub fn MixTimeline(
                 on:pointerup=move |event| {
                     let Some(active) = pointer.get_untracked() else { return; };
                     if active.pointer_id != event.pointer_id() { return; }
+                    // A click is a selection action, never an accidental
+                    // batch move across lanes (especially when other tracks
+                    // already contain selected regions).
+                    let dx=event.client_x()-active.origin_x;
+                    let dy=event.client_y()-active.origin_y;
+                    if dx.abs()<3 && dy.abs()<3 {
+                        pointer.set(None);
+                        return;
+                    }
                     let raw_delta=(event.client_x()-active.origin_x) as f64/zoom.get_untracked();
                     let delta=if matches!(active.mode,EditMode::GainPoint(_)){
                         (raw_delta*1000.0).round()/1000.0
                     }else{snap(raw_delta)};
                     let vertical=(event.client_y()-active.origin_y) as f64;
                     let destination = if active.mode == EditMode::Move {
-                        target_lane(&event)
+                        // Horizontal moves keep all selected regions on their
+                        // existing tracks; only a different target lane
+                        // triggers a group transfer.
+                        target_lane(&event).filter(|id|id!=&active.track_id)
                     } else { None };
                     let mut result = Ok(());
                     tracks.update(|all| {
