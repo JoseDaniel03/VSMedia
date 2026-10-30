@@ -8,6 +8,7 @@ mod media {
     pub struct Region {pub id:String,pub asset_id:String,pub start:f64,pub duration:f64}
     #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
     pub struct Track {pub id:String,pub asset_id:String,pub regions:Vec<Region>}
+    pub type MixRegion=Region;
     pub fn uid(prefix:&str)->String {
         static SEQ:AtomicUsize=AtomicUsize::new(0);
         format!("{prefix}-{}",SEQ.fetch_add(1,Ordering::Relaxed))
@@ -138,4 +139,80 @@ mod tests {
         assert_eq!(tracks[1].regions[0].start,3.5);
         assert_eq!(tracks[1].regions[1].start,4.5);
     }
+    #[test]
+    fn clipboard_paste_across_lanes_preserves_offsets_and_sources(){
+        let mut tracks=vec![
+            track("source-a",vec![region("first",1.0)]),
+            track("source-b",vec![region("second",1.5)]),
+            track("dest-a",vec![]),
+            track("dest-b",vec![]),
+        ];
+        let chosen=HashSet::from(["first".into(),"second".into()]);
+        let copied=mix_batch::copy(&tracks,&chosen).unwrap();
+        let made=mix_batch::paste(&mut tracks,&copied,"dest-a",5.0,false).unwrap();
+        assert_eq!(made.len(),2);
+        assert_ne!(made[0],"first");
+        assert_ne!(made[1],"second");
+        assert_eq!(tracks[2].regions[0].start,5.0);
+        assert_eq!(tracks[3].regions[0].start,5.5);
+        assert_eq!(tracks[2].regions[0].asset_id,"source-1");
+        assert_eq!(tracks[0].regions.len(),1);
+    }
+    #[test]
+    fn clipboard_preflight_rolls_back_when_target_has_no_space(){
+        let mut tracks=vec![
+            track("source",vec![region("original",1.0)]),
+            track("full",(0..32).map(|i|region(&format!("r{i}"),i as f64)).collect()),
+        ];
+        let clipboard=mix_batch::copy(&tracks,&HashSet::from(["original".to_owned()])).unwrap();
+        let before=tracks.clone();
+        assert!(mix_batch::paste(&mut tracks,&clipboard,"full",10.0,false).is_err());
+        assert_eq!(tracks,before);
+    }
+    #[test]
+    fn ripple_paste_shifts_later_clips_and_rolls_back_on_collision(){
+        let mut tracks=vec![
+            track("source",vec![region("copy",1.0)]),
+            track("dest",vec![region("later",6.0)]),
+        ];
+        let copied=mix_batch::copy(&tracks,&HashSet::from(["copy".to_owned()])).unwrap();
+        mix_batch::paste(&mut tracks,&copied,"dest",5.0,true).unwrap();
+        assert_eq!(tracks[1].regions[0].start,7.0);
+        assert_eq!(tracks[1].regions[1].start,5.0);
+        let before=tracks.clone();
+        assert!(mix_batch::paste(&mut tracks,&copied,"dest",5.5,true).is_err());
+        assert_eq!(tracks,before);
+    }
+    #[test]
+    fn ripple_delete_closes_multiple_gaps_without_touching_source(){
+        let mut tracks=vec![track("voice",vec![
+            region("a",0.0),region("b",1.0),region("c",2.0),region("d",3.0)
+        ])];
+        let selected=HashSet::from(["b".into(),"d".into()]);
+        assert_eq!(mix_batch::ripple_delete(&mut tracks,&selected).unwrap(),2);
+        assert_eq!(tracks[0].regions.len(),2);
+        assert_eq!(tracks[0].regions[0].start,0.0);
+        assert_eq!(tracks[0].regions[1].start,1.0);
+    }
+    #[test]
+    fn ripple_delete_rejects_overlapping_untouched_regions_atomically(){
+        let mut tracks=vec![track("voice",vec![
+            region("a",0.0),region("overlay",0.5),region("later",2.0)
+        ])];
+        let before=tracks.clone();
+        assert!(mix_batch::ripple_delete(&mut tracks,&HashSet::from(["a".into()])).is_err());
+        assert_eq!(tracks,before);
+    }
+    #[test]
+    fn snapping_uses_playhead_and_other_region_edges_not_self(){
+        let tracks=vec![track("voice",vec![
+            region("moving",1.0),region("target",4.0)
+        ])];
+        let selected=HashSet::from(["moving".into()]);
+        let to_clip=mix_batch::snap_move_delta(&tracks,&selected,0.0,1.96,24.0);
+        assert!((to_clip-2.0).abs()<1e-9); // moved clip end aligns with 4
+        let to_cursor=mix_batch::snap_move_delta(&tracks,&selected,6.0,5.08,24.0);
+        assert!((to_cursor-5.0).abs()<1e-9); // clip start aligns with cursor
+    }
+
 }
