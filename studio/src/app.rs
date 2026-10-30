@@ -240,6 +240,21 @@ fn SimpleAudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                     project_picker.set(opened);
                     if opened { studio_api::refresh_projects(saved_projects,status); }
                 }>"☁ Proyectos guardados"</button>
+            <button id="audio-preview-draft" type="button" class="toolbar-button"
+                title="Escuchar el clip procesado por el motor Rust sin guardar el proyecto"
+                on:click=move |_|{
+                    let asset=assets.get_untracked().into_iter()
+                        .find(|a|a.id==selected.get_untracked());
+                    let version=versions.get_untracked().into_iter()
+                        .find(|v|v.id==current_version.get_untracked());
+                    if let (Some(asset),Some(version))=(asset,version) {
+                        let duration=media::player("simple-player")
+                            .map(|p|p.duration()).unwrap_or(0.);
+                        studio_api::preview_draft_audio(asset,version,duration,status);
+                    } else {
+                        status.set("Seleccioná un clip y una versión para previsualizar.".into());
+                    }
+                }>"▶ Motor (borrador)"</button>
             <button id="audio-save-project" type="button" class="toolbar-button"
                 title="Sube el audio seleccionado y guarda esta versión como proyecto nativo .vsaudio"
                 on:click=move |_| {
@@ -315,6 +330,10 @@ fn SimpleAudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                             }>
                             "Tu navegador no admite audio HTML5."
                         </audio>
+                    </div>
+                    <div class="mix-draft-preview">
+                        <audio id="simple-draft-engine-audio" controls preload="none"></audio>
+                        <small>"WAV procesado por Rust · sin crear proyecto · fuentes utilizadas pueden subirse al CAS local"</small>
                     </div>
                     <div class="version-heading"><strong>"Versiones de este clip"</strong>
                         <button id="audio-new-version" class="action-primary" type="button" on:click=move |_| {
