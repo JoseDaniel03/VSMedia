@@ -273,3 +273,13 @@
 .vspack-layer-builder>button{padding:12px 6px;background:#f0edfc;border:1px solid #d6c9f4;color:#6751b0;border-radius:8px;font-size:11px;font-weight:700}
 .vspack-layer-builder>button:disabled{opacity:.45;cursor:not-allowed}
 .vspack-layer-builder>button:not(:disabled):hover{background:#e5ddff}
+
+/* Per-resource texture/GUI priority choices (safe, no pixel modification). */
+.vspack-resolver{display:grid;grid-template-columns:minmax(0,1fr) minmax(110px,38%);align-items:center;gap:8px;padding:10px 11px;background:#fdfdff}
+.vspack-resolver.blocked{background:#fff6ee;border-left:3px solid #d99a56}
+.vspack-conflict-detail{min-width:0;display:flex;flex-direction:column;gap:5px}
+.vspack-conflict-detail code{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#5d6483}
+.vspack-conflict-detail small{font-size:10px;color:#9997ad;white-space:normal}
+.vspack-resolver select{width:100%;min-width:0;padding:7px 6px;border:1px solid #dedceb;border-radius:6px;background:#fff;color:#5d588a;font-size:10px}
+.vspack-more-conflicts{display:block;padding:8px;color:#a3aab8}
+@media(max-width:580px){.vspack-resolver{grid-template-columns:1fr}}
