@@ -214,6 +214,48 @@ fn begin_selected_move(
         if let Some(active)=active {active.members=members;}
     });
 }
+#[derive(Clone,Copy)]
+enum SelectionCommand {SelectAll,Clear,Nudge(f64),Duplicate,Delete}
+fn selection_command(
+    tracks:RwSignal<Vec<Track>>,selected:RwSignal<HashSet<String>>,
+    status:RwSignal<String>,command:SelectionCommand
+) {
+    match command {
+        SelectionCommand::SelectAll=>{
+            selected.set(tracks.with(|all|mix_batch::ids(all)));
+        }
+        SelectionCommand::Clear=>selected.set(HashSet::new()),
+        SelectionCommand::Nudge(delta)=>{
+            let chosen=selected.get_untracked();
+            if chosen.is_empty(){return;}
+            let mut count=0;
+            tracks.update(|all|count=mix_batch::nudge(all,&chosen,delta));
+            if count>0 {status.set(format!("{count} regiones desplazadas {delta:+.1} s. Podés deshacer."));}
+        }
+        SelectionCommand::Duplicate=>{
+            let chosen=selected.get_untracked();
+            if chosen.is_empty(){return;}
+            let mut result=Ok(Vec::new());
+            tracks.update(|all|result=mix_batch::duplicate(all,&chosen));
+            match result {
+                Ok(created)=>{
+                    let count=created.len();
+                    selected.set(created.into_iter().collect());
+                    status.set(format!("{count} regiones duplicadas con sus automatizaciones."));
+                }
+                Err(error)=>status.set(error),
+            }
+        }
+        SelectionCommand::Delete=>{
+            let chosen=selected.get_untracked();
+            if chosen.is_empty(){return;}
+            let mut count=0;
+            tracks.update(|all|count=mix_batch::delete(all,&chosen));
+            selected.set(HashSet::new());
+            if count>0 {status.set(format!("{count} regiones eliminadas. Podés deshacer."));}
+        }
+    }
+}
 fn target_lane(event: &web_sys::PointerEvent) -> Option<String> {
     let document = web_sys::window()?.document()?;
     document.element_from_point(event.client_x() as f32, event.client_y() as f32)?
@@ -392,52 +434,59 @@ pub fn MixTimeline(
         (0..=((duration / 10.0).ceil() as u32).min(361)).collect::<Vec<u32>>()
     };
     view! {
-        <section class="mix-timeline-shell" aria-label="Línea de tiempo interactiva">
+        <section class="mix-timeline-shell" aria-label="Línea de tiempo interactiva"
+            tabindex="0"
+            on:keydown=move |event:web_sys::KeyboardEvent|{
+                let editing=event.target()
+                    .and_then(|target|target.dyn_into::<web_sys::Element>().ok())
+                    .is_some_and(|element|{
+                        let tag=element.tag_name();
+                        tag=="INPUT" || tag=="TEXTAREA" || tag=="SELECT"
+                            || element.closest("[contenteditable=true]").ok().flatten().is_some()
+                    });
+                if editing {return;}
+                let key=event.key().to_lowercase();
+                let ctrl=event.ctrl_key() || event.meta_key();
+                let action=if ctrl && key=="a" {
+                    Some(SelectionCommand::SelectAll)
+                }else if ctrl && key=="d" {
+                    Some(SelectionCommand::Duplicate)
+                }else if key=="delete" || key=="backspace" {
+                    Some(SelectionCommand::Delete)
+                }else if !ctrl && key=="arrowleft"{
+                    Some(SelectionCommand::Nudge(if event.shift_key(){-1.0}else{-0.1}))
+                }else if !ctrl && key=="arrowright" {
+                    Some(SelectionCommand::Nudge(if event.shift_key(){1.0}else{0.1}))
+                }else if key=="escape" {
+                    Some(SelectionCommand::Clear)
+                }else {None};
+                if let Some(action)=action {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    selection_command(tracks,selected,status,action);
+                }
+            }>
             <div class="mix-timeline-toolbar">
                 <strong>"LÍNEA DE TIEMPO"</strong>
                 <small>{move ||format!("{} seleccionadas · Mayús/Ctrl+clic para añadir",
                     selected.with(|ids|tracks.with(|all|mix_batch::count_selected(all,ids))))}</small>
-                <button type="button" class="mix-timeline-action" title="Seleccionar todas las regiones"
-                    on:click=move |_|selected.set(tracks.with(|all|mix_batch::ids(all)))>"Seleccionar todo"</button>
-                <button type="button" class="mix-timeline-action" title="Vaciar selección"
+                <button type="button" class="mix-timeline-action" title="Ctrl+A · Seleccionar todas las regiones"
+                    on:click=move |_|selection_command(tracks,selected,status,SelectionCommand::SelectAll)>"Seleccionar todo"</button>
+                <button type="button" class="mix-timeline-action" title="Esc · Vaciar selección"
                     disabled=move ||selected.with(|ids|ids.is_empty())
-                    on:click=move |_|selected.set(HashSet::new())>"Limpiar"</button>
-                <button type="button" class="mix-timeline-action" title="Mover selección 0,1 segundos a la izquierda"
-                    on:click=move |_|{
-                        let ids=selected.get_untracked();
-                        let mut changed=0;
-                        tracks.update(|all|changed=mix_batch::nudge(all,&ids,-0.1));
-                        if changed>0 {status.set(format!("{changed} regiones desplazadas −0,1 s."));}
-                    }>"← 0,1 s"</button>
-                <button type="button" class="mix-timeline-action" title="Mover selección 0,1 segundos a la derecha"
-                    on:click=move |_|{
-                        let ids=selected.get_untracked();
-                        let mut changed=0;
-                        tracks.update(|all|changed=mix_batch::nudge(all,&ids,0.1));
-                        if changed>0 {status.set(format!("{changed} regiones desplazadas +0,1 s."));}
-                    }>"0,1 s →"</button>
-                <button type="button" class="mix-timeline-action" title="Duplicar regiones seleccionadas con sus automatizaciones"
-                    on:click=move |_|{
-                        let ids=selected.get_untracked();
-                        let mut result=Ok(Vec::new());
-                        tracks.update(|all|result=mix_batch::duplicate(all,&ids));
-                        match result {
-                            Ok(created)=>{
-                                let n=created.len();
-                                selected.set(created.into_iter().collect());
-                                status.set(format!("Duplicadas {n} regiones, conservando fuentes y automatización."));
-                            },
-                            Err(reason)=>status.set(reason),
-                        }
-                    }>"⧉ Duplicar"</button>
-                <button type="button" class="mix-timeline-action" title="Eliminar regiones seleccionadas"
-                    on:click=move |_|{
-                        let ids=selected.get_untracked();
-                        let mut count=0;
-                        tracks.update(|all|count=mix_batch::delete(all,&ids));
-                        selected.set(HashSet::new());
-                        if count>0 {status.set(format!("{count} regiones eliminadas. Podés deshacer."));}
-                    }>"✕ Eliminar"</button>
+                    on:click=move |_|selection_command(tracks,selected,status,SelectionCommand::Clear)>"Limpiar"</button>
+                <button type="button" class="mix-timeline-action" title="← · Desplazar selección 0,1 segundos"
+                    disabled=move ||selected.with(|ids|ids.is_empty())
+                    on:click=move |_|selection_command(tracks,selected,status,SelectionCommand::Nudge(-0.1))>"← 0,1 s"</button>
+                <button type="button" class="mix-timeline-action" title="→ · Desplazar selección 0,1 segundos"
+                    disabled=move ||selected.with(|ids|ids.is_empty())
+                    on:click=move |_|selection_command(tracks,selected,status,SelectionCommand::Nudge(0.1))>"0,1 s →"</button>
+                <button type="button" class="mix-timeline-action" title="Ctrl+D · Duplicar regiones y automatizaciones"
+                    disabled=move ||selected.with(|ids|ids.is_empty())
+                    on:click=move |_|selection_command(tracks,selected,status,SelectionCommand::Duplicate)>"⧉ Duplicar"</button>
+                <button type="button" class="mix-timeline-action" title="Supr · Eliminar selección"
+                    disabled=move ||selected.with(|ids|ids.is_empty())
+                    on:click=move |_|selection_command(tracks,selected,status,SelectionCommand::Delete)>"✕ Eliminar"</button>
                 <button type="button" class="mix-timeline-action"
                     title="Analiza únicamente los audios utilizados, sin subir archivos"
                     disabled=move || waves_busy.get()
