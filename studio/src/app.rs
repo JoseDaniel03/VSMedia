@@ -593,6 +593,11 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                 on:click=move |_|studio_api::save_mix_project(
                     assets.get_untracked(),tracks.get_untracked(),status
                 )>"☁ Guardar mezcla"</button>
+            <button id="mix-preview-draft" type="button" class="toolbar-button"
+                title="Procesa la mezcla actual en Rust sin crear una revisión de proyecto"
+                on:click=move |_|studio_api::preview_draft_mix(
+                    assets.get_untracked(),tracks.get_untracked(),status
+                )>"▶ Motor (borrador)"</button>
             <button id="mix-play" type="button" class="toolbar-button" on:click=move |_|{
                 if tracks.get_untracked().iter().any(|t|!t.regions.is_empty()) {
                     status.set("Esta mezcla tiene regiones: utilizá ▶ Motor (borrador) para escuchar el resultado real.".into());
@@ -668,6 +673,10 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
             <div class="studio-library"><Library assets folders selected status /></div>
             <section class="mix-stage">
                 <div class="stage-topline"><span>"PISTAS"</span><span>{move ||format!("{} canales",tracks.get().len())}</span></div>
+                <div class="mix-draft-preview">
+                    <audio id="mix-draft-engine-audio" controls preload="none"></audio>
+                    <small>"Previsualiza todos los clips con Rust · no guarda proyecto · puede subir al CAS las fuentes utilizadas"</small>
+                </div>
                 <Show when=move ||tracks.get().is_empty()>
                     <div class="empty-canvas large-empty"><span>"≋"</span><strong>"Tu sesión no tiene pistas"</strong>
                     <p>"Añadí pistas, vinculá archivos de la biblioteca o grabá directamente en un canal."</p></div>
