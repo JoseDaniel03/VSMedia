@@ -2,8 +2,8 @@
 //! Track/MixRegion model; the existing draft render and .vsaudio path are reused.
 use crate::media::{AudioAsset, MixFadeCurve, MixRegion, Track};
 use crate::waveform::{self, Waveform};
-use crate::gain_editor;
-use std::collections::HashMap;
+use crate::{gain_editor,mix_batch};
+use std::collections::{HashMap,HashSet};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -23,6 +23,7 @@ struct PointerEdit {
     delta_pixels: f64,
     delta_vertical: f64,
     mode: EditMode,
+    members:HashSet<String>,
 }
 
 fn snap(seconds: f64) -> f64 {
@@ -107,7 +108,8 @@ fn preview_region(
         .cloned())?;
     pointer.with(|state|{
         if let Some(drag)=state {
-            if drag.track_id==track_id && drag.region_id==region_id {
+            if (drag.track_id==track_id && drag.region_id==region_id)
+                || (drag.mode==EditMode::Move && drag.members.contains(region_id)) {
                 let delta=if matches!(drag.mode,EditMode::GainPoint(_)){
                     (drag.delta_pixels/zoom.get()*1000.0).round()/1000.0
                 } else {snap(drag.delta_pixels/zoom.get())};
@@ -120,28 +122,18 @@ fn preview_region(
 fn apply_pointer_edit(
     tracks: &mut Vec<Track>, edit: &PointerEdit, seconds: f64,
     vertical: f64, target: Option<&str>
-) -> Result<(), &'static str> {
+) -> Result<(),String> {
     let source = tracks.iter().position(|t| t.id == edit.track_id)
         .ok_or("La pista original ya no existe")?;
     let region_index = tracks[source].regions.iter()
         .position(|r| r.id == edit.region_id).ok_or("La región ya no existe")?;
     if edit.mode == EditMode::Move {
-        let destination = target.and_then(|id| tracks.iter().position(|t| t.id == id))
-            .unwrap_or(source);
-        if destination != source && tracks[destination].regions.len() >= 32 {
-            return Err("La pista de destino ya tiene 32 regiones");
-        }
-        let mut region = tracks[source].regions[region_index].clone();
-        transform(&mut region, edit.mode, seconds, vertical);
-        if destination == source {
-            tracks[source].regions[region_index] = region;
-        } else {
-            tracks[source].regions.remove(region_index);
-            if tracks[source].regions.is_empty() { tracks[source].asset_id.clear(); }
-            tracks[destination].regions.push(region);
-        }
+        let mut members=edit.members.clone();
+        members.insert(edit.region_id.clone());
+        // This helper rejects invalid capacity before changing any track.
+        mix_batch::move_group(tracks,&members,seconds,target)?;
     } else {
-        transform(&mut tracks[source].regions[region_index], edit.mode, seconds, vertical);
+        transform(&mut tracks[source].regions[region_index],edit.mode,seconds,vertical);
     }
     Ok(())
 }
@@ -197,7 +189,30 @@ fn pointer_start(
         track_id, region_id, pointer_id: event.pointer_id(),
         origin_x: event.client_x(), origin_y: event.client_y(),
         delta_pixels: 0.0, delta_vertical: 0.0, mode,
+        members:HashSet::new(),
     }));
+}
+fn begin_selected_move(
+    event:&web_sys::PointerEvent, pointer:RwSignal<Option<PointerEdit>>,
+    selected:RwSignal<HashSet<String>>,track_id:String,region_id:String
+) {
+    if event.button()!=0{return;}
+    if event.shift_key() || event.ctrl_key() || event.meta_key() {
+        selected.update(|ids|{
+            if !ids.insert(region_id.clone()) {ids.remove(&region_id);}
+        });
+        event.prevent_default();
+        return;
+    }
+    let members=selected.with_untracked(|ids|{
+        if ids.contains(&region_id){ids.clone()}
+        else{HashSet::from([region_id.clone()])}
+    });
+    selected.set(members.clone());
+    pointer_start(event,pointer,track_id,region_id,EditMode::Move);
+    pointer.update(|active|{
+        if let Some(active)=active {active.members=members;}
+    });
 }
 fn target_lane(event: &web_sys::PointerEvent) -> Option<String> {
     let document = web_sys::window()?.document()?;
@@ -218,7 +233,9 @@ fn TimelineClip(
     assets: RwSignal<Vec<AudioAsset>>, zoom: RwSignal<f64>,
     pointer: RwSignal<Option<PointerEdit>>,
     waveforms: RwSignal<HashMap<String,Waveform>>,
+    selected:RwSignal<HashSet<String>>,
 ) -> impl IntoView {
+    let selected_id=region_id.clone();
     let move_track = track_id.clone();
     let move_region = region_id.clone();
     let left_track = track_id.clone();
@@ -252,15 +269,16 @@ fn TimelineClip(
     let grip_track=track_id.clone();
     let grip_region=region_id.clone();
     view! {
-        <div class="mix-timeline-clip"
+        <div class="mix-timeline-clip" tabindex="0"
+            class:selected=move ||selected.with(|ids|ids.contains(&selected_id))
             style=move || {
                 let Some(region)=preview_region(tracks,pointer,zoom,&display_track,&display_region)
                     else {return "display:none".to_owned();};
                 format!("left:{:.2}px;width:{:.2}px",
                     region.start * zoom.get(), (region.duration * zoom.get()).max(10.0))
             }
-            on:pointerdown=move |event| pointer_start(
-                &event, pointer, move_track.clone(), move_region.clone(), EditMode::Move)
+            on:pointerdown=move |event|begin_selected_move(
+                &event,pointer,selected,move_track.clone(),move_region.clone())
             title="Arrastrá para mover · usá los bordes para recortar">
             <span class="mix-timeline-handle left" title="Ajustar comienzo"
                 on:pointerdown=move |event| {
@@ -367,6 +385,7 @@ pub fn MixTimeline(
     let waveforms = RwSignal::new(HashMap::<String,Waveform>::new());
     let waves_busy = RwSignal::new(false);
     let crossfade_curve=RwSignal::new(MixFadeCurve::EqualPower);
+    let selected=RwSignal::new(HashSet::<String>::new());
     let track_ids = move || tracks.get().into_iter().map(|track| track.id).collect::<Vec<String>>();
     let ruler_ticks = move || {
         let duration = ruler_width(tracks, zoom) / zoom.get();
@@ -376,7 +395,49 @@ pub fn MixTimeline(
         <section class="mix-timeline-shell" aria-label="Línea de tiempo interactiva">
             <div class="mix-timeline-toolbar">
                 <strong>"LÍNEA DE TIEMPO"</strong>
-                <small>"Movimiento, recorte y fades sin alterar el origen"</small>
+                <small>{move ||format!("{} seleccionadas · Mayús/Ctrl+clic para añadir",
+                    selected.with(|ids|mix_batch::count_selected(&tracks.get(),ids)))}</small>
+                <button type="button" class="mix-timeline-action" title="Seleccionar todas las regiones"
+                    on:click=move |_|selected.set(tracks.with(mix_batch::ids))>"Seleccionar todo"</button>
+                <button type="button" class="mix-timeline-action" title="Vaciar selección"
+                    disabled=move ||selected.with(|ids|ids.is_empty())
+                    on:click=move |_|selected.set(HashSet::new())>"Limpiar"</button>
+                <button type="button" class="mix-timeline-action" title="Mover selección 0,1 segundos a la izquierda"
+                    on:click=move |_|{
+                        let ids=selected.get_untracked();
+                        let mut changed=0;
+                        tracks.update(|all|changed=mix_batch::nudge(all,&ids,-0.1));
+                        if changed>0 {status.set(format!("{changed} regiones desplazadas −0,1 s."));}
+                    }>"← 0,1 s"</button>
+                <button type="button" class="mix-timeline-action" title="Mover selección 0,1 segundos a la derecha"
+                    on:click=move |_|{
+                        let ids=selected.get_untracked();
+                        let mut changed=0;
+                        tracks.update(|all|changed=mix_batch::nudge(all,&ids,0.1));
+                        if changed>0 {status.set(format!("{changed} regiones desplazadas +0,1 s."));}
+                    }>"0,1 s →"</button>
+                <button type="button" class="mix-timeline-action" title="Duplicar regiones seleccionadas con sus automatizaciones"
+                    on:click=move |_|{
+                        let ids=selected.get_untracked();
+                        let mut result=Ok(Vec::new());
+                        tracks.update(|all|result=mix_batch::duplicate(all,&ids));
+                        match result {
+                            Ok(created)=>{
+                                let n=created.len();
+                                selected.set(created.into_iter().collect());
+                                status.set(format!("Duplicadas {n} regiones, conservando fuentes y automatización."));
+                            },
+                            Err(reason)=>status.set(reason),
+                        }
+                    }>"⧉ Duplicar"</button>
+                <button type="button" class="mix-timeline-action" title="Eliminar regiones seleccionadas"
+                    on:click=move |_|{
+                        let ids=selected.get_untracked();
+                        let mut count=0;
+                        tracks.update(|all|count=mix_batch::delete(all,&ids));
+                        selected.set(HashSet::new());
+                        if count>0 {status.set(format!("{count} regiones eliminadas. Podés deshacer."));}
+                    }>"✕ Eliminar"</button>
                 <button type="button" class="mix-timeline-action"
                     title="Analiza únicamente los audios utilizados, sin subir archivos"
                     disabled=move || waves_busy.get()
@@ -410,14 +471,21 @@ pub fn MixTimeline(
                 <button type="button" title="Acercar" on:click=move |_| zoom.update(|value| *value = (*value * 1.5).min(72.0))>"＋"</button>
             </div>
             <div class="mix-timeline-scroll"
-                on:pointermove=move |event| pointer.update(|active| {
-                    if let Some(current) = active {
-                        if current.pointer_id == event.pointer_id() {
-                            current.delta_pixels = (event.client_x() - current.origin_x) as f64;
-                            current.delta_vertical = (event.client_y() - current.origin_y) as f64;
-                        }
+                on:pointermove=move |event|{
+                    let next=pointer.with_untracked(|active|active.as_ref()
+                        .filter(|current|current.pointer_id==event.pointer_id())
+                        .is_some_and(|current|{
+                            ((event.client_x()-current.origin_x) as f64-current.delta_pixels).abs()>1.0
+                                || ((event.client_y()-current.origin_y) as f64-current.delta_vertical).abs()>1.0
+                        }));
+                    // Skip updates for subpixel motion, reducing WASM redraws.
+                    if next {
+                        pointer.update(|active|if let Some(current)=active {
+                            current.delta_pixels=(event.client_x()-current.origin_x) as f64;
+                            current.delta_vertical=(event.client_y()-current.origin_y) as f64;
+                        });
                     }
-                })
+                }
                 on:pointerup=move |event| {
                     let Some(active) = pointer.get_untracked() else { return; };
                     if active.pointer_id != event.pointer_id() { return; }
@@ -467,7 +535,7 @@ pub fn MixTimeline(
                                 <For each=region_ids key=|id| id.clone() children=move |region_id| {
                                     view! {<TimelineClip track_id=clip_track_id.clone()
                                         region_id=region_id tracks=tracks assets=assets
-                                        zoom=zoom pointer=pointer waveforms=waveforms/>}
+                                        zoom=zoom pointer=pointer waveforms=waveforms selected=selected/>}
                                 }/>
                             </div>
                         </div>
