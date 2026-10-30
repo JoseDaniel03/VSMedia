@@ -1,6 +1,6 @@
 //! Interactive, non-destructive VSMix timeline. All edits stay in the local
 //! Track/MixRegion model; the existing draft render and .vsaudio path are reused.
-use crate::media::{AudioAsset, MixRegion, Track};
+use crate::media::{AudioAsset, MixFadeCurve, MixRegion, Track};
 use crate::waveform::{self, Waveform};
 use std::collections::HashMap;
 use leptos::prelude::*;
@@ -10,7 +10,7 @@ const MIN_DURATION: f64 = 0.1;
 const MAX_SECONDS: f64 = 3600.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum EditMode { Move, TrimStart, TrimEnd }
+enum EditMode { Move, TrimStart, TrimEnd, FadeIn, FadeOut }
 
 #[derive(Clone)]
 struct PointerEdit {
@@ -55,7 +55,52 @@ fn transform(region: &mut MixRegion, mode: EditMode, delta: f64) {
                 .clamp(MIN_DURATION, MAX_SECONDS - region.start);
             fit_fades(region);
         }
+        EditMode::FadeIn => {
+            region.fade_in=(region.fade_in+delta)
+                .clamp(0.0,(region.duration-region.fade_out).max(0.0));
+        }
+        EditMode::FadeOut => {
+            region.fade_out=(region.fade_out-delta)
+                .clamp(0.0,(region.duration-region.fade_in).max(0.0));
+        }
     }
+}
+/// The curve preview uses the same sin(pi/2 * progress) equation as DSP.
+fn envelope_path(region:&MixRegion)->String {
+    if !region.duration.is_finite() || region.duration<=0.0 {
+        return String::new();
+    }
+    let mut result=String::with_capacity(1000);
+    for step in 0..=60 {
+        let x=step as f64 * 2.0;
+        let seconds=region.duration*step as f64/60.0;
+        let enter=if region.fade_in>0.0 {seconds/region.fade_in}else{1.0};
+        let exit=if region.fade_out>0.0 {
+            (region.duration-seconds)/region.fade_out
+        }else{1.0};
+        let level=region.fade_curve.amplitude(enter)*region.fade_curve.amplitude(exit);
+        let y=21.0-level*18.0;
+        result.push_str(&format!("{} {:.2} {:.2} ",
+            if step==0 {"M"}else{"L"},x,y));
+    }
+    result
+}
+fn preview_region(
+    tracks:RwSignal<Vec<Track>>,pointer:RwSignal<Option<PointerEdit>>,
+    zoom:RwSignal<f64>,track_id:&str,region_id:&str
+)->Option<MixRegion> {
+    let mut region=tracks.with(|all|all.iter()
+        .find(|track|track.id==track_id)
+        .and_then(|track|track.regions.iter().find(|region|region.id==region_id))
+        .cloned())?;
+    pointer.with(|state|{
+        if let Some(drag)=state {
+            if drag.track_id==track_id && drag.region_id==region_id {
+                transform(&mut region,drag.mode,snap(drag.delta_pixels/zoom.get()));
+            }
+        }
+    });
+    Some(region)
 }
 fn apply_pointer_edit(
     tracks: &mut Vec<Track>, edit: &PointerEdit, seconds: f64, target: Option<&str>
@@ -85,7 +130,7 @@ fn apply_pointer_edit(
     Ok(())
 }
 /// Use the existing native linear fades, preserving the .vsaudio format.
-fn apply_linear_crossfades(tracks:&mut [Track]) -> (usize,usize) {
+fn apply_crossfades(tracks:&mut [Track],curve:MixFadeCurve) -> (usize,usize) {
     let mut applied=0usize;
     let mut skipped=0usize;
     for track in tracks {
@@ -113,7 +158,9 @@ fn apply_linear_crossfades(tracks:&mut [Track]) -> (usize,usize) {
                 continue;
             }
             track.regions[a].fade_out=overlap;
+            track.regions[a].fade_curve=curve;
             track.regions[b].fade_in=overlap;
+            track.regions[b].fade_curve=curve;
             applied+=1;
         }
     }
@@ -171,19 +218,21 @@ fn TimelineClip(
     let fade_in_region=region_id.clone();
     let fade_out_track=track_id.clone();
     let fade_out_region=region_id.clone();
+    let envelope_track=track_id.clone();
+    let envelope_region=region_id.clone();
+    let grip_in_track=track_id.clone();
+    let grip_in_region=region_id.clone();
+    let grip_out_track=track_id.clone();
+    let grip_out_region=region_id.clone();
+    let grip_in_start_track=track_id.clone();
+    let grip_in_start_region=region_id.clone();
+    let grip_out_start_track=track_id.clone();
+    let grip_out_start_region=region_id.clone();
     view! {
         <div class="mix-timeline-clip"
             style=move || {
-                let found = tracks.with(|all|all.iter()
-                    .find(|t| t.id == display_track)
-                    .and_then(|t| t.regions.iter().find(|r| r.id == display_region))
-                    .cloned());
-                let Some(mut region) = found else { return "display:none".to_string(); };
-                if let Some(drag) = pointer.get() {
-                    if drag.track_id == display_track && drag.region_id == display_region {
-                        transform(&mut region, drag.mode, snap(drag.delta_pixels / zoom.get()));
-                    }
-                }
+                let Some(region)=preview_region(tracks,pointer,zoom,&display_track,&display_region)
+                    else {return "display:none".to_owned();};
                 format!("left:{:.2}px;width:{:.2}px",
                     region.start * zoom.get(), (region.duration * zoom.get()).max(10.0))
             }
@@ -204,6 +253,29 @@ fn TimelineClip(
                         .unwrap_or_default())
                 }/>
             </svg>
+            <svg class="mix-fade-envelope" viewBox="0 0 120 24"
+                preserveAspectRatio="none" aria-hidden="true">
+                <path d=move ||preview_region(tracks,pointer,zoom,&envelope_track,&envelope_region)
+                    .map(|region|envelope_path(&region)).unwrap_or_default()/>
+            </svg>
+            <span class="mix-fade-grip begin" title="Arrastrá para ajustar fade in"
+                style=move ||preview_region(tracks,pointer,zoom,&grip_in_track,&grip_in_region)
+                    .map(|r|format!("left:{:.2}%",100.0*r.fade_in/r.duration.max(0.1)))
+                    .unwrap_or_default()
+                on:pointerdown=move |event|{
+                    event.stop_propagation();
+                    pointer_start(&event,pointer,grip_in_start_track.clone(),
+                        grip_in_start_region.clone(),EditMode::FadeIn);
+                }></span>
+            <span class="mix-fade-grip end" title="Arrastrá para ajustar fade out"
+                style=move ||preview_region(tracks,pointer,zoom,&grip_out_track,&grip_out_region)
+                    .map(|r|format!("left:{:.2}%",100.0*(1.0-r.fade_out/r.duration.max(0.1))))
+                    .unwrap_or_default()
+                on:pointerdown=move |event|{
+                    event.stop_propagation();
+                    pointer_start(&event,pointer,grip_out_start_track.clone(),
+                        grip_out_start_region.clone(),EditMode::FadeOut);
+                }></span>
             <span class="mix-fade-shade mix-fade-enter" style=move ||{
                 tracks.with(|all|all.iter().find(|t|t.id==fade_in_track)
                     .and_then(|t|t.regions.iter().find(|r|r.id==fade_in_region))
@@ -241,6 +313,7 @@ pub fn MixTimeline(
     let pointer = RwSignal::new(None::<PointerEdit>);
     let waveforms = RwSignal::new(HashMap::<String,Waveform>::new());
     let waves_busy = RwSignal::new(false);
+    let crossfade_curve=RwSignal::new(MixFadeCurve::EqualPower);
     let track_ids = move || tracks.get().into_iter().map(|track| track.id).collect::<Vec<String>>();
     let ruler_ticks = move || {
         let duration = ruler_width(tracks, zoom) / zoom.get();
@@ -257,12 +330,27 @@ pub fn MixTimeline(
                     on:click=move |_| waveform::load_for_mix(assets,tracks,waveforms,status,waves_busy)>
                     {move ||if waves_busy.get(){"Analizando…"}else{"▥ Ondas"}}
                 </button>
+                <select class="mix-curve-select" aria-label="Curva para crossfades"
+                    title="Elegí el tipo de transición"
+                    prop:value=move ||crossfade_curve.get().as_str()
+                    on:change=move |event|{
+                        let value=event_target_value(&event);
+                        if let Some(curve)=MixFadeCurve::from_str(&value){
+                            crossfade_curve.set(curve);
+                        }
+                    }>
+                    <option value="equal_power">"Potencia constante"</option>
+                    <option value="linear">"Lineal"</option>
+                </select>
                 <button type="button" class="mix-timeline-action"
-                    title="Aplica fades lineales a pares superpuestos, reproducibles con el motor actual"
+                    title="Aplica el tipo elegido a pares superpuestos sin guardar proyecto"
                     on:click=move |_|{
                         let mut changed=(0,0);
-                        tracks.update(|list|changed=apply_linear_crossfades(list));
-                        status.set(format!("Crossfades lineales aplicados: {}. Cruces incompatibles omitidos: {}. Escuchá con ▶ Motor (borrador).",changed.0,changed.1));
+                        let curve=crossfade_curve.get_untracked();
+                        tracks.update(|list|changed=apply_crossfades(list,curve));
+                        status.set(format!("Crossfades {}: {} aplicados; {} omitidos. Previsualizá con ▶ Motor (borrador).",
+                            if curve==MixFadeCurve::EqualPower {"equal-power"} else {"lineales"},
+                            changed.0,changed.1));
                     }>"⇄ Crossfade"</button>
                 <button type="button" title="Alejar" on:click=move |_| zoom.update(|value| *value = (*value / 1.5).max(8.0))>"−"</button>
                 <span>{move || format!("{:.0} px/s", zoom.get())}</span>
