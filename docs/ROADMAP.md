@@ -79,3 +79,28 @@ ni distribución todavía. `vspack` actualmente representa Resource Packs.
 - [x] Reutilización de recursos idénticos durante previsualización local.
 - [ ] Arrastre de regiones, ajuste de bordes y formas de onda editables desde la web.
 - [ ] Decodificación MP3/FLAC/OGG/Opus, buses, efectos adicionales y audio en vivo.
+
+## Studio VSPack — gestión de Resource Packs (26.3)
+
+- [x] Pantalla propia FullCanvas y acceso desde Home / pestañas.
+- [x] Importación de varios ZIP con prevención de rutas peligrosas,
+  symlinks, entradas duplicadas, ZIP bombs y límites globales de memoria.
+- [x] Inventario de recursos por namespace, nombre y categoría,
+  filtros y paginación.
+- [x] Prioridades por fuente; conflictos ganadores/perdedores;
+  merge semántico de sonidos por evento.
+- [x] Exportación ZIP determinista, Store/Deflate según formato,
+  manifiesto `pack.mcmeta` requerido; tests end-to-end de merge.
+- [x] CORS local, límites de recursos y separación de trabajos CPU.
+- [ ] Sesiones persistentes respaldadas por CAS y gestión de versiones
+  de packs guardados.
+- [ ] Vista previa real de texturas/modelos/sonidos dentro del editor.
+- [ ] Distribución HTTPS/CDN, integración final con el adaptador
+  Paper/Folia del servidor y benchmarks reales con clientes.
+- [ ] Instrumentación de overlays base/delta y controles administrativos
+  de publicación desde el Studio.
+
+**Alcance:** el gestor local de ZIPs está desarrollado y probado
+automáticamente; la distribución de packs a Minecraft sigue pendiente
+y no se debe marcar como verificada sin pruebas reales. Los datapacks
+no forman parte de esta fase.

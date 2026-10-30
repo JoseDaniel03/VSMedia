@@ -35,3 +35,20 @@ Axum no retransmite PCM ni persiste audio.
 **No exponer el backend local directamente a Internet**: HTTPS/WSS,
 autenticación, TURN, control de permisos y auditoría son requisitos para
 un despliegue remoto seguro. Véase `LIVE-STREAMING.md`.
+
+## VSPack (Resource Packs, no datapacks)
+
+| Método / endpoint | Operación |
+|---|---|
+| `GET /api/v1/packs` | Estado de la sesión |
+| `POST /api/v1/packs/{id}` | Importar ZIP binario, nombre opcional `X-VSPack-Label` |
+| `POST /api/v1/packs/{id}/priority` | Prioridad JSON (-1000..1000) |
+| `DELETE /api/v1/packs/{id}` | Retirar pack de la sesión |
+| `GET /api/v1/packs/preview` | Inventario, categorías y conflictos |
+| `GET /api/v1/packs/export` | ZIP combinado mediante Rust Pack Engine |
+
+Solo en localhost, con CORS limitado al Studio. Hasta 6 packs,
+12 MiB por ZIP importado, 64 MiB de entradas descomprimidas en
+memoria total; la sesión no persiste después de reiniciar Axum.
+Sin CDN/HTTPS ni oferta a jugadores todavía.
+Véase `VSPACK.md`.

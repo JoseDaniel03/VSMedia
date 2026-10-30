@@ -37,3 +37,14 @@ no son autenticación. Para producción exigir HTTPS/WSS, auth, TURN, gestión
 de invitaciones y controles de abusos en el reverse proxy.
 
 Más información en `../docs/LIVE-STREAMING.md`.
+
+## VSPack
+
+El servidor local también expone un gestor de Resource Packs sobre
+`/api/v1/packs`. Implementa importación ZIP acotada, merge estructurado
+con prioridades y vista previa de conflictos, además de exportación
+determinista binaria. Usa `vsmedia-pack`, no un segundo compresor.
+Se mantienen packs importados en memoria limitada hasta reiniciar
+el bridge. El gestor no almacena ni publica al Minecraft remoto.
+
+Ver `../docs/VSPACK.md` para límites, API y pruebas.

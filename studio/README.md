@@ -36,6 +36,10 @@ VSStreams requiere Plasmo Voice en Minecraft y una integración futura con VSEng
 - **VSStreams:** panel de integración de Plasmo Voice, mod/plugin de voz
   por proximidad para Minecraft; sólo presenta estado real de integración
   y requisitos. La administración avanzada se implementará después.
+- **VSPack:** gestor de ZIPs de Resource Packs, importación validada,
+  capas por prioridad, conflictos, buscador de archivos y exportación ZIP
+  determinista mediante el mismo Rust Pack Engine.
+  No publica automáticamente en Minecraft ni incorpora datapacks.
 - **Guion:** lector automático de texto/doblaje.
 
 ### Estado de radio y voz
@@ -52,7 +56,7 @@ necesitaría SFU o distribución segmentada y un servicio de control de acceso.
 VSStreams no tiene un chat WebRTC alternativo: reutiliza Plasmo Voice
 para la voz dentro de Minecraft y espera el futuro adaptador VSEngine.
 
-Ver [LIVE-STREAMING.md](docs/LIVE-STREAMING.md) y
+Ver [VSPACK.md](docs/VSPACK.md), [LIVE-STREAMING.md](docs/LIVE-STREAMING.md) y
 [AUDIO-EDITING.md](../docs/AUDIO-EDITING.md).
 
 ## Seguridad y pruebas
