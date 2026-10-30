@@ -6,9 +6,9 @@ use wasm_bindgen::JsCast;
 use std::collections::{HashSet,HashMap};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Page {Home, Audio, Mix, Radio, Streams}
+enum Page {Home, Audio, Mix, Radio, Streams, Pack}
 impl Page {
-    fn title(self)->&'static str {match self {Self::Home=>"Home",Self::Audio=>"VSAudio",Self::Mix=>"VSMix",Self::Radio=>"VSRadio",Self::Streams=>"VSStreams"}}
+    fn title(self)->&'static str {match self {Self::Home=>"Home",Self::Audio=>"VSAudio",Self::Mix=>"VSMix",Self::Radio=>"VSRadio",Self::Streams=>"VSStreams",Self::Pack=>"VSPack"}}
 }
 
 #[component]
@@ -39,7 +39,7 @@ pub fn App() -> impl IntoView {
         <div class="app-shell">
             <header class="app-topbar">
                 <nav class="app-tabs" aria-label="Espacios de trabajo">
-                    { [Page::Home,Page::Audio,Page::Mix,Page::Radio,Page::Streams].into_iter().map(|target| view! {
+                    { [Page::Home,Page::Audio,Page::Mix,Page::Radio,Page::Streams,Page::Pack].into_iter().map(|target| view! {
                         <button type="button" class:active=move || page.get()==target
                             on:click=move |_|{crate::teleprompter::stop();page.set(target);}>{target.title()}</button>
                     }).collect_view() }
@@ -73,6 +73,9 @@ pub fn App() -> impl IntoView {
                 </Show>
                 <Show when=move ||page.get()==Page::Streams>
                     <StreamsStudio page status />
+                </Show>
+                <Show when=move ||page.get()==Page::Pack>
+                    <PackStudio page status />
                 </Show>
             </main>
             <Show when=move ||!status.get().is_empty()>
@@ -108,6 +111,9 @@ fn Home(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,selecte
             </button>
             <button type="button" on:click=move |_|page.set(Page::Streams)>
                 <span class="tile-symbol">"◎"</span><strong>"VSStreams"</strong><small>"Plasmo Voice · proximidad · integración"</small><span class="tile-open">"Abrir salas ↗"</span>
+            </button>
+            <button type="button" on:click=move |_|page.set(Page::Pack)>
+                <span class="tile-symbol">"▦"</span><strong>"VSPack"</strong><small>"ZIPs · capas · conflictos · exportación"</small><span class="tile-open">"Abrir gestor ↗"</span>
             </button>
         </div>
         <div class="home-library-head"><h2>"Biblioteca"</h2><span>"Carpetas, subcarpetas y clasificación de archivos"</span></div>
@@ -1231,6 +1237,25 @@ fn StreamsStudio(page:RwSignal<Page>,status:RwSignal<String>)->impl IntoView {
     }
 }
 
+#[component]
+fn PackStudio(page:RwSignal<Page>,status:RwSignal<String>)->impl IntoView {
+    view! {
+        <div class="studio-screen">
+            <div class="studio-toolbar">
+                <EditorMenu page status />
+                <strong>"VSPack"</strong>
+                <span class="toolbar-separator"></span>
+                <span class="toolbar-caption">"GESTOR DE RESOURCE PACKS"</span>
+                <span class="connection-badge">"Rust Pack Engine · sesión local"</span>
+                <button type="button" class="toolbar-button"
+                    on:click=move |_|click_control("vspack-upload")>"＋ Importar ZIP"</button>
+                <button type="button" class="toolbar-button accent"
+                    on:click=move |_|click_control("vspack-export")>"↓ Compilar y exportar"</button>
+            </div>
+            <main data-vspack class="vspack-root" aria-label="Editor de Resource Packs"></main>
+        </div>
+    }
+}
 fn click_control(id: &str) {
     if let Some(elem)=web_sys::window().and_then(|w|w.document()).and_then(|d|d.get_element_by_id(id)) {
         if let Ok(html)=wasm_bindgen::JsCast::dyn_into::<web_sys::HtmlElement>(elem){html.click();}
@@ -1256,10 +1281,12 @@ fn handle_menu(command: MenuCommand,page: RwSignal<Page>,status: RwSignal<String
             Page::Mix=>click_control("mix-add-track"),
             Page::Radio=>focus_control("radio-new-playlist"),
             Page::Streams=>{},
+            Page::Pack=>click_control("vspack-upload"),
             Page::Home=>{},
         },
         MenuCommand::Export => match page.get_untracked() {
             Page::Audio=>click_control("audio-export"),
+            Page::Pack=>click_control("vspack-export"),
             _=>{page.set(Page::Audio);status.set("Seleccioná un clip y exportalo desde VSAudio.".to_owned());}
         },
         MenuCommand::Effects => match page.get_untracked(){
@@ -1274,6 +1301,7 @@ fn handle_menu(command: MenuCommand,page: RwSignal<Page>,status: RwSignal<String
             Page::Mix=>click_control("mix-record"),
             Page::Radio=>click_control("radio-record"),
             Page::Streams=>{},
+            Page::Pack=>{},
             Page::Home=>{},
         },
         MenuCommand::Playback => match page.get_untracked(){
@@ -1284,10 +1312,11 @@ fn handle_menu(command: MenuCommand,page: RwSignal<Page>,status: RwSignal<String
             Page::Mix=>click_control("mix-play"),
             Page::Radio=>click_control("radio-play"),
             Page::Streams=>{},
+            Page::Pack=>{},
             Page::Home=>{},
         },
         MenuCommand::View=>scroll_to("media-library"),
-        MenuCommand::Help=>status.set("VSAudio edita · VSMix mezcla · VSRadio emite audio P2P · VSStreams prepara la integración con Plasmo Voice, sin duplicar su motor.".to_owned()),
+        MenuCommand::Help=>status.set("VSAudio edita · VSMix mezcla · VSRadio emite · VSStreams integra Plasmo Voice · VSPack combina Resource Packs y exporta ZIP.".to_owned()),
     }
 }
 
@@ -1295,8 +1324,8 @@ fn handle_menu(command: MenuCommand,page: RwSignal<Page>,status: RwSignal<String
 fn EditorMenu(page: RwSignal<Page>,status: RwSignal<String>) -> impl IntoView {
     view! {<nav class="editor-menus" aria-label="Menú del editor">
         <details class="editor-menu"><summary>"Archivo"</summary><div class="editor-menu-popover">
-            <button on:click=move |_|handle_menu(MenuCommand::Import,page,status)>"Importar audio…"</button>
-            <button on:click=move |_|handle_menu(MenuCommand::Export,page,status)>"Exportar clip WAV…"</button>
+            <button on:click=move |_|handle_menu(MenuCommand::Import,page,status)>"Importar archivos…"</button>
+            <button on:click=move |_|handle_menu(MenuCommand::Export,page,status)>"Exportar…"</button>
         </div></details>
         <details class="editor-menu"><summary>"Editar"</summary><div class="editor-menu-popover">
             <button on:click=move |_|handle_menu(MenuCommand::New,page,status)>"Nuevo elemento"</button>

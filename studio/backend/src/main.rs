@@ -314,7 +314,8 @@ fn router(store:Store)->Router {
             HeaderValue::from_static("http://localhost:3060"),
         ]))
         .allow_methods([Method::GET,Method::POST,Method::DELETE])
-        .allow_headers([header::CONTENT_TYPE]);
+        .allow_headers([header::CONTENT_TYPE,
+            header::HeaderName::from_static("x-vspack-label")]);
     Router::new()
         .route("/api/v1/health",get(health))
         .route("/api/v1/capabilities",get(capabilities))
