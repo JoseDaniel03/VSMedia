@@ -110,6 +110,19 @@ mod tests {
         assert_eq!(history.size(),1);
     }
     #[test]
+    fn horizontal_multi_lane_group_move_preserves_track_assignments() {
+        let mut tracks=vec![
+            track("a",vec![region("a1",0.5)]),
+            track("b",vec![region("b1",10.0)]),
+        ];
+        let selected=HashSet::from(["a1".into(),"b1".into()]);
+        assert_eq!(mix_batch::move_group(&mut tracks,&selected,0.2,None).unwrap(),2);
+        assert_eq!(tracks[0].regions[0].id,"a1");
+        assert_eq!(tracks[1].regions[0].id,"b1");
+        assert!((tracks[0].regions[0].start-0.7).abs()<1e-9);
+        assert!((tracks[1].regions[0].start-10.2).abs()<1e-9);
+    }
+    #[test]
     fn lane_transfer_preserves_region_identity_and_relations() {
         let mut tracks=vec![
             track("from",vec![region("a",3.0),region("b",4.0)]),
