@@ -155,3 +155,9 @@
 .vs-live-mixer label input{flex:1 1 120px;accent-color:#7660cc}
 .vs-live-mixer input:disabled{opacity:.45;cursor:not-allowed}
 .vs-live-mixer small{font-size:10px;color:#8793aa}
+
+/* Four Home workspaces after introducing VSStreams. */
+.home-module-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.app-tabs{min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:thin}
+@media(max-width:1180px){.home-module-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.home-module-grid{grid-template-columns:1fr}}
