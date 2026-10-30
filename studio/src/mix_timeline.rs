@@ -142,9 +142,9 @@ fn target_lane(event: &web_sys::PointerEvent) -> Option<String> {
         .get_attribute("data-mix-track")
 }
 fn ruler_width(tracks: RwSignal<Vec<Track>>, zoom: RwSignal<f64>) -> f64 {
-    let end = tracks.get().iter()
+    let end = tracks.with(|all|all.iter()
         .flat_map(|t| t.regions.iter().map(|r| r.start + r.duration))
-        .fold(30.0f64, f64::max).min(MAX_SECONDS);
+        .fold(30.0f64, f64::max).min(MAX_SECONDS));
     (end + 10.0) * zoom.get()
 }
 
@@ -174,10 +174,10 @@ fn TimelineClip(
     view! {
         <div class="mix-timeline-clip"
             style=move || {
-                let found = tracks.get().iter()
+                let found = tracks.with(|all|all.iter()
                     .find(|t| t.id == display_track)
                     .and_then(|t| t.regions.iter().find(|r| r.id == display_region))
-                    .cloned();
+                    .cloned());
                 let Some(mut region) = found else { return "display:none".to_string(); };
                 if let Some(drag) = pointer.get() {
                     if drag.track_id == display_track && drag.region_id == display_region {
@@ -197,37 +197,31 @@ fn TimelineClip(
                 }></span>
             <svg class="mix-waveform" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true">
                 <path d=move || {
-                    let snapshot=tracks.get();
-                    let region=snapshot.iter().find(|t|t.id==wave_track)
-                        .and_then(|t|t.regions.iter().find(|r|r.id==wave_region));
-                    let cached=waveforms.get();
-                    region.and_then(|r|cached.get(&r.asset_id)
-                        .map(|wave|wave.path(r.source_in,r.duration)))
-                        .unwrap_or_default()
+                    tracks.with(|all|all.iter().find(|t|t.id==wave_track)
+                        .and_then(|t|t.regions.iter().find(|r|r.id==wave_region))
+                        .and_then(|r|waveforms.with(|cached|cached.get(&r.asset_id)
+                            .map(|wave|wave.path(r.source_in,r.duration))))
+                        .unwrap_or_default())
                 }/>
             </svg>
             <span class="mix-fade-shade mix-fade-enter" style=move ||{
-                let snapshot=tracks.get();
-                snapshot.iter().find(|t|t.id==fade_in_track)
+                tracks.with(|all|all.iter().find(|t|t.id==fade_in_track)
                     .and_then(|t|t.regions.iter().find(|r|r.id==fade_in_region))
                     .map(|r|format!("width:{:.2}%",100.*r.fade_in/r.duration.max(0.1)))
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }></span>
             <span class="mix-fade-shade mix-fade-exit" style=move ||{
-                let snapshot=tracks.get();
-                snapshot.iter().find(|t|t.id==fade_out_track)
+                tracks.with(|all|all.iter().find(|t|t.id==fade_out_track)
                     .and_then(|t|t.regions.iter().find(|r|r.id==fade_out_region))
                     .map(|r|format!("width:{:.2}%",100.*r.fade_out/r.duration.max(0.1)))
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }></span>
             <span class="mix-timeline-clip-name">{move || {
-                let track_snapshot = tracks.get();
-                let region = track_snapshot.iter().find(|t| t.id == label_track)
-                    .and_then(|t| t.regions.iter().find(|r| r.id == label_region));
-                let asset_snapshot = assets.get();
-                let name = region.and_then(|r| asset_snapshot.iter()
-                    .find(|a| a.id == r.asset_id).map(|a| a.name.clone()));
-                name.unwrap_or_else(||"Clip sin fuente".into())
+                tracks.with(|all| all.iter().find(|t|t.id==label_track)
+                    .and_then(|t|t.regions.iter().find(|r|r.id==label_region))
+                    .and_then(|r| assets.with(|list|list.iter()
+                        .find(|a|a.id==r.asset_id).map(|a|a.name.clone())))
+                    .unwrap_or_else(||"Clip sin fuente".into()))
             }}</span>
             <span class="mix-timeline-handle right" title="Ajustar final"
                 on:pointerdown=move |event| {

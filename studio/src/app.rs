@@ -507,9 +507,9 @@ fn mix_region_value(
     tracks:RwSignal<Vec<Track>>,track_id:&str,region_id:&str,
     read:impl FnOnce(&MixRegion)->String
 )->String {
-    tracks.get().iter().find(|track|track.id==track_id)
+    tracks.with(|list|list.iter().find(|track|track.id==track_id)
         .and_then(|track|track.regions.iter().find(|region|region.id==region_id))
-        .map(read).unwrap_or_default()
+        .map(read).unwrap_or_default())
 }
 #[component]
 fn RegionEditor(

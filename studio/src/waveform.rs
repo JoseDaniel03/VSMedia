@@ -111,7 +111,7 @@ pub fn load_for_mix(
         .collect();
     let known:HashSet<String>=assets.get_untracked().iter().map(|item|item.id.clone()).collect();
     let to_decode:Vec<String>=referenced.into_iter().filter(|id|
-        known.contains(id) && !cache.get_untracked().contains_key(id)).collect();
+        known.contains(id) && !cache.with_untracked(|all|all.contains_key(id))).collect();
     if to_decode.is_empty() {
         status.set("Las ondas disponibles ya están en caché local.".into());
         return;
