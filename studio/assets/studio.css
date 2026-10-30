@@ -105,3 +105,12 @@
 .mix-automation-row label{flex:1;min-width:0;font-size:9px}
 .mix-automation-row input{width:100%;padding:5px!important;font-size:11px}
 .mix-automation-row .text-icon{padding:6px}
+
+/* FullCanvas batch tools: horizontally scroll controls instead of shrinking audio. */
+.mix-timeline-shell{max-height:min(430px,50vh)}
+.mix-timeline-toolbar{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;gap:6px}
+.mix-timeline-toolbar strong,.mix-timeline-toolbar button,.mix-timeline-toolbar select,.mix-timeline-toolbar>span{flex-shrink:0}
+.mix-timeline-toolbar small{flex:0 0 auto}
+.mix-timeline-clip.selected{outline:2px solid #246da7;outline-offset:1px;box-shadow:0 0 0 3px #b9e3ff77}
+.mix-timeline-clip:focus-visible{outline:2px solid #1359a6;outline-offset:2px}
+.mix-history-count{font-size:10px;white-space:nowrap;color:#8691a7;flex-shrink:0}

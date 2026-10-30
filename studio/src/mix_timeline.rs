@@ -396,9 +396,9 @@ pub fn MixTimeline(
             <div class="mix-timeline-toolbar">
                 <strong>"LÍNEA DE TIEMPO"</strong>
                 <small>{move ||format!("{} seleccionadas · Mayús/Ctrl+clic para añadir",
-                    selected.with(|ids|mix_batch::count_selected(&tracks.get(),ids)))}</small>
+                    selected.with(|ids|tracks.with(|all|mix_batch::count_selected(all,ids))))}</small>
                 <button type="button" class="mix-timeline-action" title="Seleccionar todas las regiones"
-                    on:click=move |_|selected.set(tracks.with(mix_batch::ids))>"Seleccionar todo"</button>
+                    on:click=move |_|selected.set(tracks.with(|all|mix_batch::ids(all)))>"Seleccionar todo"</button>
                 <button type="button" class="mix-timeline-action" title="Vaciar selección"
                     disabled=move ||selected.with(|ids|ids.is_empty())
                     on:click=move |_|selected.set(HashSet::new())>"Limpiar"</button>
