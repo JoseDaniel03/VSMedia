@@ -438,13 +438,10 @@ async fn load_mix(name:&str,assets:RwSignal<Vec<AudioAsset>>,
         .ok_or("Proyecto sin referencias de origen")?;
     let mut pending=Vec::<(String,String,web_sys::Blob)>::new();
     // Stage downloads and validate every source before adding any to the UI.
-    for (i,track) in entries.iter().enumerate() {
+    for track in entries {
         let clips=track.get("clips").and_then(Value::as_array)
             .ok_or("Pista con lista de clips inválida")?;
-        if clips.len()>1 {
-            return Err(format!("La pista {} tiene múltiples clips y requiere el editor de regiones.",i+1));
-        }
-        let Some(clip)=clips.first() else {continue;};
+        for clip in clips {
         let key=clip.get("asset").ok_or("Clip sin referencia a audio")?;
         if key.get("namespace").and_then(Value::as_str)!=Some("studio") {
             return Err("Una pista apunta fuera del namespace de Studio".into());
@@ -479,6 +476,7 @@ async fn load_mix(name:&str,assets:RwSignal<Vec<AudioAsset>>,
             return Err("Un audio supera el límite de descarga local".into());
         }
         pending.push((short.to_owned(),suffix.to_owned(),blob));
+        }
     }
     let mut local_map=std::collections::HashMap::<String,String>::new();
     for (original,extension,blob) in pending {
@@ -493,30 +491,51 @@ async fn load_mix(name:&str,assets:RwSignal<Vec<AudioAsset>>,
             .unwrap_or("Pista").to_owned();
         let clips=t.get("clips").and_then(Value::as_array)
             .ok_or("Pista sin lista de clips")?;
-        let asset_id=if let Some(clip)=clips.first() {
-            let short=clip.pointer("/asset/name").and_then(Value::as_str)
-                .and_then(|s|s.strip_prefix("audio/")).ok_or("Audio inválido")?;
-            local_map.get(short).cloned().ok_or("Audio descargado faltante")?
-        }else{String::new()};
         let edit=body.get("track_edits").and_then(Value::as_array)
             .and_then(|list|list.iter().find(|value|
                 value.get("track_index").and_then(Value::as_u64)==Some(idx as u64)));
         let gain_db=edit.and_then(|v|v.get("gain_db"))
             .and_then(Value::as_f64).unwrap_or(0.);
-        let clip_edit=body.get("clip_edits").and_then(Value::as_array)
-            .and_then(|list|list.iter().find(|value|
-                value.get("track_index").and_then(Value::as_u64)==Some(idx as u64)
-                &&value.get("clip_index").and_then(Value::as_u64)==Some(0)));
+        let mut regions=Vec::with_capacity(clips.len());
+        for (clip_idx,clip) in clips.iter().enumerate() {
+            let short=clip.pointer("/asset/name").and_then(Value::as_str)
+                .and_then(|value|value.strip_prefix("audio/"))
+                .ok_or("Audio de región inválido")?;
+            let asset_id=local_map.get(short).cloned()
+                .ok_or("No se encontró una fuente descargada para una región")?;
+            let edit=body.get("clip_edits").and_then(Value::as_array)
+                .and_then(|list|list.iter().find(|value|
+                    value.get("track_index").and_then(Value::as_u64)==Some(idx as u64)
+                    && value.get("clip_index").and_then(Value::as_u64)==Some(clip_idx as u64)));
+            let db=clip.get("gain_db").and_then(Value::as_f64).unwrap_or(0.);
+            regions.push(media::MixRegion{
+                id:media::uid("region"),asset_id,
+                start:clip.get("start_ms").and_then(Value::as_u64)
+                    .ok_or("Posición de región inválida")? as f64/1000.,
+                duration:clip.get("duration_ms").and_then(Value::as_u64)
+                    .ok_or("Duración de región inválida")? as f64/1000.,
+                source_in:edit.and_then(|value|value.get("source_in_ms"))
+                    .and_then(Value::as_u64).unwrap_or(0) as f64/1000.,
+                volume:10_f64.powf(db/20.).clamp(0.,2.),
+                pan:edit.and_then(|value|value.get("pan"))
+                    .and_then(Value::as_f64).unwrap_or(0.),
+                fade_in:edit.and_then(|value|value.get("fade_in_ms"))
+                    .and_then(Value::as_u64).unwrap_or(0) as f64/1000.,
+                fade_out:edit.and_then(|value|value.get("fade_out_ms"))
+                    .and_then(Value::as_u64).unwrap_or(0) as f64/1000.,
+            });
+        }
+        let legacy_id=regions.first().map(|region|region.asset_id.clone())
+            .unwrap_or_default();
         recovered.push(Track {
-            id:media::uid("track"),name,asset_id,
+            id:media::uid("track"),name,asset_id:legacy_id,
             volume:10_f64.powf(gain_db/20.).clamp(0.,1.),
             muted:t.get("muted").and_then(Value::as_bool).unwrap_or(false)
                 ||edit.and_then(|v|v.get("muted")).and_then(Value::as_bool).unwrap_or(false),
             solo:edit.and_then(|v|v.get("solo")).and_then(Value::as_bool).unwrap_or(false),
-            fade_in:clip_edit.and_then(|v|v.get("fade_in_ms"))
-                .and_then(Value::as_u64).unwrap_or(0) as f64/1000.,
-            fade_out:clip_edit.and_then(|v|v.get("fade_out_ms"))
-                .and_then(Value::as_u64).unwrap_or(0) as f64/1000.,
+            fade_in:regions.first().map_or(0.,|r|r.fade_in),
+            fade_out:regions.first().map_or(0.,|r|r.fade_out),
+            regions,
         });
     }
     tracks.set(recovered);
