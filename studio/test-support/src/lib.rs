@@ -89,6 +89,27 @@ mod tests {
         assert_eq!(tracks,before);
     }
     #[test]
+    fn duplicate_rejects_full_track_without_changing_any_clip() {
+        let mut tracks=vec![track("a",(0..32)
+            .map(|i|region(&format!("r{i}"),i as f64)).collect())];
+        let original=tracks.clone();
+        let ids=HashSet::from(["r0".to_string()]);
+        assert!(mix_batch::duplicate(&mut tracks,&ids).is_err());
+        assert_eq!(tracks,original);
+    }
+    #[test]
+    fn oversized_snapshot_pauses_history_until_smaller_session() {
+        let mut history=mix_history::MixHistory::default();
+        history.observe(&[track("a",vec![region("r",0.0)])]);
+        let huge=track(&"a".repeat(2*1024*1024+100),vec![]);
+        history.observe(&[huge]);
+        assert!(history.oversized);
+        assert_eq!(history.size(),0);
+        history.observe(&[track("a",vec![region("r",0.0)])]);
+        assert!(!history.oversized);
+        assert_eq!(history.size(),1);
+    }
+    #[test]
     fn lane_transfer_preserves_region_identity_and_relations() {
         let mut tracks=vec![
             track("from",vec![region("a",3.0),region("b",4.0)]),
