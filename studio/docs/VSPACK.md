@@ -17,6 +17,9 @@ Desde VSPack se puede:
    namespaces y conflictos con la fuente ganadora/perdedora.
 5. Filtrar rutas por texto y categoría, recorrer resultados paginados
    de 80 por pantalla sin montar miles de nodos DOM simultáneamente.
+   Previsualizar **una textura PNG, JPG o WebP a demanda** mediante un
+   endpoint de firma binaria validada, sin cargar todas las imágenes a
+   la vez ni habilitar SVG/HTML activos.
 6. Quitar fuentes, recalcular la composición y descargar el ZIP final.
 7. Fusionar `sounds.json` por **nombre de evento**: los eventos distintos
    conviven sin sobrescribir el archivo completo. Un conflicto de evento
@@ -60,6 +63,7 @@ Prueba recomendada:
 | POST | `/api/v1/packs/{id}/priority` | JSON `{"priority":20}` |
 | DELETE | `/api/v1/packs/{id}` | Quitar fuente del gestor |
 | GET | `/api/v1/packs/preview` | Inventario, categorías, conflictos y capacidades de exportación |
+| GET | `/api/v1/packs/texture?path=...` | Ver una imagen PNG/JPEG/WebP validada, máximo 4 MiB |
 | GET | `/api/v1/packs/export` | Descargar ZIP final, `Content-Type: application/zip` |
 
 **Protecciones:**
@@ -78,6 +82,9 @@ Prueba recomendada:
   `spawn_blocking`, nunca sobre los hilos regionales de Folia.
 - Las rutas y nombres de ZIP se muestran mediante `textContent`,
   sin evaluar contenido del pack como HTML o JavaScript.
+- La vista previa sólo permite PNG/JPG/WebP con cabecera binaria
+  correcta, `Content-Type` fijo y `nosniff`. La URL Blob local
+  anterior se revoca al cambiar de recurso o salir del editor.
 - No se importan archivos remotos por URL. No se sube ningún ZIP
   a una CDN, al servidor de Minecraft ni al almacenamiento CAS
   automáticamente.
@@ -96,7 +103,8 @@ GitHub Actions verifica:
 - Tests de `studio/backend/src/packs.rs`: importación y
   previsualización de dos ZIP, cambio de prioridad, conflictos,
   exportación reproducible, contenido de textura y eventos de
-  sonido, rechazo por `Origin`, ZIP inválido y liberación de memoria.
+  sonido, rechazo por `Origin`, ZIP inválido, liberación de memoria
+  y acceso bajo demanda a texturas de firma validada.
 - `node --check studio/assets/pack.js`, compilación Leptos
   para `wasm32`, pruebas Axum, Rust y Java.
 

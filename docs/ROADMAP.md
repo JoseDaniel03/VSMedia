@@ -94,7 +94,8 @@ ni distribución todavía. `vspack` actualmente representa Resource Packs.
 - [x] CORS local, límites de recursos y separación de trabajos CPU.
 - [ ] Sesiones persistentes respaldadas por CAS y gestión de versiones
   de packs guardados.
-- [ ] Vista previa real de texturas/modelos/sonidos dentro del editor.
+- [x] Vista previa individual de texturas PNG/JPEG/WebP bajo demanda.
+- [ ] Vistas previas 3D de modelos y reproductor de sonidos dentro del editor.
 - [ ] Distribución HTTPS/CDN, integración final con el adaptador
   Paper/Folia del servidor y benchmarks reales con clientes.
 - [ ] Instrumentación de overlays base/delta y controles administrativos

@@ -52,3 +52,8 @@ Solo en localhost, con CORS limitado al Studio. Hasta 6 packs,
 memoria total; la sesión no persiste después de reiniciar Axum.
 Sin CDN/HTTPS ni oferta a jugadores todavía.
 Véase `VSPACK.md`.
+
+La vista previa de imágenes está disponible bajo `GET /api/v1/packs/texture?path=...`
+solo para PNG/JPEG/WebP con firma validada, hasta 4 MiB, con cabeceras
+`nosniff`. No sirve SVG/HTML ni lee rutas arbitrarias fuera de la
+composición de ZIPs importados.
