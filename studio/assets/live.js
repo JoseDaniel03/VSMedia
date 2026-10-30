@@ -50,20 +50,19 @@ function getRadioSource(player, microphone) {
 function mount(root) {
   if (root.dataset.vslive!=="radio" || root.dataset.liveReady) return;
   root.dataset.liveReady="1";
-  const radio=true;
   root.innerHTML =
-    '<header class="vs-live-header"><div><strong>'+(radio?"VSRadio · Emisión en vivo":"VSStreams · Chat de voz")+
-    '</strong><small>'+(radio?"1 emisor + 15 oyentes máximo":"8 participantes máximo")+
+    '<header class="vs-live-header"><div><strong>'+"VSRadio · Emisión en vivo"+
+    '</strong><small>'+"1 emisor + 15 oyentes máximo"+
     '</small></div><span class="vs-live-status" data-field="status" role="status">Sin conectar</span></header>'+
     '<div class="vs-live-fields"><label>Código de sala <input data-field="room" maxlength="64" autocomplete="off" spellcheck="false"></label>'+
     '<button type="button" data-action="generate">Crear código</button>'+
     '<button type="button" data-action="copy">Copiar código</button>'+
-    (radio?'<label>Mi función <select data-field="role"><option value="listener">Oyente</option><option value="host">Emisor</option></select></label>'+
-    '<label>Fuente <select data-field="source"><option value="mic">Micrófono</option><option value="player">Playlist</option><option value="both">Playlist + micrófono</option></select></label>':"")+
-    '</div>'+(radio?'<div class="vs-live-mixer">'+
+    '<label>Mi función <select data-field="role"><option value="listener">Oyente</option><option value="host">Emisor</option></select></label>'+
+    '<label>Fuente <select data-field="source"><option value="mic">Micrófono</option><option value="player">Playlist</option><option value="both">Playlist + micrófono</option></select></label>'+
+    '</div><div class="vs-live-mixer">'+
       '<label>Volumen playlist <input type="range" data-field="musicLevel" min="0" max="150" value="100" step="5"></label>'+
       '<label>Volumen micrófono <input type="range" data-field="micLevel" min="0" max="150" value="100" step="5"></label>'+
-      '<small>Mezcla sin grabación · el micrófono no se monitoriza localmente</small></div>':"")+
+      '<small>Mezcla sin grabación · el micrófono no se monitoriza localmente</small></div>'+
     '<div class="vs-live-actions">'+
     '<button class="action-primary" type="button" data-action="join">Conectar</button>'+
     '<button type="button" data-action="leave" disabled>Salir</button>'+
@@ -116,7 +115,7 @@ function mount(root) {
       if(pc.connectionState==="failed"){
         status("No se pudo conectar el audio. Podría requerir TURN.",true);
       }else if(pc.connectionState==="connected"){
-        status(radio?(state.role==="host"?"Audio en directo con oyentes":"Escuchando audio en directo"):"Voz WebRTC conectada");
+        status(state.role==="host"?"Audio en directo con oyentes":"Escuchando audio en directo");
       }
     };
     peersDisplay();
@@ -130,7 +129,7 @@ function mount(root) {
   async function signal(msg){
     const {from,kind,data}=msg;
     if(!Number.isSafeInteger(from)||!["offer","answer","candidate"].includes(kind))return;
-    const record=peer(from,radio?(state.role==="host"?"listener":"host"):"speaker");
+    const record=peer(from,state.role==="host"?"listener":"host");
     const conn=record.pc;
     if(kind==="offer"){
       await conn.setRemoteDescription(new RTCSessionDescription(data));
@@ -146,8 +145,8 @@ function mount(root) {
       else if(record.pending.length<128)record.pending.push(candidate);
     }
   }
-  function offerNeeded(role,isNew){
-    return radio?(state.role==="host"&&role==="listener"):isNew;
+  function offerNeeded(role){
+    return state.role==="host"&&role==="listener";
   }
   async function stop(){
     state.closed=true;
@@ -176,20 +175,19 @@ function mount(root) {
     }
     if(!window.RTCPeerConnection){status("WebRTC no disponible",true);return;}
     state.closed=false;
-    state.role=radio?field("role").value:"speaker";
-    const output=!radio || state.role==="host";
-    const source=radio?field("source").value:"mic";
+    state.role=field("role").value;
+    const output=state.role==="host";
+    const source=field("source").value;
     button("join").disabled=true;
     try{
-      if(output && (!radio || source==="mic" || source==="both")){
+      if(output && (source==="mic" || source==="both")){
         if(!navigator.mediaDevices?.getUserMedia)
           throw Error("Se requiere localhost o HTTPS para el micrófono");
         state.mic=await navigator.mediaDevices.getUserMedia({
           video:false,audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}
         });
       }
-      if(!radio)state.stream=state.mic;
-      else if(output&&(source==="player"||source==="both")){
+      if(output&&(source==="player"||source==="both")){
         const result=getRadioSource(document.getElementById("radio-player"),
           source==="both"?state.mic:null);
         state.stream=result.stream;state.cleanup=result.dispose;
@@ -201,7 +199,7 @@ function mount(root) {
       const ws=new WebSocket(URL);
       state.ws=ws;status("Conectando…");
       ws.onopen=()=>{
-        send({type:"join",room:code,mode:radio?"radio":"voice",role:state.role});
+        send({type:"join",room:code,mode:"radio",role:state.role});
         state.heartbeat=setInterval(()=>send({type:"ping"}),30000);
       };
       ws.onmessage=async event=>{
@@ -214,16 +212,16 @@ function mount(root) {
           }else if(msg.type==="joined"){
             state.id=msg.id;
             button("leave").disabled=false;button("mute").disabled=!state.mic;
-            status(radio?(state.role==="host"?"Sala activa · esperando oyentes":"Sala activa · esperando audio"):"Sala de voz activa · conectando audio");
+            status(state.role==="host"?"Sala activa · esperando oyentes":"Sala activa · esperando audio");
             for(const p of msg.peers||[]){
-              if(radio && p.role===state.role)continue;
-              if(offerNeeded(p.role,true))await makeOffer(p.id,p.role);
+              if(p.role===state.role)continue;
+              if(offerNeeded(p.role))await makeOffer(p.id,p.role);
               else peer(p.id,p.role);
             }
             peersDisplay();
           }else if(msg.type==="peer_joined"){
-            if(radio && msg.role===state.role)return;
-            if(offerNeeded(msg.role,false))await makeOffer(msg.id,msg.role);
+            if(msg.role===state.role)return;
+            if(offerNeeded(msg.role))await makeOffer(msg.id,msg.role);
             else peer(msg.id,msg.role);
           }else if(msg.type==="peer_left"){
             const p=state.peers.get(msg.id);
@@ -239,7 +237,7 @@ function mount(root) {
       await stop();status(error.message||"No se pudo conectar",true);
     }
   }
-  if(radio){
+  {
     const updateSliders=()=>{
       const role=field("role").value,source=field("source").value;
       field("musicLevel").disabled=role!=="host"||source==="mic";
@@ -255,7 +253,7 @@ function mount(root) {
     };
     updateSliders();
   }
-  button("generate").onclick=()=>field("room").value=roomCode(radio?"radio":"voice");
+  button("generate").onclick=()=>field("room").value=roomCode("radio");
   button("copy").onclick=async()=>{
     const code=field("room").value.trim();
     if(!code){status("Primero generá un código de sala.",true);return;}
