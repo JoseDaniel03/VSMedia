@@ -340,11 +340,11 @@ fn target_lane(event: &web_sys::PointerEvent) -> Option<String> {
         .closest("[data-mix-track]").ok().flatten()?
         .get_attribute("data-mix-track")
 }
-fn ruler_width(tracks: RwSignal<Vec<Track>>, zoom: RwSignal<f64>) -> f64 {
+fn ruler_width(tracks: RwSignal<Vec<Track>>, zoom: RwSignal<f64>, cursor:RwSignal<f64>) -> f64 {
     let end = tracks.with(|all|all.iter()
         .flat_map(|t| t.regions.iter().map(|r| r.start + r.duration))
         .fold(30.0f64, f64::max).min(MAX_SECONDS));
-    (end + 10.0) * zoom.get()
+    (end.max(cursor.get()) + 10.0).min(MAX_SECONDS) * zoom.get()
 }
 
 #[component]
@@ -513,7 +513,7 @@ pub fn MixTimeline(
     let magnetic=RwSignal::new(true);
     let track_ids = move || tracks.get().into_iter().map(|track| track.id).collect::<Vec<String>>();
     let ruler_ticks = move || {
-        let duration = ruler_width(tracks, zoom) / zoom.get();
+        let duration = ruler_width(tracks, zoom,cursor) / zoom.get();
         (0..=((duration / 10.0).ceil() as u32).min(361)).collect::<Vec<u32>>()
     };
     view! {
@@ -733,7 +733,7 @@ pub fn MixTimeline(
                     pointer.set(None);
                 }
                 on:pointercancel=move |_| pointer.set(None)>
-                <div class="mix-timeline-ruler" style=move || format!("width:{:.1}px", ruler_width(tracks,zoom)+120.0)>
+                <div class="mix-timeline-ruler" style=move || format!("width:{:.1}px", ruler_width(tracks,zoom,cursor)+120.0)>
                     <div class="mix-timeline-gutter">"SEG"</div>
                     <div class="mix-timeline-ticks">
                         <span class="mix-playhead-indicator"
@@ -752,7 +752,7 @@ pub fn MixTimeline(
                         .unwrap_or_default();
                     view! {
                         <div class="mix-timeline-lane" data-mix-track=track_id.clone()
-                            style=move || format!("width:{:.1}px",ruler_width(tracks,zoom)+120.0)>
+                            style=move || format!("width:{:.1}px",ruler_width(tracks,zoom,cursor)+120.0)>
                             <div class="mix-timeline-gutter">{move ||
                                 tracks.get().iter().find(|t| t.id == name_id)
                                     .map(|t|t.name.clone()).unwrap_or_default()
