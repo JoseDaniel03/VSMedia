@@ -69,7 +69,7 @@ function install(root){
     '</div><div role="status" aria-live="polite" class="vspack-status" data-field="status">Importá ZIPs para empezar.</div>';
   const f=name=>root.querySelector('[data-field="'+name+'"]');
   const button=name=>root.querySelector('[data-action="'+name+'"]');
-  const state={packs:[],preview:null,page:0,busy:false,disposed:false,
+  const state={packs:[],preview:null,plan:null,page:0,busy:false,disposed:false,
     textureURL:null,controller:new AbortController()};
   function status(message,failed=false){
     f("status").textContent=message;f("status").classList.toggle("error",failed);
@@ -90,7 +90,12 @@ function install(root){
     const info=await (await request("",{signal:state.controller.signal})).json();
     state.packs=info.packs||[];
     state.preview=null;
+    state.plan=null;
     if(state.packs.length){
+      try{
+        state.plan=await(await request("/merge/plan?conflicts_only=true&limit=200",
+          {signal:state.controller.signal})).json();
+      }catch(e){status("No se pudo consultar el plan de conflictos: "+e.message,true);}
       try{
         state.preview=await(await request("/preview",{signal:state.controller.signal})).json();
         status("Pack analizado. Revisá los archivos y conflictos antes de exportar.");
@@ -127,13 +132,70 @@ function install(root){
       tools.append(label,remove);card.append(heading,tools);f("packs").append(card);
     }
   }
+  function renderResolver(){
+    f("conflicts").replaceChildren();
+    const plan=state.plan;
+    if(!plan){
+      f("conflictcount").textContent="—";
+      f("conflicts").append(el("div","vspack-empty",
+        state.packs.length?"No se pudo consultar el plan de recursos.":"Importá packs para ver conflictos."));
+      return;
+    }
+    f("conflictcount").textContent=plan.conflicts+" rutas con contenidos diferentes"+
+      (plan.blocked?" · "+plan.blocked+" empate(s) sin resolver":"");
+    if(!plan.items.length){
+      f("conflicts").append(el("div","vspack-empty","Sin colisiones de recursos."));
+    }
+    for(const item of plan.items){
+      const row=el("div","vspack-conflict vspack-resolver");
+      if(item.blocked)row.classList.add("blocked");
+      const detail=el("div","vspack-conflict-detail");
+      detail.append(el("code","",item.path),
+        el("small","",item.blocked?"Requiere elegir un pack":
+          "Gana: "+(item.chosen_source||"ninguno")));
+      const picker=el("select","vspack-choice");
+      picker.setAttribute("aria-label","Elegir textura o recurso para "+item.path);
+      const initial=el("option","","Prioridad automática");
+      initial.value="";picker.append(initial);
+      for(const candidate of item.candidates){
+        const option=el("option","",candidate.source_name+
+          " · prioridad "+candidate.priority);
+        option.value=candidate.source_id;
+        picker.append(option);
+      }
+      picker.value=item.override_source||"";
+      picker.onchange=()=>guard(async()=>{
+        if(picker.value){
+          await request("/merge/overrides",{
+            method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({path:item.path,source_id:picker.value}),
+            signal:state.controller.signal
+          });
+        }else{
+          await request("/merge/overrides?path="+encodeURIComponent(item.path),{
+            method:"DELETE",signal:state.controller.signal
+          });
+        }
+        await load();
+        status("Elección de fuente actualizada para "+item.path);
+      });
+      row.append(detail,picker);
+      f("conflicts").append(row);
+    }
+    if(plan.total>plan.items.length){
+      f("conflicts").append(el("small","vspack-more-conflicts",
+        "Mostrando "+plan.items.length+" de "+plan.total+
+        " rutas. La próxima web podrá paginar todo el catálogo."));
+    }
+  }
   function preview(){
     const data=state.preview;
-    f("stats").replaceChildren();f("files").replaceChildren();f("conflicts").replaceChildren();
+    f("stats").replaceChildren();f("files").replaceChildren();
+    renderResolver();
     if(!data){
       f("ready").textContent="Sin composición";f("totalfiles").textContent="0";
       f("totalbytes").textContent="0 B";f("namespaces").textContent="—";
-      f("conflictcount").textContent="0";f("filecount").textContent="0";
+      f("filecount").textContent="0";
       f("pagination").textContent="Sin recursos";
       button("prev").disabled=true;button("next").disabled=true;
       button("export").disabled=true;button("layers").disabled=true;
@@ -148,16 +210,6 @@ function install(root){
     f("totalfiles").textContent=data.file_count;
     f("totalbytes").textContent=size(data.bytes);
     f("namespaces").textContent=data.namespaces.join(", ")||"—";
-    f("conflictcount").textContent=data.conflicts_count+" conflictos";
-    if(!data.conflicts_count)f("conflicts").append(el("div","vspack-empty","Sin conflictos de prioridad."));
-    for(const conflict of data.conflicts){
-      const row=el("div","vspack-conflict");
-      row.append(el("code","",conflict.path),el("small","",conflict.loser+" → "+conflict.winner));
-      f("conflicts").append(row);
-    }
-    if(data.conflicts_count>data.conflicts.length){
-      f("conflicts").append(el("small","","Mostrando "+data.conflicts.length+" de "+data.conflicts_count));
-    }
     const phrase=f("search").value.toLowerCase().trim(),category=f("category").value;
     const all=data.files.filter(item=>(!category||item.category===category)&&
       (!phrase||item.path.toLowerCase().includes(phrase)));
