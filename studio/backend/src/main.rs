@@ -176,61 +176,92 @@ async fn command_audio(
 /// implementation (fades, EQ, pan and gain envelopes). Processing is isolated
 /// from Axum's async executor and capped by the Audio Engine's own quotas.
 /// Only uncompressed WAV is supported until safe compressed decoders exist.
+/// Shared render path: the document may come from SQLite or an unsaved
+/// editing session. Neither path stores a rendered preview in the catalog.
+fn render_document(store:&Store,document:NativeDocument)->Result<Vec<u8>,ApiError> {
+    document.validate().map_err(bad)?;
+    let NativePayload::Audio(audio)=document.payload else {
+        return Err(bad("Expected .vsaudio document"));
+    };
+    if audio.sources.len()>256 {
+        return Err(bad("Too many audio sources"));
+    }
+    let mut sources=HashMap::new();
+    for source in &audio.sources {
+        // A Studio project must not turn this unauthenticated local
+        // preview route into a cross-plugin read of another namespace.
+        if source.key.namespace!=STUDIO_NAMESPACE ||
+            !source.key.name.starts_with("audio/") {
+            return Err(ApiError(StatusCode::FORBIDDEN,
+                "Studio solo puede renderizar archivos de su propio namespace".into()));
+        }
+        if source.codec!=vsmedia_formats::MediaCodec::Wav {
+            return Err(ApiError(StatusCode::UNPROCESSABLE_ENTITY,
+                "Render de VSCore admite WAV por ahora. MP3, OGG, Opus y FLAC requieren un decodificador nativo.".into()));
+        }
+        let current=store.metadata(&source.key).map_err(not_found)?;
+        if current.kind!=AssetKind::Sound {
+            return Err(ApiError(StatusCode::UNPROCESSABLE_ENTITY,
+                "El proyecto referencia un archivo que no es audio".into()));
+        }
+        if current.sha256!=source.sha256 {
+            return Err(ApiError(StatusCode::CONFLICT,
+                "El audio fuente cambió desde la revisión del proyecto".into()));
+        }
+        let bytes=store.read(&source.key).map_err(not_found)?;
+        // Recheck the fetched bytes against the manifest pin, too:
+        // metadata can advance between two independent read operations.
+        if format!("{:x}",Sha256::digest(&bytes))!=source.sha256 {
+            return Err(ApiError(StatusCode::CONFLICT,
+                "La fuente ya no coincide con el SHA-256 del proyecto".into()));
+        }
+        sources.insert(source.key.clone(),decode_wav(&bytes).map_err(bad)?);
+    }
+    let output=render_project_advanced(
+        &audio.timeline,&sources,48_000,&audio.clip_edits,&audio.track_edits
+    ).map_err(bad)?;
+    encode_wav_pcm16(&output).map_err(bad)
+}
+
+fn wav_response(wav:Vec<u8>)->Response {
+    ([
+        (header::CONTENT_TYPE,"audio/wav"),
+        (header::CACHE_CONTROL,"no-store"),
+        (header::CONTENT_DISPOSITION,"inline")
+    ],wav).into_response()
+}
+
+/// Render previously saved .vsaudio without changing its stored revision.
 async fn render_audio_project(
     State(store):State<Store>,Path(name):Path<String>
 )->Result<Response,ApiError> {
     let key=key(format!("projects/{name}"))?;
-    let wav=tokio::task::spawn_blocking(move||->Result<Vec<u8>,ApiError>{
+    let wav=tokio::task::spawn_blocking(move||{
         let document=vsmedia_formats::load(store.as_ref(),&key,"vsaudio")
             .map_err(not_found)?;
-        let NativePayload::Audio(audio)=document.payload else {
-            return Err(bad("Expected .vsaudio document"));
-        };
-        if audio.sources.len()>256 {
-            return Err(bad("Too many audio sources"));
-        }
-        let mut sources=HashMap::new();
-        for source in &audio.sources {
-            // A Studio project must not turn this unauthenticated local
-            // preview route into a cross-plugin read of another namespace.
-            if source.key.namespace!=STUDIO_NAMESPACE ||
-                !source.key.name.starts_with("audio/") {
-                return Err(ApiError(StatusCode::FORBIDDEN,
-                    "Studio solo puede renderizar archivos de su propio namespace".into()));
-            }
-            if source.codec!=vsmedia_formats::MediaCodec::Wav {
-                return Err(ApiError(StatusCode::UNPROCESSABLE_ENTITY,
-                    "Render de VSCore admite WAV por ahora. MP3, OGG, Opus y FLAC requieren un decodificador nativo.".into()));
-            }
-            let current=store.metadata(&source.key).map_err(not_found)?;
-            if current.kind!=AssetKind::Sound {
-                return Err(ApiError(StatusCode::UNPROCESSABLE_ENTITY,
-                    "El proyecto referencia un archivo que no es audio".into()));
-            }
-            if current.sha256!=source.sha256 {
-                return Err(ApiError(StatusCode::CONFLICT,
-                    "El audio fuente cambió desde la revisión del proyecto".into()));
-            }
-            let bytes=store.read(&source.key).map_err(not_found)?;
-            // Recheck the fetched bytes against the manifest pin, too:
-            // metadata can advance between two independent read operations.
-            if format!("{:x}",Sha256::digest(&bytes))!=source.sha256 {
-                return Err(ApiError(StatusCode::CONFLICT,
-                    "La fuente ya no coincide con el SHA-256 del proyecto".into()));
-            }
-            sources.insert(source.key.clone(),decode_wav(&bytes).map_err(bad)?);
-        }
-        let output=render_project_advanced(
-            &audio.timeline,&sources,48_000,&audio.clip_edits,&audio.track_edits
-        ).map_err(bad)?;
-        encode_wav_pcm16(&output).map_err(bad)
+        render_document(&store,document)
     }).await.map_err(|e|ApiError(StatusCode::INTERNAL_SERVER_ERROR,
         format!("Audio render task terminated: {e}")))??;
-    Ok(([
-        (header::CONTENT_TYPE,"audio/wav"),
-        (header::CACHE_CONTROL,"no-store"),
-        (header::CONTENT_DISPOSITION,"inline")
-    ],wav).into_response())
+    Ok(wav_response(wav))
+}
+
+/// Render an unsaved project. Files must already exist in Studio CAS with
+/// their SHA-256 pinned by this request. No project revision is created.
+async fn render_unsaved_audio(
+    State(store):State<Store>,headers:HeaderMap,Json(document):Json<NativeDocument>
+)->Result<Response,ApiError> {
+    authorize_origin(&headers)?;
+    if !matches!(&document.payload,NativePayload::Audio(_)) {
+        return Err(bad("Expected .vsaudio document"));
+    }
+    if serde_json::to_vec(&document).map_err(bad)?.len()>MAX_DOCUMENT {
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,
+            "Preview document exceeds 2 MiB".into()));
+    }
+    let wav=tokio::task::spawn_blocking(move||render_document(&store,document))
+        .await.map_err(|e|ApiError(StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Audio render task terminated: {e}")))??;
+    Ok(wav_response(wav))
 }
 async fn unsupported() -> impl IntoResponse {
     (StatusCode::NOT_IMPLEMENTED,Json(json!({
@@ -255,6 +286,7 @@ fn router(store:Store)->Router {
         .route("/api/v1/audio/projects",get(list_audio_projects))
         .route("/api/v1/audio/projects/{name}/metadata",get(get_audio_metadata))
         .route("/api/v1/audio/projects/{name}",post(put_audio).get(get_audio))
+        .route("/api/v1/audio/render",post(render_unsaved_audio).layer(DefaultBodyLimit::max(MAX_DOCUMENT)))
         .route("/api/v1/audio/projects/{name}/render",get(render_audio_project))
         .route("/api/v1/audio/projects/{name}/commands",post(command_audio))
         .route("/api/v1/media/jobs",post(unsupported))
@@ -400,6 +432,32 @@ mod tests {
         // before the fade-out begins, after the EQ has stabilized.
         assert!(decoded.frames[3500][1].abs()>decoded.frames[1200][1].abs());
         assert!(decoded.frames[2000][0].abs()<0.001);
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn unsaved_preview_renders_pcm_without_creating_a_project_revision() {
+        let (db,dir)=store();
+        let source_key=AssetKey::new("studio","audio/preview-only").unwrap();
+        let wav=encode_wav_pcm16(&StereoAudio {
+            sample_rate:8000,frames:vec![[0.3,0.4];800]
+        }).unwrap();
+        let stored=db.publish_for("studio",source_key.clone(),AssetKind::Sound,&wav).unwrap();
+        let doc=json!({"magic":"VSMEDIA","version":1,"payload":{"kind":"audio",
+            "data":{"timeline":{"name":"Unsaved","tracks":[{"name":"Voice","muted":false,
+                "clips":[{"asset":source_key,"start_ms":0,"duration_ms":100,"gain_db":0}]}]},
+                "sources":[{"key":{"namespace":"studio","name":"audio/preview-only"},
+                    "sha256":stored.sha256,"codec":"wav"}]
+            }}});
+        let app=router(db.clone());
+        let result=app.clone().oneshot(request(Method::POST,
+            "/api/v1/audio/render",serde_json::to_vec(&doc).unwrap()
+        )).await.unwrap();
+        assert_eq!(result.status(),StatusCode::OK);
+        let frames=decode_wav(&to_bytes(result.into_body(),64*1024*1024)
+            .await.unwrap()).unwrap();
+        assert!(frames.frames.len()>4000);
+        assert!(db.list_assets("studio","projects/",10).unwrap().is_empty());
         drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
     }
 
