@@ -42,6 +42,14 @@ POST   /packs/{id}/priority
 DELETE /packs/{id}
        Quita el pack de la sesión y limpia las elecciones asociadas.
 
+GET    /packs/{id}
+       Metadatos de un pack importado.
+
+GET    /packs/{id}/download
+       Descarga ZIP canónico de la fuente importada (puede diferir en bytes
+       del ZIP de origen: conserva los recursos pero normaliza compresión y
+       timestamps; requiere pack.mcmeta válido).
+
 GET    /packs/merge/plan
 GET    /packs/resources
        Inventario paginado incluso si la exportación se encuentra bloqueada
@@ -121,6 +129,8 @@ consultarlas mediante JSON y recuperar los recursos del pack resultante.
   firmas correctas y hasta 4 MiB.
 - Escrituras limitadas a Origins locales permitidos.
 - La sesión se guarda en RAM, no se expone a Internet.
+- Los ZIP de fuente se recompilan de modo reproducible; no se promete
+  devolver los bytes originales del ZIP importado.
 - Los recursos no se publican automáticamente a VSEngine, CDN o Minecraft.
 - La distribución HTTPS y la persistencia con CAS siguen siendo trabajo
   de integración y requieren autenticación antes de alojar una web remota.

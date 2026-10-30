@@ -72,3 +72,15 @@ sobre el cliente WebRTC, además del módulo Java. Las conexiones y dispositivos
 de audio requieren también **pruebas manuales en navegadores reales**.
 
 Sin empaquetado de JAR/ZIP/release durante el desarrollo.
+
+## Backend para la futura web de interfaces
+
+VSPack ya expone el catálogo y la descarga de fuentes por ID,
+un inventario paginado de recursos de interfaz, resolución de colisiones
+por archivo y descargas de assets individuales. Las decisiones
+se aplican a la compilación final. La API es local y de sesión,
+independiente de las clases CSS del editor, y está documentada en
+[Contrato de recursos e interfaces](docs/VSPACK-INTERFACES-API.md).
+
+La nueva web de gestión de interfaces no está construida ni conectada
+en esta fase. Se integrará cuando se proporcione su código.

@@ -107,3 +107,18 @@ ni distribución todavía. `vspack` actualmente representa Resource Packs.
 automáticamente; la distribución de packs a Minecraft sigue pendiente
 y no se debe marcar como verificada sin pruebas reales. Los datapacks
 no forman parte de esta fase.
+
+## Preparación para gestor de interfaces (30/10/2026)
+
+- [x] Resolver colisiones de texturas con ganador por máxima prioridad
+  (comportamiento determinista con múltiples packs).
+- [x] Elección manual por ruta de asset, sin sobrescribir los ZIPs originales.
+- [x] Indexación de interfaz GUI/HUD, fuentes, atlas, modelos e idiomas
+  y descarga binaria de recursos para el futuro frontend.
+- [x] Catálogo de fuentes con acceso a metadata y ZIP canónico por ID.
+- [x] Versión documentada de API de catálogo/recursos/paginación.
+- [x] Actualización del inspector de VSPack para resolver conflictos.
+- [x] Fusión de sounds.json por evento con prioridades efectivas.
+- [ ] Integrar la próxima web de gestor de interfaces al recibirla.
+- [ ] Persistencia de fuentes/decisiones, autenticación HTTPS y
+  publicación final a la infraestructura VSEngine/CANVASMC.

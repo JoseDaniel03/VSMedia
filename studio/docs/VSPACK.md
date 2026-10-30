@@ -153,3 +153,23 @@ en varios overlays.
 hay que publicar cada ZIP interno por HTTPS y usar el adaptador
 Paper/Folia con UUID, SHA-1 y orden correctos. Estas acciones no se
 automatizan desde la interfaz local.
+
+## Resolución de texturas y próxima web de interfaces
+
+El backend expone un **catálogo versionado**, paginado y desacoplado
+del frontend actual. Para la futura web de interfaces se pueden
+obtener packs importados (metadatos y descarga ZIP), explorar recursos
+de GUI/HUD/fonts/atlas y escoger el ganador de cada ruta de textura.
+El selector de conflictos ya está disponible en el VSPack actual.
+
+La mezcla usa prioridades y decisiones explícitas por archivo: **no
+combina píxeles RGBA automáticamente** ni interpreta JSON desconocidos
+como si fueran una sola definición. El merge de eventos de sonidos es
+específico de sounds.json. Las rutas distintas conviven sin conflictos.
+
+Ver la especificación: VSPACK-INTERFACES-API.md.
+
+**No está conectada todavía una web externa**; tampoco existe
+almacenamiento persistente de packs, repositorio remoto ni distribución
+Minecraft automática. El adaptador VSEngine, autenticación y HTTPS
+se implementarán cuando se integre la nueva interfaz.
