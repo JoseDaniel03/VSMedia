@@ -113,6 +113,37 @@ pub async fn import(
     saved.push(pack);
     Ok(Json(out))
 }
+/// Download one imported source pack as a canonical, validated ZIP.
+/// Since sources are held decompressed in RAM this exports a deterministic
+/// equivalent, not necessarily the byte-identical ZIP that was uploaded.
+pub async fn download_source(
+    Extension(hub):Extension<PackHub>,Path(id):Path<String>
+)->Result<Response,ApiError>{
+    let pack=hub.0.lock().await.iter().find(|p|p.id==id).cloned()
+        .ok_or_else(||ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()))?;
+    let zipped=tokio::task::spawn_blocking(move||{
+        let files=pack.files.iter().map(|file|
+            (file.path.clone(),file.data.clone())
+        ).collect::<BTreeMap<String,Vec<u8>>>();
+        archive::export_zip(&MergeOutput{files,conflicts:vec![]},limits())
+    }).await.map_err(|e|bad(format!("Exportación de fuente interrumpida: {e}")))?
+        .map_err(friendly_error)?;
+    Ok(([
+        (header::CONTENT_TYPE,"application/zip"),
+        (header::CONTENT_DISPOSITION,"attachment; filename=\"vsmedia-source-pack.zip\""),
+        (header::CACHE_CONTROL,"no-store"),
+        (header::X_CONTENT_TYPE_OPTIONS,"nosniff"),
+    ],zipped).into_response())
+}
+pub async fn source_info(
+    Extension(hub):Extension<PackHub>,Path(id):Path<String>
+)->Result<Json<PackInfo>,ApiError>{
+    let packs=hub.0.lock().await;
+    let pack=packs.iter().find(|p|p.id==id)
+        .ok_or_else(||ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()))?;
+    Ok(Json(PackInfo::from(pack)))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PriorityInput {priority:i32}
