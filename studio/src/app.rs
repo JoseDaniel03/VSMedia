@@ -1275,7 +1275,10 @@ fn scroll_to(id: &str) {
 enum MenuCommand {Import,New,Export,Effects,Record,Playback,View,Help}
 fn handle_menu(command: MenuCommand,page: RwSignal<Page>,status: RwSignal<String>) {
     match command {
-        MenuCommand::Import => click_control("library-import"),
+        MenuCommand::Import => {
+            if page.get_untracked()==Page::Pack{click_control("vspack-upload");}
+            else {click_control("library-import");}
+        },
         MenuCommand::New => match page.get_untracked() {
             Page::Audio=>click_control("audio-new-version"),
             Page::Mix=>click_control("mix-add-track"),
