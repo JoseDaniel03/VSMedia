@@ -69,6 +69,8 @@ async fn capabilities() -> Json<Value> {
         "asset_storage":true,"audio_projects":true,
         "vspack_editor":true,"vspack_merge":"structured_priority",
         "vspack_zip_export":true,"vspack_session_only":true,
+        "vspack_resource_catalog":"vspack-resources-v1",
+        "vspack_ui_catalog":true,"vspack_path_overrides":true,
         "vspack_minecraft_delivery":false,
         "accepted_formats":["wav","flac","mp3","ogg","webm","opus"]}))
 }
@@ -324,6 +326,12 @@ fn router(store:Store)->Router {
         .route("/api/v1/streams/integration",get(streams_integration))
         .route("/api/v1/packs",get(packs::list))
         .route("/api/v1/packs/preview",get(packs::preview))
+        .route("/api/v1/packs/resources",get(packs::resources))
+        .route("/api/v1/packs/interfaces",get(packs::interfaces))
+        .route("/api/v1/packs/merge/plan",get(packs::resources))
+        .route("/api/v1/packs/merge/overrides",get(packs::resource_choices)
+            .post(packs::choose_resource).delete(packs::clear_resource_choice))
+        .route("/api/v1/packs/resources/file",get(packs::resource_file))
         .route("/api/v1/packs/texture",get(packs::texture))
         .route("/api/v1/packs/export",get(packs::export))
         .route("/api/v1/packs/layers/export",post(packs::export_layers))
