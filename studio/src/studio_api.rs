@@ -51,7 +51,7 @@ fn millis(seconds:f64)->Result<u64,String> {
     }
     Ok((seconds*1000.).round() as u64)
 }
-async fn save(asset:AudioAsset,version:Version,duration:f64)->Result<String,String>{
+async fn compose_audio(asset:AudioAsset,version:Version,duration:f64)->Result<Value,String>{
     let content=media::get_blob(&asset.id)
         .ok_or("El audio original ya no está disponible en memoria")?;
     if content.size()<=0. || content.size()>16.*1024.*1024. {
@@ -132,8 +132,13 @@ async fn save(asset:AudioAsset,version:Version,duration:f64)->Result<String,Stri
             }]
         }}
     });
-    let saved=request(&format!("/audio/projects/{}",asset.id),"POST",
-        JsValue::from_str(&project.to_string()),"application/json").await?;
+    Ok(project)
+}
+async fn save(asset:AudioAsset,version:Version,duration:f64)->Result<String,String> {
+    let project_id=asset.id.clone();
+    let document=compose_audio(asset,version,duration).await?;
+    let saved=request(&format!("/audio/projects/{project_id}"),"POST",
+        JsValue::from_str(&document.to_string()),"application/json").await?;
     let revision=saved.get("revision").and_then(Value::as_u64).unwrap_or(0);
     Ok(format!("Proyecto .vsaudio guardado en VSCore (revisión {revision})."))
 }
@@ -711,6 +716,38 @@ pub fn preview_draft_mix(
         status.set(match result {
             Ok(())=>"VSMix: previsualización Rust actual, sin guardar proyecto.".into(),
             Err(error)=>format!("No se pudo previsualizar VSMix: {error}"),
+        });
+    });
+}
+
+/// Preview the active VSAudio clip through Rust without saving a .vsaudio
+/// revision. A deliberate click may upload its source to the local CAS.
+pub fn preview_draft_audio(
+    asset:AudioAsset,version:Version,duration:f64,status:RwSignal<String>
+) {
+    status.set("Renderizando versión actual con VSCore, sin guardar proyecto…".into());
+    spawn_local(async move {
+        let result=async {
+            let doc=compose_audio(asset,version,duration).await?;
+            let wav=request_draft_wav(&doc).await?;
+            let url=Url::create_object_url_with_blob(&wav)
+                .map_err(|_|"No se pudo preparar el WAV del clip")?;
+            let player=media::player("simple-draft-engine-audio")
+                .ok_or("Reproductor del Audio Engine no disponible")?;
+            player.pause().ok();
+            player.set_src(&url);
+            player.set_current_time(0.);
+            ENGINE_PREVIEWS.with(|previews| {
+                if let Some(previous)=previews.borrow_mut().insert("simple-draft-engine-audio",url) {
+                    Url::revoke_object_url(&previous).ok();
+                }
+            });
+            player.play().map_err(|_|"El navegador bloqueó el audio")?;
+            Ok::<(),String>(())
+        }.await;
+        status.set(match result {
+            Ok(())=>"Clip procesado con Rust, sin guardar proyecto .vsaudio.".into(),
+            Err(error)=>format!("No se pudo previsualizar el clip: {error}"),
         });
     });
 }
