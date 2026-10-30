@@ -738,16 +738,6 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
             <button type="button" class="toolbar-button" on:click=move |_|{
                 for track in tracks.get_untracked(){if let Some(p)=media::player(&format!("track-{}",track.id)){p.pause().ok();}}
             }>"Ⅱ Pausar"</button>
-            <button type="button" class="toolbar-button" title="Pista anterior"
-                on:click=move |_|radio_advance(assets,playlists,active_playlist,play_index,status,false,true)>"◀ Anterior"</button>
-            <button type="button" class="toolbar-button" title="Siguiente pista disponible"
-                on:click=move |_|radio_advance(assets,playlists,active_playlist,play_index,status,repeat_radio.get_untracked(),false)>"Siguiente ▶"</button>
-            <button type="button" class="toolbar-button"
-                class:lit=move ||repeat_radio.get()
-                title="Al terminar la lista, volver a empezar"
-                on:click=move |_|repeat_radio.update(|repeat|*repeat=!*repeat)>
-                {move ||if repeat_radio.get(){"↻ Repetir: sí"}else{"↻ Repetir: no"}}
-            </button>
             <Show when=move ||!recording.get()>
                 <button id="mix-record" type="button" class="toolbar-button record-button" on:click=move |_|{
                     let active_id=selected_track.get_untracked();
@@ -1022,6 +1012,16 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
             <button type="button" class="toolbar-button" on:click=move |_|{
                 if let Some(player)=media::player("radio-player"){player.pause().ok();}
             }>"Ⅱ Pausar"</button>
+            <button type="button" class="toolbar-button" title="Pista anterior"
+                on:click=move |_|radio_advance(assets,playlists,active_playlist,play_index,status,false,true)>"◀ Anterior"</button>
+            <button type="button" class="toolbar-button" title="Siguiente pista disponible"
+                on:click=move |_|radio_advance(assets,playlists,active_playlist,play_index,status,repeat_radio.get_untracked(),false)>"Siguiente ▶"</button>
+            <button type="button" class="toolbar-button"
+                class:lit=move ||repeat_radio.get()
+                title="Al terminar la lista, volver a empezar"
+                on:click=move |_|repeat_radio.update(|repeat|*repeat=!*repeat)>
+                {move ||if repeat_radio.get(){"↻ Repetir: sí"}else{"↻ Repetir: no"}}
+            </button>
             <Show when=move ||!recording.get()>
                 <button id="radio-record" type="button" class="toolbar-button record-button" on:click=move |_|{
                     recording::start(assets,status,recording,move |file_id|{
