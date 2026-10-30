@@ -1,57 +1,66 @@
-# VSMedia Studio — Rust 1.0 (prototipo funcional local)
+# VSMedia Studio 26.3 — FullCanvas
 
-Aplicación web de código Rust (Leptos 0.8, compilado a WebAssembly). **No usa React, Vue, Electron ni JavaScript de aplicación**. Toda la interfaz está en español y usa solamente el tema claro. Ventana completa, sin logo, barra inferior ni controles de docking/layout.
+Aplicación web ligera con **Leptos 0.8/WASM**, **Rust Audio Engine** y
+**Axum** como API local. El cliente de WebRTC para VSRadio y VSStreams usa
+JavaScript nativo de navegador porque implementa el transporte multimedia
+sin pasar PCM ni paquetes RTP por la capa WASM. Interfaz clara en español.
 
-## Requisitos
-- Rust estable, `wasm32-unknown-unknown`, Trunk 0.22.1 o posterior
-- Navegador moderno con Web Audio y MediaRecorder; localhost o HTTPS para permisos de micrófono
+## Iniciar en CachyOS / Linux
+
+Requisitos: Rust estable, `wasm32-unknown-unknown`, Trunk 0.22.1 o
+posterior, y navegador con WebRTC/Web Audio.
 
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install trunk --locked
-cargo check --target wasm32-unknown-unknown
+cd studio
 ./start.sh
 ```
 
-Abrí http://127.0.0.1:3060.
+Abrir http://127.0.0.1:3060. El script inicia Trunk en el puerto 3060 y
+el servidor Rust/Axum + VSCore local en `127.0.0.1:3061`. La emisión
+de radio y salas de voz requieren que el backend esté funcionando.
 
-## Espacios y funciones reales
+## Módulos
 
-- **Home:** accesos, biblioteca de audio compartida, carpetas y subcarpetas, clasificación por género, tipo y carpeta. Carpeta/etiquetas se editan en la interfaz. Las carpetas, el guion y la programación se conservan en `localStorage`; **los contenidos binarios de audio no**.
-- **VSAudio:** reproductor del navegador, múltiples versiones de un clip, recorte por segundos, ganancia, fade in/out, inversión en la **exportación WAV PCM de 16-bit**. El audio original se puede descargar sin conversiones. La vista previa utiliza el original con posición y volumen ajustados; fundidos e inversión se escuchan en el archivo exportado.
-- **VSMix:** crear/quitar y renombrar pistas; vincular archivos a cada una; transporte simultáneo del navegador, volúmenes por pista, Mute, Solo, fundidos de entrada y salida en reproducción (actualizados al evento de progreso del navegador), captura de micrófono en pista seleccionada. **No hay todavía alineación de reloj de audio a nivel sample ni render de mezcla multipista:** es un MVP de reproducción local, no una DAW terminada.
-- **Guion/doblaje:** edición de texto, guardado local y lector que se desplaza a velocidad configurable, con reproducir/pausar/inicio.
-- **VSRadio:** crear/eliminar playlists, agregar material importado, reordenar arriba/abajo, quitar elementos, reproducir y avanzar automáticamente, grabación de micrófono al archivo local, programación editable.
-- **API futura:** contratos tipados en `src/api_contract.rs`, endpoints documentados en `docs/API.md`. No se simula un transmisor: aparece claramente «Sin emisión conectada».
+- **Home:** biblioteca de fuentes, categorías y carpetas.
+- **VSAudio:** editor de versiones, volumen, paneo, fades y exportación WAV.
+- **VSMix:** edición multiclips y multipista, formas de onda, crossfades
+  lineales/equal-power, automatización, selección múltiple, operaciones
+  ripple, snapping, portapapeles y undo/redo. Render sin guardar y proyectos
+  persistentes `.vsaudio` mediante Rust/Axum.
+- **VSRadio:** playlists y programación local, reproductor con micrófono,
+  emisión P2P para salas pequeñas (un emisor, 15 oyentes como máximo).
+- **VSStreams:** chat de voz P2P con hasta 8 participantes por sala, permisos
+  de micrófono explícitos, mute, conexión/desconexión y audio remoto.
+- **Guion:** lector automático de texto/doblaje.
 
-## Backend opcional (preparado para integrar el plugin)
+### Estado de radio y voz
 
-`./start.sh` inicia **Axum conectado a VSCore** en `127.0.0.1:3061` y Trunk en `127.0.0.1:3060`. Se implementaron subida de audios, lectura y guardado de proyectos `.vsaudio` con revisiones, y comandos de edición Rust. El botón **Guardar proyecto** en VSAudio hace la publicación explícita. Streaming, emisión de radio y reproducción Minecraft siguen sin conexión y responden **501**.
+`studio/assets/live.js` utiliza WebRTC para transportar audio entre
+navegadores. `studio/backend/src/live.rs` hace señalización JSON sobre
+WebSocket: **no almacena ni transmite el audio por Axum**. El cliente no
+solicita micrófono al oyente de radio ni graba participantes. El servidor
+escucha únicamente en loopback; no se debe exponer a Internet sin
+autenticación, HTTPS/WSS, política de permisos y servidores TURN.
 
-## Limitaciones y seguridad
+**Radio masiva no está implementada.** Para centenares de oyentes se
+necesitaría SFU o una vía de distribución de segmentos, un servicio
+de control de acceso y monitoreo. Chat de voz dentro de Minecraft también
+requiere integración específica con el plugin/mod.
 
-Los archivos se alojan en memoria del navegador hasta que el usuario pulsa **Guardar proyecto**. Esa acción publica el audio y el proyecto `.vsaudio` en el VSCore SQLite/CAS local. No hay subida automática ni servicios externos. Los permisos del micrófono son solicitados al pulsar Grabar. El audio grabado se entrega en el contenedor y códec disponible en MediaRecorder (normalmente WebM, según navegador). No se exporta MP3 ni se promete edición avanzada en tiempo real.
+Ver [LIVE-STREAMING.md](docs/LIVE-STREAMING.md) y
+[AUDIO-EDITING.md](../docs/AUDIO-EDITING.md).
 
-Si un archivo no puede decodificarse con Web Audio, el editor simple informa el fallo al exportar. WAV se renderiza como PCM estéreo o mono (los canales adicionales no se incluyen). Clips extensos pueden exceder memoria. Para reemplazar esto por un motor Rust de alto rendimiento y exportación profesional, usar la futura conexión de backend (API v1).
+## Seguridad y pruebas
 
-## Arquitectura
-```
-src/
-  main.rs          Entrypoint WebAssembly
-  app.rs           UI y lógica de espacios, biblioteca, edición y radio
-  media.rs         Modelos de audio, organización, descarga y almacenamiento
-  recording.rs     MediaRecorder (micrófono)
-  export.rs        Decodificación Web Audio, procesamiento PCM y encoder WAV Rust
-  teleprompter.rs  Motor del lector automático
-  api_contract.rs  Contratos tipados para plugin/backend futuro
-assets/studio.css   Tema claro único y diseño full-canvas
-backend/            Puente Axum HTTP opcional; sin plugin ni funciones simuladas
-```
+El editor conserva fuentes locales en memoria hasta la publicación explícita
+a CAS. El puente API escucha en `127.0.0.1:3061` y limita entradas, tamaños
+y permisos por namespace. Los códigos de sala no son credenciales.
 
-## Pruebas
+GitHub Actions ejecuta `cargo test --workspace --all-targets`, pruebas
+Axum, `cargo check` de Leptos wasm32, pruebas del editor y `node --check`
+sobre el cliente WebRTC, además del módulo Java. Las conexiones y dispositivos
+de audio requieren también **pruebas manuales en navegadores reales**.
 
-`python tests/check_project.py` prueba la estructura del ZIP, HTML, CSS, dependencias de archivo y algunas regresiones de diseño. **No sustituye `cargo check`**: este entorno de creación no dispone de Cargo/Rust, así que la compilación real debe validarse en CachyOS antes de utilizar la aplicación.
-
-## Integración con el motor VSMedia
-
-Ver [INTEGRATION.md](docs/INTEGRATION.md): endpoints reales, ruta de almacenamiento, límites, seguridad del modo local y funciones pendientes de conectar con Minecraft.
+Sin empaquetado de JAR/ZIP/release durante el desarrollo.

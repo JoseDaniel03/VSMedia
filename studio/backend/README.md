@@ -1,11 +1,35 @@
-# API Bridge opcional — Rust / Axum
+# VSMedia Studio — Bridge Axum local
 
-Se ejecuta **independientemente** de la web y **no es necesario** para usar Home, VSAudio, VSMix o VSRadio localmente.
+Iniciar desde `studio/`:
 
 ```bash
 cargo run --manifest-path backend/Cargo.toml
 ```
 
-Escucha en `127.0.0.1:3061`. `GET /api/v1/health` confirma que el puente está vivo y `GET /api/v1/capabilities` devuelve `false` para las funciones que dependen del plugin. Las peticiones de procesamiento/streaming devuelven HTTP **501 Not Implemented** hasta integrar el plugin. No hay autorización, subida ni broadcasting implementados, por lo que el puente se restringe a localhost.
+El backend queda disponible sólo en `127.0.0.1:3061` y reutiliza la
+base SQLite/CAS del motor VSMedia. La web Trunk corre en
+`127.0.0.1:3060`. Los endpoints existentes admiten importación y
+render WAV de proyectos `.vsaudio`, comandos de edición y previsualización
+sin crear una revisión.
 
-Para comunicar la web desde un origen diferente, configurar un reverse proxy a `/api/v1/` del mismo origen y añadir autenticación antes de permitir acciones reales de producción.
+## Señalización WebRTC
+
+`GET /api/v1/live/ws` abre un WebSocket de señalización para salas de
+`radio` (roles emisor/oyente; máximo 16 conexiones) o `voice`
+(participantes con micrófono; máximo 8 conexiones). El backend sólo
+intercambia oferta, respuesta y candidatos ICE, sin transportar PCM ni
+grabar audio. Las salas son efímeras y se vacían al desconectar.
+
+`GET /api/v1/live/status` presenta métricas agregadas (cantidad de salas,
+participantes y límites), sin códigos de sala.
+
+El sistema no es un servidor de streaming masivo y no existe sesión de
+radio Minecraft habilitada: `POST /api/v1/radio/sessions` y
+`POST /api/v1/media/jobs` siguen devolviendo HTTP 501.
+
+**Seguridad:** bind loopback, Origin local aceptado para la página web,
+límite de 48 KiB de señal y de 128 conexiones totales. Los códigos de sala
+no son autenticación. Para producción exigir HTTPS/WSS, auth, TURN, gestión
+de invitaciones y controles de abusos en el reverse proxy.
+
+Más información en `../docs/LIVE-STREAMING.md`.
