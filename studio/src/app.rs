@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 use crate::media::{self,AudioAsset,Folder,Version,Track,MixRegion,MixGainPoint,MixFadeCurve,Playlist};
 use crate::{export,recording,studio_api};
+use crate::mix_history::MixHistory;
+use wasm_bindgen::JsCast;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {Home, Audio, Mix, Radio}
@@ -18,6 +20,14 @@ pub fn App() -> impl IntoView {
     let versions = RwSignal::new(Vec::<Version>::new());
     let current_version = RwSignal::new(String::new());
     let tracks = RwSignal::new(Vec::<Track>::new());
+    let history=RwSignal::new(MixHistory::default());
+    history.update(|item|item.observe(Vec::new()));
+    // Each completed local state change is one reversible checkpoint. Pointer
+    // operations commit only on release, so no per-frame history allocation.
+    Effect::new(move |_| {
+        let snapshot=tracks.get();
+        history.update(|item|item.observe(snapshot));
+    });
     let playlists = RwSignal::new(Vec::<Playlist>::new());
     let recording = RwSignal::new(false);
     let core_connected=RwSignal::new(false);
@@ -53,7 +63,7 @@ pub fn App() -> impl IntoView {
                     <SimpleAudio assets folders selected status versions current_version page />
                 </Show>
                 <Show when=move ||page.get()==Page::Mix>
-                    <MixStudio assets folders selected status tracks recording page />
+                    <MixStudio assets folders selected status tracks history recording page />
                 </Show>
                 <Show when=move ||page.get()==Page::Radio>
                     <RadioStudio assets folders selected status playlists recording page />
@@ -627,19 +637,58 @@ fn RegionEditor(
     }
 }
 
+fn history_step(
+    history:RwSignal<MixHistory>,tracks:RwSignal<Vec<Track>>,
+    status:RwSignal<String>,undo:bool
+){
+    let mut restore=None;
+    history.update(|h|restore=if undo{h.undo()}else{h.redo()});
+    if let Some(snapshot)=restore {
+        tracks.set(snapshot);
+        status.set(if undo{"Cambio deshecho."}else{"Cambio rehecho."}.into());
+    }
+}
 #[component]
 fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,selected: RwSignal<String>,
-             status: RwSignal<String>,tracks: RwSignal<Vec<Track>>,recording: RwSignal<bool>,page: RwSignal<Page>) -> impl IntoView {
+             status: RwSignal<String>,tracks: RwSignal<Vec<Track>>,
+             history:RwSignal<MixHistory>,recording: RwSignal<bool>,page: RwSignal<Page>) -> impl IntoView {
     let selected_track=RwSignal::new(String::new());
     let saved_projects=RwSignal::new(Vec::<studio_api::SavedAudioProject>::new());
     let show_saved=RwSignal::new(false);
     let script=RwSignal::new(media::storage_get("vsmedia:dubbing:script"));
     let scroll_speed=RwSignal::new(50.0f64);
     let script_running=RwSignal::new(false);
-    view! {<div class="studio-screen">
+    view! {<div class="studio-screen"
+        on:keydown=move |event:web_sys::KeyboardEvent|{
+            // Preserve native text editing shortcuts in focused form inputs.
+            let editing=event.target()
+                .and_then(|target|target.dyn_into::<web_sys::Element>().ok())
+                .is_some_and(|element|{
+                    let tag=element.tag_name();
+                    tag=="INPUT" || tag=="TEXTAREA" || tag=="SELECT"
+                        || element.closest("[contenteditable=true]").ok().flatten().is_some()
+                });
+            if editing {return;}
+            let ctrl=event.ctrl_key() || event.meta_key();
+            let key=event.key().to_lowercase();
+            let undo=ctrl && key=="z" && !event.shift_key();
+            let redo=ctrl && (key=="y" || (key=="z" && event.shift_key()));
+            if undo || redo {
+                event.prevent_default();
+                history_step(history,tracks,status,undo);
+            }
+        }>
         <div class="studio-toolbar">
             <EditorMenu page status />
             <strong>"VSMix"</strong><span class="toolbar-separator"></span><span class="toolbar-caption">"ESTUDIO MULTIPISTA"</span>
+            <button type="button" class="toolbar-button" title="Deshacer (Ctrl+Z)"
+                disabled=move ||!history.with(|h|h.can_undo())
+                on:click=move |_|history_step(history,tracks,status,true)>"↶ Deshacer"</button>
+            <button type="button" class="toolbar-button" title="Rehacer (Ctrl+Y o Ctrl+Mayús+Z)"
+                disabled=move ||!history.with(|h|h.can_redo())
+                on:click=move |_|history_step(history,tracks,status,false)>"↷ Rehacer"</button>
+            <small class="mix-history-count">{move ||history.with(|h|
+                if h.oversized{"Historial pausado".into()}else{format!("{} estados",h.size())})}</small>
             <button id="mix-add-track" type="button" class="toolbar-button" on:click=move |_|{
                 let id=media::uid("track");
                 let count=tracks.get_untracked().len()+1;

@@ -8,6 +8,8 @@ mod studio_api;
 mod mix_timeline;
 mod waveform;
 mod gain_editor;
+mod mix_history;
+mod mix_batch;
 
 fn main() {
     console_error_panic_hook::set_once();
