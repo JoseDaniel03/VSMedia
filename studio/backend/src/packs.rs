@@ -32,7 +32,7 @@ struct LoadedPack {
     files:Arc<Vec<PackAsset>>,
     bytes:usize,
 }
-#[derive(Serialize)]
+#[derive(Serialize,Debug)]
 pub struct PackInfo {
     id:String,name:String,priority:i32,files:usize,bytes:usize
 }
@@ -206,7 +206,7 @@ pub async fn export(Extension(hub):Extension<PackHub>)->Result<Response,ApiError
 mod tests{
     use super::*;
     use std::collections::BTreeMap;
-    use vsmedia_pack::{PackAsset,MergeOutput};
+    use vsmedia_pack::MergeOutput;
     use axum::body::to_bytes;
 
     fn fixture(files:&[(&str,&[u8])])->Vec<u8>{
@@ -283,7 +283,7 @@ mod tests{
         assert!(export(Extension(hub)).await.is_err());
     }
     #[tokio::test]
-    async fn invalid_manifest_cannot_export_and_remove_frees_resources(){
+    async fn removing_pack_frees_session_resources(){
         let hub=PackHub::default();
         let bytes=fixture(&[]);
         import(Extension(hub.clone()),Path("a".into()),headers(),

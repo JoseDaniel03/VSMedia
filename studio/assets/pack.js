@@ -179,7 +179,7 @@ function install(root){
       status("Validando "+file.name+"…");
       await request("/"+id,{
         method:"POST",headers:{"Content-Type":"application/zip",
-          "X-VSPack-Label":encodeURIComponent(file.name).slice(0,80)},
+          "X-VSPack-Label":encodeURIComponent(file.name.slice(0,80))},
         body:file,signal:state.controller.signal});
       await load();
     }
