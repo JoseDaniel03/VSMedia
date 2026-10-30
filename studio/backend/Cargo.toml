@@ -20,6 +20,9 @@ vsmedia-audio = { path = "../../crates/vsmedia-audio" }
 vsmedia-pack = { path = "../../crates/vsmedia-pack" }
 sha2 = "0.10"
 percent-encoding = "2.3"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+sha1 = "0.10"
+uuid = { version = "1", features = ["v5"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

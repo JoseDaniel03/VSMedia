@@ -236,6 +236,101 @@ pub async fn export(Extension(hub):Extension<PackHub>)->Result<Response,ApiError
         (header::X_CONTENT_TYPE_OPTIONS,"nosniff")
     ],bytes).into_response())
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LayerBundleInput {
+    base_id:String,
+    rules:Vec<LayerRuleInput>
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LayerRuleInput {
+    logical_id:String,
+    prefixes:Vec<String>
+}
+/// Generate a portable *ZIP of ordinary Resource Pack ZIPs* plus immutable
+/// SHA-1/SHA-256/UUID metadata. This is not a public Minecraft download URL.
+pub async fn export_layers(
+    Extension(hub):Extension<PackHub>,
+    headers:HeaderMap,
+    Json(input):Json<LayerBundleInput>
+)->Result<Response,ApiError>{
+    authorize_origin(&headers)?;
+    if input.rules.is_empty()||input.rules.len()>5{
+        return Err(bad("Usá entre 1 y 5 reglas overlay"));
+    }
+    let merged=composed(&hub).await?;
+    let result=tokio::task::spawn_blocking(move||{
+        use std::io::{Cursor,Write};
+        use sha1::Digest;
+        use zip::{ZipWriter,write::SimpleFileOptions,CompressionMethod};
+        use uuid::Uuid;
+        let rules=input.rules.into_iter().map(|r|
+            vsmedia_pack::layers::OverlayRule{
+                logical_id:r.logical_id,prefixes:r.prefixes
+            }
+        ).collect::<Vec<_>>();
+        let layers=vsmedia_pack::layers::split_into_layers(
+            &merged,&input.base_id,&rules
+        )?;
+        let mut collected=Vec::with_capacity(layers.len());
+        let mut inventory=Vec::new();
+        for layer in layers {
+            let bytes=archive::export_zip(&layer.pack,limits())?;
+            let filename=format!("packs/{}.zip",layer.logical_id);
+            let uuid=Uuid::new_v5(&Uuid::NAMESPACE_URL,
+                format!("vsmedia:resource-pack:{}",layer.logical_id).as_bytes());
+            inventory.push(json!({
+                "logical_id":layer.logical_id,
+                "uuid":uuid.to_string(),
+                "sha1":format!("{:x}",sha1::Sha1::digest(&bytes)),
+                "sha256":format!("{:x}",sha2::Sha256::digest(&bytes)),
+                "bytes":bytes.len(),"filename":filename,
+                "files":layer.pack.files.len()
+            }));
+            collected.push((filename,bytes));
+        }
+        let mut zip=ZipWriter::new(Cursor::new(Vec::new()));
+        let stored=SimpleFileOptions::default().compression_method(CompressionMethod::Stored)
+            .last_modified_time(zip::DateTime::default());
+        let deflate=SimpleFileOptions::default().compression_method(CompressionMethod::Deflated)
+            .last_modified_time(zip::DateTime::default());
+        let manifest=json!({
+            "format":"vsmedia-resource-pack-layer-bundle-v1",
+            "delivery":"not_published",
+            "ordered_base_first":true,
+            "layers":inventory
+        });
+        zip.start_file("manifest.json",deflate)
+            .map_err(|e|vsmedia_api::MediaError::InvalidInput(e.to_string()))?;
+        zip.write_all(&serde_json::to_vec(&manifest)
+            .map_err(|e|vsmedia_api::MediaError::InvalidInput(e.to_string()))?)
+            .map_err(|e|vsmedia_api::MediaError::Io(e.to_string()))?;
+        for (filename,bytes) in collected{
+            zip.start_file(filename,stored)
+                .map_err(|e|vsmedia_api::MediaError::InvalidInput(e.to_string()))?;
+            zip.write_all(&bytes)
+                .map_err(|e|vsmedia_api::MediaError::Io(e.to_string()))?;
+        }
+        let bytes=zip.finish()
+            .map_err(|e|vsmedia_api::MediaError::InvalidInput(e.to_string()))?
+            .into_inner();
+        if bytes.len()>MAX_RAM_BYTES{
+            return Err(vsmedia_api::MediaError::InvalidInput(
+                "Bundle de capas supera el límite de 64 MiB".into()));
+        }
+        Ok::<_,vsmedia_api::MediaError>(bytes)
+    }).await.map_err(|e|bad(format!("Compilación de capas interrumpida: {e}")))?
+        .map_err(friendly_error)?;
+    Ok(([
+        (header::CONTENT_TYPE,"application/zip"),
+        (header::CACHE_CONTROL,"no-store"),
+        (header::CONTENT_DISPOSITION,"attachment; filename=\"vsmedia-layer-bundle.zip\""),
+        (header::X_CONTENT_TYPE_OPTIONS,"nosniff")
+    ],result).into_response())
+}
+
 #[cfg(test)]
 mod tests{
     use super::*;
