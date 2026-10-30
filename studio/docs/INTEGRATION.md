@@ -70,3 +70,28 @@ muestreo) y ganancia final opcional. Esos ajustes se guardan/recuperan en
 
 El servicio sigue siendo solo local (127.0.0.1), sin publicación pública,
 streaming ni integración Minecraft activa. No hay render comprimido.
+
+## Editor de regiones multipista y render temporal
+
+VSMix admite ahora múltiples regiones por pista. Cada región almacena
+su archivo fuente, posición dentro de la pista, duración, in-point del
+origen, volumen, paneo y fades. Se mantienen compatibles los proyectos
+anteriores de una fuente por pista; el motor nativo permite un máximo
+global de 256 clips por render y la UI limita la creación a 32 por pista.
+
+`POST /api/v1/audio/render` recibe un manifiesto `.vsaudio` **sin
+guardarlo como proyecto**, comprueba las referencias SHA-256 contra el CAS
+y devuelve el WAV estéreo procesado con el Rust Audio Engine. VSMix lo
+expone como **▶ Motor (borrador)** junto al reproductor del render.
+
+Al pulsar ese botón, el frontend puede subir al CAS local los WAV fuentes
+que todavía no están en VSCore; **no se crea revisión .vsaudio**. Este
+comportamiento es explícito para distinguirlo de la reproducción local
+HTML5. El botón clásico ▶ Reproducir se reserva al mezclador antiguo de
+una fuente por pista: con regiones activas muestra un aviso para usar
+el motor Rust.
+
+El editor de regiones trabaja con datos en memoria del navegador. La
+reproducción nativa está limitada a archivos WAV por ahora; las demás
+fuentes pueden conservarse en el catálogo y como proyectos nativos,
+pero no se simula render para códecs sin decodificador.

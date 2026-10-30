@@ -29,3 +29,20 @@
 .engine-preview audio{width:100%;height:34px;max-width:440px}
 .engine-preview small{color:var(--sub);font-size:10px}
 .saved-projects-panel .version-row{flex-wrap:wrap}
+
+/* Region-based VSMix timeline controls, compact and full-canvas. */
+.mix-draft-preview{display:flex;align-items:center;flex-wrap:wrap;gap:9px;padding:8px 12px;border-bottom:1px solid var(--line);background:#faf9ff}
+.mix-draft-preview audio{width:min(300px,100%);height:32px}
+.mix-draft-preview small{font-size:10px;color:var(--sub);max-width:380px}
+.mix-regions-toolbar{display:flex;align-items:center;justify-content:space-between;margin:7px 0;gap:8px}
+.mix-regions-toolbar strong{font-size:10px;color:#7262a6}
+.mix-regions-list{display:flex;flex-direction:column;gap:8px}
+.mix-region{border:1px solid #e3def4;background:#fbfaff;padding:9px;border-radius:8px;display:flex;flex-direction:column;gap:7px}
+.mix-region-heading{display:flex;align-items:center;gap:7px}
+.mix-region-heading strong{font-size:10px;letter-spacing:.08em;color:#63569c}
+.mix-region-heading small{font-size:10px;color:var(--sub)}
+.mix-region-heading .text-icon{margin-left:auto}
+.mix-region>select{width:100%;font-size:11px;padding:7px}
+.region-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:7px}
+.region-fields label{font-size:10px;line-height:1.3}
+.region-fields input{width:100%;padding:7px 8px;font-size:11px}

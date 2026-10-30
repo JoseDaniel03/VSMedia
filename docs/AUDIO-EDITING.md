@@ -136,3 +136,18 @@ MP3/FLAC/OGG/Opus/WebM reciben HTTP 422 con explicación; sus archivos
 pueden seguir almacenándose y reproduciéndose localmente. La integración
 con el editor visual de múltiples regiones y el resto de los efectos
 permanece pendiente.
+
+## Regiones en el Studio web
+
+Cada pista VSMix puede representar varios clips nativos, no solo un
+archivo. Las regiones tienen ID local y controles separados de inicio,
+duración, in-point, volumen, paneo y fades. Guardar la mezcla serializa
+la posición/ganancia en el timeline nativo y los fades/paneo en
+`clip_edits`; Abrir la mezcla reconstruye la lista completa de regiones.
+
+La previsualización del proyecto actual utiliza
+`POST /api/v1/audio/render` sin guardar una revisión del proyecto,
+aunque las fuentes usadas se publican en el CAS local mediante acción
+explícita. El render de Rust usa su procesamiento habitual y verifica
+los SHA-256 antes de leer archivos. No hay soporte de OGG/Opus/MP3
+nativo en esta ruta por ahora.
