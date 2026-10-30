@@ -462,6 +462,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unsaved_render_respects_overlapping_regions_and_clip_pan() {
+        let (db,dir)=store();
+        let file=AssetKey::new("studio","audio/regions").unwrap();
+        let wav=encode_wav_pcm16(&StereoAudio{
+            sample_rate:48_000,frames:vec![[0.25,0.25];4_800],
+        }).unwrap();
+        let recorded=db.publish_for("studio",file.clone(),AssetKind::Sound,&wav).unwrap();
+        let document=json!({"magic":"VSMEDIA","version":1,
+            "payload":{"kind":"audio","data":{
+                "timeline":{"name":"Two regions","tracks":[{
+                    "name":"FX","muted":false,"clips":[
+                        {"asset":file,"start_ms":0,"duration_ms":100,"gain_db":0},
+                        {"asset":{"namespace":"studio","name":"audio/regions"},
+                         "start_ms":50,"duration_ms":100,"gain_db":-6.0}
+                    ]
+                }]},
+                "sources":[{"key":{"namespace":"studio","name":"audio/regions"},
+                    "sha256":recorded.sha256,"codec":"wav"}],
+                "clip_edits":[{"track_index":0,"clip_index":1,
+                    "source_in_ms":0,"pan":1.0,
+                    "fade_in_ms":0,"fade_out_ms":0,"reversed":false,
+                    "muted":false,"gain_points":[],"filters":[]}]
+            }}});
+        let app=router(db.clone());
+        let result=app.clone().oneshot(request(Method::POST,
+            "/api/v1/audio/render",serde_json::to_vec(&document).unwrap()
+        )).await.unwrap();
+        assert_eq!(result.status(),StatusCode::OK);
+        let bytes=to_bytes(result.into_body(),64*1024*1024).await.unwrap();
+        let mixed=decode_wav(&bytes).unwrap();
+        assert_eq!(mixed.frames.len(),7200);
+        assert!((mixed.frames[1000][0]-0.25).abs()<0.002);
+        assert!((mixed.frames[3000][0]-0.25).abs()<0.002);
+        assert!(mixed.frames[3000][1]>0.35);
+        assert!(mixed.frames[6000][0].abs()<0.002);
+        assert!((mixed.frames[6000][1]-0.125).abs()<0.008);
+        assert!(db.list_assets("studio","projects/",10).unwrap().is_empty());
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn compressed_audio_preview_is_explicitly_unsupported() {
         let (db,dir)=store();
         let key=AssetKey::new("studio","audio/mp3-preview").unwrap();
