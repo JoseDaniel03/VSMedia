@@ -180,24 +180,24 @@ regiones de distintas pistas. Los datapacks continúan fuera del alcance.
 ## VSMix Timeline: equal-power y envolventes editables (26.3)
 
 El motor nativo añade a la edición de cada clip el campo opcional
-\`fade_curve\`: \`linear\` (predeterminado) o \`equal_power\`.
+`fade_curve`: `linear` (predeterminado) o `equal_power`.
 Los documentos anteriores no incluyen este campo y conservan exactamente
-su respuesta lineal. El esquema principal de \`.vsaudio\` permanece en versión 1.
+su respuesta lineal. El esquema principal de `.vsaudio` permanece en versión 1.
 
-- En \`equal_power\`, el fade de entrada aplica \`sin(π·t/2)\`; el de salida
-  aplica \`cos(π·t/2)\` para \`t\` normalizado entre 0 y 1. Así, durante
-  un cruce simétrico se cumple \`g₁² + g₂² ≈ 1\`. Esta ley conserva la potencia
+- En `equal_power`, el fade de entrada aplica `sin(π·t/2)`; el de salida
+  aplica `cos(π·t/2)` para `t` normalizado entre 0 y 1. Así, durante
+  un cruce simétrico se cumple `g₁² + g₂² ≈ 1`. Esta ley conserva la potencia
   entre fuentes no correlacionadas; no garantiza volumen constante cuando
   ambas contienen la misma señal (puede haber un aumento audible).
 - VSMix ofrece un selector de curva para el botón Crossfade y otro por región.
   Los nuevos marcadores de entrada y salida pueden arrastrarse y ajustan
-  \`fade_in\` y \`fade_out\` sin modificar la fuente, manteniendo la suma de
+  `fade_in` y `fade_out` sin modificar la fuente, manteniendo la suma de
   las duraciones dentro de la región.
 - La curva de volumen aparece como una línea blanca sobre las ondas.
   Se representa con la misma ecuación normalizada del Audio Engine.
   Los campos numéricos siguen disponibles para ajustes exactos.
-- El formulario nativo \`compose_mix\` exporta la curva de cada región en
-  \`clip_edits\`, y \`load_mix\` recupera el valor. El render de borrador
+- El formulario nativo `compose_mix` exporta la curva de cada región en
+  `clip_edits`, y `load_mix` recupera el valor. El render de borrador
   y el guardado utilizan la misma implementación DSP de Rust.
 - Se mantienen los límites existentes de duración y de regiones, los
   controles de integridad del backend y la restricción de fuentes WAV
