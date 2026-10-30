@@ -575,6 +575,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn draft_gain_automation_renders_without_saving_a_revision() {
+        let (db,dir)=store();
+        let key=AssetKey::new("studio","audio/keyframes").unwrap();
+        let wav=encode_wav_pcm16(&StereoAudio {
+            sample_rate:48_000,frames:vec![[0.25,0.25];48_000],
+        }).unwrap();
+        let source=db.publish_for("studio",key.clone(),AssetKind::Sound,&wav).unwrap();
+        let document=json!({"magic":"VSMEDIA","version":1,
+            "payload":{"kind":"audio","data":{
+                "timeline":{"name":"Automation draft","tracks":[{
+                    "name":"Voice","muted":false,
+                    "clips":[{"asset":key,"start_ms":0,"duration_ms":1000,"gain_db":0}]
+                }]},
+                "sources":[{"key":{"namespace":"studio","name":"audio/keyframes"},
+                    "sha256":source.sha256,"codec":"wav"}],
+                "clip_edits":[{"track_index":0,"clip_index":0,"source_in_ms":0,
+                    "gain_points":[
+                        {"at_ms":0,"gain_db":-6.0206},
+                        {"at_ms":500,"gain_db":0.0},
+                        {"at_ms":1000,"gain_db":-6.0206}
+                    ]}]
+            }}});
+        let app=router(db.clone());
+        let result=app.clone().oneshot(request(Method::POST,
+            "/api/v1/audio/render",serde_json::to_vec(&document).unwrap()
+        )).await.unwrap();
+        assert_eq!(result.status(),StatusCode::OK);
+        let raw=to_bytes(result.into_body(),64*1024*1024).await.unwrap();
+        let rendered=decode_wav(&raw).unwrap();
+        assert_eq!(rendered.sample_rate,48_000);
+        assert_eq!(rendered.frames.len(),48_000);
+        assert!((rendered.frames[0][0]-0.125).abs()<0.002);
+        assert!((rendered.frames[12_000][0]-0.1875).abs()<0.003);
+        assert!((rendered.frames[24_000][0]-0.25).abs()<0.002);
+        assert!((rendered.frames[36_000][0]-0.1875).abs()<0.003);
+        assert!(db.list_assets("studio","projects/",10).unwrap().is_empty());
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn compressed_audio_preview_is_explicitly_unsupported() {
         let (db,dir)=store();
         let key=AssetKey::new("studio","audio/mp3-preview").unwrap();
