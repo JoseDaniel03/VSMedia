@@ -525,39 +525,39 @@ fn RegionEditor(
             <div class="region-fields">
                 <label>"Inicio en pista (s)"<input type="number" min="0" max="3600" step="0.1"
                     prop:value=region.start.to_string()
-                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                    on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_start,&r_start,|r|r.start=value.max(0.));}
-                    }/></label>
+                    } }/></label>
                 <label>"Duración (s)"<input type="number" min="0.1" max="3600" step="0.1"
                     prop:value=region.duration.to_string()
-                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                    on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_length,&r_length,|r|r.duration=value.max(0.1));}
-                    }/></label>
+                    } }/></label>
                 <label>"Desde origen (s)"<input type="number" min="0" max="3600" step="0.1"
                     prop:value=region.source_in.to_string()
-                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                    on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_source,&r_source,|r|r.source_in=value.max(0.));}
-                    }/></label>
+                    } }/></label>
                 <label>"Volumen (%)"<input type="number" min="0" max="200" step="5"
                     prop:value=(region.volume*100.).round().to_string()
-                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                    on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_gain,&r_gain,|r|r.volume=(value/100.).clamp(0.,2.));}
-                    }/></label>
+                    } }/></label>
                 <label>"Paneo (%)"<input type="number" min="-100" max="100" step="5"
                     prop:value=(region.pan*100.).round().to_string()
-                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                    on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_pan,&r_pan,|r|r.pan=(value/100.).clamp(-1.,1.));}
-                    }/></label>
+                    } }/></label>
                 <label>"Fade in (s)"<input type="number" min="0" max="3600" step="0.1"
                     prop:value=region.fade_in.to_string()
-                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                    on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_in,&r_in,|r|r.fade_in=value.max(0.));}
-                    }/></label>
+                    } }/></label>
                 <label>"Fade out (s)"<input type="number" min="0" max="3600" step="0.1"
                     prop:value=region.fade_out.to_string()
-                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                    on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_out,&r_out,|r|r.fade_out=value.max(0.));}
-                    }/></label>
+                    } }/></label>
             </div>
         </div>
     }
