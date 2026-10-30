@@ -176,6 +176,11 @@ pub fn MixTimeline(
 ) -> impl IntoView {
     let zoom = RwSignal::new(24.0f64);
     let pointer = RwSignal::new(None::<PointerEdit>);
+    let track_ids = move || tracks.get().into_iter().map(|track| track.id).collect::<Vec<String>>();
+    let ruler_ticks = move || {
+        let duration = ruler_width(tracks, zoom) / zoom.get();
+        (0..=((duration / 10.0).ceil() as u32).min(361)).collect::<Vec<u32>>()
+    };
     view! {
         <section class="mix-timeline-shell" aria-label="Línea de tiempo interactiva">
             <div class="mix-timeline-toolbar">
@@ -214,19 +219,17 @@ pub fn MixTimeline(
                 <div class="mix-timeline-ruler" style=move || format!("width:{:.1}px", ruler_width(tracks,zoom)+120.0)>
                     <div class="mix-timeline-gutter">"SEG"</div>
                     <div class="mix-timeline-ticks">
-                        <For each=move || {
-                            let duration = ruler_width(tracks, zoom) / zoom.get();
-                            (0..=((duration / 10.0).ceil() as u32).min(361))
-                                .collect::<Vec<u32>>()
-                        } key=|second| *second children=move |step| {
+                        <For each=ruler_ticks key=|second| *second children=move |step| {
                             view! {<span style=move ||format!("left:{:.1}px", f64::from(step)*10.0*zoom.get())>{format!("{}s",step*10)}</span>}
                         }/>
                     </div>
                 </div>
-                <For each=move || tracks.get().iter().map(|t| t.id.clone()).collect::<Vec<_>>()
-                    key=|id| id.clone() children=move |track_id| {
+                <For each=track_ids key=|id| id.clone() children=move |track_id| {
                     let name_id=track_id.clone();
                     let list_id=track_id.clone();
+                    let region_ids = move || tracks.get().iter().find(|t|t.id == list_id)
+                        .map(|t|t.regions.iter().map(|r|r.id.clone()).collect::<Vec<String>>())
+                        .unwrap_or_default();
                     view! {
                         <div class="mix-timeline-lane" data-mix-track=track_id.clone()
                             style=move || format!("width:{:.1}px",ruler_width(tracks,zoom)+120.0)>
@@ -236,10 +239,7 @@ pub fn MixTimeline(
                             }</div>
                             <div class="mix-timeline-canvas" style=move ||
                                 format!("background-size:{:.1}px 100%", zoom.get()*5.0)>
-                                <For each=move || tracks.get().iter().find(|t| t.id==list_id)
-                                    .map(|t|t.regions.iter().map(|r|r.id.clone()).collect::<Vec<_>>())
-                                    .unwrap_or_default()
-                                    key=|id| id.clone() children=move |region_id| {
+                                <For each=region_ids key=|id| id.clone() children=move |region_id| {
                                     view! {<TimelineClip track_id=track_id.clone()
                                         region_id=region_id tracks=tracks assets=assets
                                         zoom=zoom pointer=pointer/>}
