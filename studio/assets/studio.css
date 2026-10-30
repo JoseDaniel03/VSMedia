@@ -114,3 +114,13 @@
 .mix-timeline-clip.selected{outline:2px solid #246da7;outline-offset:1px;box-shadow:0 0 0 3px #b9e3ff77}
 .mix-timeline-clip:focus-visible{outline:2px solid #1359a6;outline-offset:2px}
 .mix-history-count{font-size:10px;white-space:nowrap;color:#8691a7;flex-shrink:0}
+
+/* Final VSMix timeline: cursor navigation, clipboard, ripple, magnetic edges. */
+.mix-timeline-toolbar .mix-timeline-action.lit{background:#dcd5f5;color:#3f2f83;border-color:#9883d1}
+.mix-timeline-navigator{display:flex;align-items:center;flex:0 0 auto;gap:5px;padding-left:8px;border-left:1px solid #ded7f0}
+.mix-timeline-navigator label{display:flex;align-items:center;gap:4px;font-size:10px;color:#66628a;white-space:nowrap}
+.mix-timeline-navigator input{width:68px;min-width:68px;border:1px solid #d5cfe4;border-radius:5px;padding:4px;font-size:11px}
+.mix-timeline-navigator button{flex-shrink:0}
+.mix-playhead-indicator{position:absolute;z-index:6;top:1px;width:9px;height:13px;transform:translateX(-4px);background:#e36a56;clip-path:polygon(0 0,100% 0,50% 100%);pointer-events:none}
+.mix-playhead-line{position:absolute;z-index:8;top:0;bottom:0;border-left:1px solid #e36a56;pointer-events:none;opacity:.85}
+@media(max-width:720px){.mix-timeline-navigator{gap:3px}.mix-timeline-navigator input{width:55px;min-width:55px}}
