@@ -27,7 +27,10 @@ pub fn App() -> impl IntoView {
     Effect::new(move |_| {
         tracks.with(|current|history.update(|item|item.observe(current)));
     });
-    let playlists = RwSignal::new(Vec::<Playlist>::new());
+    let playlists = RwSignal::new(media::load_playlists());
+    Effect::new(move |_| {
+        playlists.with(|items|media::save_playlists(items));
+    });
     let recording = RwSignal::new(false);
     let core_connected=RwSignal::new(false);
     studio_api::probe_engine(core_connected);

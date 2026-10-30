@@ -8,6 +8,7 @@ mod studio_api;
 mod mix_timeline;
 mod waveform;
 mod gain_editor;
+mod radio_queue;
 mod mix_history;
 mod mix_batch;
 

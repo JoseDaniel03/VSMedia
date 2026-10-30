@@ -18,6 +18,8 @@ mod media {
 mod mix_history;
 #[path="../../src/mix_batch.rs"]
 mod mix_batch;
+#[path="../../src/radio_queue.rs"]
+mod radio_queue;
 
 #[cfg(test)]
 mod tests {

@@ -106,6 +106,28 @@ pub struct Version {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Playlist { pub id: String, pub name: String, pub items: Vec<String> }
+pub fn load_playlists()->Vec<Playlist>{
+    let raw=storage_get("vsmedia:radio:playlists:v1");
+    if raw.len()>128*1024{return Vec::new();}
+    let mut list:Vec<Playlist>=serde_json::from_str(&raw).unwrap_or_default();
+    list.truncate(crate::radio_queue::MAX_PLAYLISTS);
+    let mut unique=std::collections::HashSet::new();
+    list.retain(|p|unique.insert(p.id.clone())
+        && crate::radio_queue::valid_name(&p.name)
+        && !p.id.is_empty() && p.id.len()<=96);
+    for playlist in &mut list {
+        playlist.items.truncate(crate::radio_queue::MAX_ITEMS);
+        playlist.items.retain(|id|!id.is_empty()&&id.len()<=128);
+    }
+    list
+}
+pub fn save_playlists(list:&[Playlist]){
+    if let Ok(json)=serde_json::to_string(list){
+        if json.len()<=128*1024 {
+            storage_set("vsmedia:radio:playlists:v1",&json);
+        }
+    }
+}
 
 pub fn uid(prefix: &str) -> String {
     thread_local! {static NEXT: Cell<u64> = const { Cell::new(0) };}
