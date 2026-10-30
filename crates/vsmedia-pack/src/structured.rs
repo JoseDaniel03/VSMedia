@@ -45,12 +45,10 @@ fn is_sounds(path:&str)->bool {
         && components.next().is_none()
 }
 fn merge_sounds(path:&str,group:&[PackAsset])->MediaResult<MergeOutput> {
-    let mut sorted=group.to_vec();
-    // Low priority first; do not depend on plugin startup order.
-    sorted.sort_by(|a,b| (a.priority,&a.source).cmp(&(b.priority,&b.source)));
-    let mut entries:BTreeMap<String,(i32,String,Value)>=BTreeMap::new();
-    let mut conflicts=Vec::new();
-    for asset in sorted {
+    // Select the best contribution for each event before considering
+    // conflicts. Shadowed, lower-priority ties must not break the pack.
+    let mut contributions:BTreeMap<String,Vec<(i32,String,Value)>>=BTreeMap::new();
+    for asset in group {
         if asset.data.len()>MAX_JSON_BYTES {
             return Err(MediaError::InvalidInput(format!("sounds.json exceeds 2 MiB: {path}")));
         }
@@ -65,39 +63,43 @@ fn merge_sounds(path:&str,group:&[PackAsset])->MediaResult<MergeOutput> {
             if event.is_empty() || event.len()>256 {
                 return Err(MediaError::InvalidInput("invalid sound event key".into()));
             }
-            if let Some((priority,owner,old_value))=entries.get(event) {
-                if old_value!=value {
-                    if *priority==asset.priority {
-                        return Err(MediaError::Conflict(format!(
-                            "equal-priority sound event collision in {path}: {event} ({owner} vs {})",
-                            asset.source
-                        )));
-                    }
-                    conflicts.push(PackConflict {
-                        path:format!("{path}#{event}"),
-                        winner:asset.source.clone(),
-                        loser:owner.clone(),
-                    });
-                }
-            }
-            entries.insert(event.clone(),(asset.priority,asset.source.clone(),value.clone()));
+            contributions.entry(event.clone()).or_default()
+                .push((asset.priority,asset.source.clone(),value.clone()));
         }
-        if entries.len()>MAX_SOUND_ENTRIES {
+        if contributions.len()>MAX_SOUND_ENTRIES {
             return Err(MediaError::InvalidInput("merged sounds.json exceeds event quota".into()));
         }
     }
-    let document:Map<String,Value>=entries.into_iter()
-        .map(|(key,(_,_,value))|(key,value)).collect();
+    let mut document=Map::new();
+    let mut conflicts=Vec::new();
+    for (event, mut choices) in contributions {
+        choices.sort_by(|a,b|b.0.cmp(&a.0).then_with(||a.1.cmp(&b.1)));
+        let winner=&choices[0];
+        for other in choices.iter().skip(1) {
+            if winner.2==other.2 {continue;}
+            if winner.0==other.0 {
+                return Err(MediaError::Conflict(format!(
+                    "equal-priority sound event collision in {path}: {event} ({} vs {})",
+                    winner.1,other.1
+                )));
+            }
+            conflicts.push(PackConflict {
+                path:format!("{path}#{event}"),winner:winner.1.clone(),
+                loser:other.1.clone()
+            });
+        }
+        document.insert(event,winner.2.clone());
+    }
     let bytes=serde_json::to_vec(&Value::Object(document))
         .map_err(|e|MediaError::Io(e.to_string()))?;
     if bytes.len()>MAX_JSON_BYTES {
         return Err(MediaError::InvalidInput("merged sounds.json exceeds size quota".into()));
     }
     Ok(MergeOutput {
-        files:BTreeMap::from([(path.into(),bytes)]),
-        conflicts,
+        files:BTreeMap::from([(path.into(),bytes)]),conflicts,
     })
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,6 +139,18 @@ mod tests {
             sound("a",1,r#"{"intro":{}}"#),
             sound("b",2,"[]")
         ]).is_err());
+    }
+    #[test]
+    fn effective_event_winner_ignores_shadowed_ties_regardless_of_import_order(){
+        let first=sound("one",1,r#"{"click":{"sounds":["one"]}}"#);
+        let second=sound("two",1,r#"{"click":{"sounds":["two"]}}"#);
+        let winning=sound("latest",5,r#"{"click":{"sounds":["latest"]}}"#);
+        let one=merge_structured(&[first.clone(),second.clone(),winning.clone()]).unwrap();
+        let two=merge_structured(&[winning,second,first]).unwrap();
+        assert_eq!(one.files,two.files);
+        assert_eq!(one.conflicts,two.conflicts);
+        assert_eq!(one.conflicts.len(),2);
+        assert!(one.conflicts.iter().all(|c|c.winner=="latest"));
     }
     #[test]
     fn never_deep_merges_unknown_json_paths() {
