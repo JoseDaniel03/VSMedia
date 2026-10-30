@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use crate::media::{self,AudioAsset,Folder,Version,Track,Playlist};
+use crate::media::{self,AudioAsset,Folder,Version,Track,MixRegion,Playlist};
 use crate::{export,recording,studio_api};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -469,6 +469,103 @@ fn sync_mix(tracks: RwSignal<Vec<Track>>) {
     }
 }
 
+fn edit_mix_region(
+    tracks:RwSignal<Vec<Track>>,track_id:&str,region_id:&str,
+    update:impl FnOnce(&mut MixRegion)
+) {
+    tracks.update(|list|{
+        if let Some(region)=list.iter_mut().find(|track|track.id==track_id)
+            .and_then(|track|track.regions.iter_mut()
+                .find(|region|region.id==region_id)) {
+            update(region);
+        }
+    });
+}
+#[component]
+fn RegionEditor(
+    track_id:String,region:MixRegion,
+    tracks:RwSignal<Vec<Track>>,assets:RwSignal<Vec<AudioAsset>>
+)->impl IntoView {
+    let rid=region.id.clone();
+    let t_asset=track_id.clone();let r_asset=rid.clone();
+    let t_start=track_id.clone();let r_start=rid.clone();
+    let t_length=track_id.clone();let r_length=rid.clone();
+    let t_source=track_id.clone();let r_source=rid.clone();
+    let t_gain=track_id.clone();let r_gain=rid.clone();
+    let t_pan=track_id.clone();let r_pan=rid.clone();
+    let t_in=track_id.clone();let r_in=rid.clone();
+    let t_out=track_id.clone();let r_out=rid.clone();
+    let t_remove=track_id.clone();let r_remove=rid.clone();
+    let track_lookup=track_id.clone();let region_lookup=rid.clone();
+    let active=move||tracks.get().iter().find(|t|t.id==track_lookup)
+        .and_then(|t|t.regions.iter().find(|r|r.id==region_lookup)).cloned();
+    view! {
+        <div class="mix-region">
+            <div class="mix-region-heading">
+                <strong>"REGIÓN"</strong>
+                <small>{format!("#{}",rid.rsplit('-').next().unwrap_or("1"))}</small>
+                <button type="button" class="text-icon" title="Eliminar región"
+                    on:click=move |_|tracks.update(|list| {
+                        if let Some(track)=list.iter_mut().find(|t|t.id==t_remove) {
+                            track.regions.retain(|r|r.id!=r_remove);
+                            // Do not resurrect the original legacy track after
+                            // deleting the last region in the region editor.
+                            if track.regions.is_empty(){track.asset_id.clear();}
+                        }
+                    })>"×"</button>
+            </div>
+            <select aria-label="Audio de región"
+                prop:value=move||active().map(|r|r.asset_id).unwrap_or_default()
+                on:change=move |ev|{
+                    let id=event_target_value(&ev);
+                    edit_mix_region(tracks,&t_asset,&r_asset,|r|r.asset_id=id);
+                }>
+                <option value="">"Elegí un audio para esta región"</option>
+                <For each=move||assets.get() key=|a|a.id.clone() children=move |asset|{
+                    view!{<option value=asset.id>{asset.name}</option>}
+                }/>
+            </select>
+            <div class="region-fields">
+                <label>"Inicio en pista (s)"<input type="number" min="0" max="3600" step="0.1"
+                    prop:value=move||active().map(|r|r.start.to_string()).unwrap_or_default()
+                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                        if value.is_finite(){edit_mix_region(tracks,&t_start,&r_start,|r|r.start=value.max(0.));}
+                    }/></label>
+                <label>"Duración (s)"<input type="number" min="0.1" max="3600" step="0.1"
+                    prop:value=move||active().map(|r|r.duration.to_string()).unwrap_or_default()
+                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                        if value.is_finite(){edit_mix_region(tracks,&t_length,&r_length,|r|r.duration=value.max(0.1));}
+                    }/></label>
+                <label>"Desde origen (s)"<input type="number" min="0" max="3600" step="0.1"
+                    prop:value=move||active().map(|r|r.source_in.to_string()).unwrap_or_default()
+                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                        if value.is_finite(){edit_mix_region(tracks,&t_source,&r_source,|r|r.source_in=value.max(0.));}
+                    }/></label>
+                <label>"Volumen (%)"<input type="number" min="0" max="200" step="5"
+                    prop:value=move||active().map(|r|(r.volume*100.).round().to_string()).unwrap_or_default()
+                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                        if value.is_finite(){edit_mix_region(tracks,&t_gain,&r_gain,|r|r.volume=(value/100.).clamp(0.,2.));}
+                    }/></label>
+                <label>"Paneo (%)"<input type="number" min="-100" max="100" step="5"
+                    prop:value=move||active().map(|r|(r.pan*100.).round().to_string()).unwrap_or_default()
+                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                        if value.is_finite(){edit_mix_region(tracks,&t_pan,&r_pan,|r|r.pan=(value/100.).clamp(-1.,1.));}
+                    }/></label>
+                <label>"Fade in (s)"<input type="number" min="0" max="3600" step="0.1"
+                    prop:value=move||active().map(|r|r.fade_in.to_string()).unwrap_or_default()
+                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                        if value.is_finite(){edit_mix_region(tracks,&t_in,&r_in,|r|r.fade_in=value.max(0.));}
+                    }/></label>
+                <label>"Fade out (s)"<input type="number" min="0" max="3600" step="0.1"
+                    prop:value=move||active().map(|r|r.fade_out.to_string()).unwrap_or_default()
+                    on:change=move |ev|if let Ok(value)=event_target_value(&ev).parse::<f64>(){
+                        if value.is_finite(){edit_mix_region(tracks,&t_out,&r_out,|r|r.fade_out=value.max(0.));}
+                    }/></label>
+            </div>
+        </div>
+    }
+}
+
 #[component]
 fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,selected: RwSignal<String>,
              status: RwSignal<String>,tracks: RwSignal<Vec<Track>>,recording: RwSignal<bool>,page: RwSignal<Page>) -> impl IntoView {
@@ -500,6 +597,10 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                     assets.get_untracked(),tracks.get_untracked(),status
                 )>"☁ Guardar mezcla"</button>
             <button id="mix-play" type="button" class="toolbar-button" on:click=move |_|{
+                if tracks.get_untracked().iter().any(|t|!t.regions.is_empty()) {
+                    status.set("Esta mezcla tiene regiones: utilizá ▶ Motor (borrador) para escuchar el resultado real.".into());
+                    return;
+                }
                 for track in tracks.get_untracked(){
                     if let Some(p)=media::player(&format!("track-{}",track.id)) {
                         p.pause().ok();p.set_current_time(0.);
@@ -625,6 +726,43 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                                     view!{<option value=asset.id>{asset.name}</option>}
                                 }/>
                             </select>
+                            <div class="mix-regions-toolbar">
+                                <strong>{move||format!("{} regiones",tracks.get().iter()
+                                    .find(|t|t.id==id_active).map_or(0,|t|t.regions.len()))}</strong>
+                                <button type="button" class="action-secondary"
+                                    title="Agregar una región editable en la línea de tiempo"
+                                    on:click=move |_|{
+                                        let id=id_click.clone();
+                                        let mut missing=false;
+                                        tracks.update(|list|{
+                                            let Some(track)=list.iter_mut().find(|t|t.id==id) else{return;};
+                                            if track.asset_id.is_empty(){missing=true;return;}
+                                            if track.regions.len()>=32 {missing=true;return;}
+                                            let duration=media::player(&format!("track-{}",track.id))
+                                                .map(|p|p.duration()).filter(|n|n.is_finite() && *n>0.)
+                                                .unwrap_or(5.).min(3600.);
+                                            let start=track.regions.last()
+                                                .map_or(0.,|r|r.start+r.duration);
+                                            track.regions.push(MixRegion{
+                                                id:media::uid("region"),asset_id:track.asset_id.clone(),
+                                                start,duration,source_in:0.,volume:1.,pan:0.,
+                                                fade_in:0.,fade_out:0.
+                                            });
+                                        });
+                                        if missing {
+                                            status.set("Seleccioná un archivo base y usá un máximo de 32 regiones por pista.".to_owned());
+                                        }
+                                    }>"＋ Región"</button>
+                            </div>
+                            <div class="mix-regions-list">
+                                <For each=move||tracks.get().iter().find(|t|t.id==id_file)
+                                    .map(|t|t.regions.clone()).unwrap_or_default()
+                                    key=|r|r.id.clone()
+                                    children=move |region|{
+                                        view!{<RegionEditor track_id=id_select.clone()
+                                            region=region tracks=tracks assets=assets/>}
+                                    }/>
+                            </div>
                             <div class="track-wave-slot">
                                 <span>{move ||tracks.get().iter().find(|t|t.id==id_player).and_then(|t|media::asset_by_id(assets,&t.asset_id)).map(|a|a.name).unwrap_or_else(||"Pista vacía".to_owned())}</span>
                             </div>
