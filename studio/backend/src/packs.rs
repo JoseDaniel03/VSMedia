@@ -448,6 +448,58 @@ mod tests{
             path:"assets/virgo/textures/gui/missing.webp".into(),
         })).await.is_err());
     }
+    #[tokio::test]
+    async fn layer_bundle_contains_independent_minecraft_packs_and_hash_manifest(){
+        use std::io::{Cursor,Read};
+        let hub=PackHub::default();
+        let zip=fixture(&[
+            ("assets/virgo/textures/base.png",b"base_image"),
+            ("assets/virgo/textures/ui/button.png",b"ui_image"),
+        ]);
+        import(Extension(hub.clone()),Path("base".into()),headers(),
+            Bytes::from(zip)).await.unwrap();
+        let input=LayerBundleInput{
+            base_id:"virgoland".into(),
+            rules:vec![LayerRuleInput{
+                logical_id:"ui".into(),
+                prefixes:vec!["assets/virgo/textures/ui/".into()],
+            }]
+        };
+        let response=export_layers(Extension(hub.clone()),headers(),Json(input))
+            .await.unwrap();
+        assert_eq!(response.status(),StatusCode::OK);
+        let bundle=to_bytes(response.into_body(),64*1024*1024).await.unwrap();
+        let mut outer=zip::ZipArchive::new(Cursor::new(bundle)).unwrap();
+        assert_eq!(outer.len(),3);
+        let mut manifest_text=String::new();
+        outer.by_name("manifest.json").unwrap()
+            .read_to_string(&mut manifest_text).unwrap();
+        let manifest:Value=serde_json::from_str(&manifest_text).unwrap();
+        assert_eq!(manifest["layers"].as_array().unwrap().len(),2);
+        assert_eq!(manifest["layers"][0]["logical_id"],"virgoland");
+        assert_eq!(manifest["layers"][1]["logical_id"],"ui");
+        assert_eq!(manifest["layers"][0]["sha1"].as_str().unwrap().len(),40);
+        assert_eq!(manifest["layers"][1]["sha256"].as_str().unwrap().len(),64);
+        let mut base_bytes=Vec::new();
+        outer.by_name("packs/virgoland.zip").unwrap()
+            .read_to_end(&mut base_bytes).unwrap();
+        let mut ui_bytes=Vec::new();
+        outer.by_name("packs/ui.zip").unwrap()
+            .read_to_end(&mut ui_bytes).unwrap();
+        let base=archive::import_zip(&base_bytes,"base",0,limits()).unwrap();
+        let ui=archive::import_zip(&ui_bytes,"ui",0,limits()).unwrap();
+        assert!(base.iter().any(|r|r.path=="assets/virgo/textures/base.png"));
+        assert!(!base.iter().any(|r|r.path=="assets/virgo/textures/ui/button.png"));
+        assert!(ui.iter().any(|r|r.path=="assets/virgo/textures/ui/button.png"));
+        assert!(base.iter().any(|r|r.path=="pack.mcmeta"));
+        assert!(ui.iter().any(|r|r.path=="pack.mcmeta"));
+        let invalid=LayerBundleInput{
+            base_id:"virgoland".into(),
+            rules:vec![LayerRuleInput{logical_id:"ui".into(),
+                prefixes:vec!["../unsafe/".into()]}],
+        };
+        assert!(export_layers(Extension(hub),headers(),Json(invalid)).await.is_err());
+    }
     #[test]
     fn pack_id_and_category_boundaries(){
         assert!(valid_id("pack_base"));
