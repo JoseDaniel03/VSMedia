@@ -149,3 +149,9 @@
 .vs-streams-workspace>.field-note{margin:0 15px}
 @media(max-width:1020px){.vs-live-fields{grid-template-columns:1fr 1fr}.vs-live-fields button{align-self:end}}
 @media(max-width:600px){.vs-live-panel{margin:8px;padding:12px}.vs-live-fields{grid-template-columns:1fr}.vs-live-header{align-items:flex-start;flex-direction:column}.vs-live-status{width:100%}}
+
+.vs-live-mixer{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:10px 12px;background:#f7f8fc;border-radius:9px;border:1px solid #e8eaf3}
+.vs-live-mixer label{min-width:135px;display:flex;align-items:center;flex-wrap:wrap;gap:7px;font-size:10px;color:#5f6f87}
+.vs-live-mixer label input{flex:1 1 120px;accent-color:#7660cc}
+.vs-live-mixer input:disabled{opacity:.45;cursor:not-allowed}
+.vs-live-mixer small{font-size:10px;color:#8793aa}
