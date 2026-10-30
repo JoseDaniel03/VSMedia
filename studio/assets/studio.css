@@ -124,3 +124,28 @@
 .mix-playhead-indicator{position:absolute;z-index:6;top:1px;width:9px;height:13px;transform:translateX(-4px);background:#e36a56;clip-path:polygon(0 0,100% 0,50% 100%);pointer-events:none}
 .mix-playhead-line{position:absolute;z-index:8;top:0;bottom:0;border-left:1px solid #e36a56;pointer-events:none;opacity:.85}
 @media(max-width:720px){.mix-timeline-navigator{gap:3px}.mix-timeline-navigator input{width:55px;min-width:55px}}
+
+/* VSMedia 26.3: low-overhead browser WebRTC radio/voice panels. */
+.vs-live-panel{margin:12px;padding:16px;background:#fff;border:1px solid #e2e4f1;border-radius:13px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.vs-live-header{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.vs-live-header>div{display:flex;flex-direction:column;gap:4px}
+.vs-live-header strong{font-size:14px;color:#3c4266}
+.vs-live-header small{font-size:11px;color:#8a93a8}
+.vs-live-status{font-size:10px;font-weight:750;background:#efedf9;border-radius:8px;padding:8px;color:#6757ad;max-width:240px}
+.vs-live-status.error{background:#fbe9e9;color:#a33146}
+.vs-live-fields{display:grid;grid-template-columns:minmax(155px,1fr) auto minmax(110px,.6fr) minmax(140px,.7fr);gap:10px;align-items:end}
+.vs-live-fields label{font-size:10px;color:#78809e;min-width:0}
+.vs-live-fields input,.vs-live-fields select{width:100%;margin-top:5px;min-width:0;font-size:12px;padding:9px;border:1px solid #dce0ee;border-radius:7px;background:#fafaff}
+.vs-live-fields button,.vs-live-actions button{padding:9px 12px;border:1px solid #d6d4eb;border-radius:7px;background:#f9f8ff;color:#5f4fac;font-weight:700;font-size:11px}
+.vs-live-actions{display:flex;gap:8px;flex-wrap:wrap}
+.vs-live-actions .action-primary{background:#7660cc;color:#fff;border-color:#7660cc}
+.vs-live-fields button:disabled,.vs-live-actions button:disabled{opacity:.5;cursor:not-allowed}
+.vs-live-peers{border-top:1px solid #eaebf3;padding-top:10px;display:flex;flex-wrap:wrap;gap:10px;color:#778198;font-size:11px}
+.vs-live-peers strong{color:#435071}
+.vs-live-remote{display:flex;flex-wrap:wrap;gap:8px}
+.vs-live-remote audio{width:min(320px,100%)}
+.vs-live-note{font-size:10px;line-height:1.65;color:#909aaf}
+.vs-streams-workspace{display:flex;flex-direction:column;gap:4px;max-width:1120px;width:100%;margin:0 auto;overflow:auto;flex:1;padding:15px}
+.vs-streams-workspace>.field-note{margin:0 15px}
+@media(max-width:1020px){.vs-live-fields{grid-template-columns:1fr 1fr}.vs-live-fields button{align-self:end}}
+@media(max-width:600px){.vs-live-panel{margin:8px;padding:12px}.vs-live-fields{grid-template-columns:1fr}.vs-live-header{align-items:flex-start;flex-direction:column}.vs-live-status{width:100%}}
