@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use crate::media::{self,AudioAsset,Folder,Version,Track,MixRegion,Playlist};
+use crate::media::{self,AudioAsset,Folder,Version,Track,MixRegion,MixFadeCurve,Playlist};
 use crate::{export,recording,studio_api};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -526,6 +526,7 @@ fn RegionEditor(
     let t_in=track_id.clone();let r_in=rid.clone();
     let t_out=track_id.clone();let r_out=rid.clone();
     let t_remove=track_id.clone();let r_remove=rid.clone();
+    let t_curve=track_id.clone();let r_curve=rid.clone();
     let show_asset={let tid=track_id.clone();let rid=rid.clone();
         move || mix_region_value(tracks,&tid,&rid,|r|r.asset_id.clone())};
     let show_start={let tid=track_id.clone();let rid=rid.clone();
@@ -542,6 +543,8 @@ fn RegionEditor(
         move || mix_region_value(tracks,&tid,&rid,|r|r.fade_in.to_string())};
     let show_out={let tid=track_id.clone();let rid=rid.clone();
         move || mix_region_value(tracks,&tid,&rid,|r|r.fade_out.to_string())};
+    let show_curve={let tid=track_id.clone();let rid=rid.clone();
+        move || mix_region_value(tracks,&tid,&rid,|r|r.fade_curve.as_str().to_owned())};
     view! {
         <div class="mix-region">
             <div class="mix-region-heading">
@@ -599,6 +602,18 @@ fn RegionEditor(
                     on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_in,&r_in,|r|r.fade_in=value.max(0.));}
                     } }/></label>
+                <label>"Curva de fades"
+                    <select aria-label="Curva de fades" prop:value=show_curve
+                        on:change=move |ev| {
+                            let value=event_target_value(&ev);
+                            if let Some(curve)=MixFadeCurve::from_str(&value) {
+                                edit_mix_region(tracks,&t_curve,&r_curve,|r|r.fade_curve=curve);
+                            }
+                        }>
+                        <option value="linear">"Lineal"</option>
+                        <option value="equal_power">"Potencia constante"</option>
+                    </select>
+                </label>
                 <label>"Fade out (s)"<input type="number" min="0" max="3600" step="0.1"
                     prop:value=show_out
                     on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
@@ -800,7 +815,7 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                                             track.regions.push(MixRegion{
                                                 id:media::uid("region"),asset_id:track.asset_id.clone(),
                                                 start,duration,source_in:0.,volume:1.,pan:0.,
-                                                fade_in:0.,fade_out:0.
+                                                fade_in:0.,fade_out:0.,fade_curve:MixFadeCurve::Linear
                                             });
                                         });
                                         if missing {

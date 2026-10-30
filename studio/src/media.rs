@@ -36,6 +36,22 @@ pub fn folder_rows(folders: Vec<Folder>) -> Vec<FolderRow> {
     out
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all="snake_case")]
+pub enum MixFadeCurve {
+    #[default] Linear,
+    EqualPower,
+}
+impl MixFadeCurve {
+    pub fn as_str(self)->&'static str { match self {Self::Linear=>"linear",Self::EqualPower=>"equal_power"} }
+    pub fn from_str(value:&str)->Option<Self> {
+        match value {"linear"=>Some(Self::Linear),"equal_power"=>Some(Self::EqualPower),_=>None}
+    }
+    pub fn amplitude(self, progress:f64)->f64 {
+        let fraction=progress.clamp(0.0,1.0);
+        match self {Self::Linear=>fraction,Self::EqualPower=>(fraction*std::f64::consts::FRAC_PI_2).sin()}
+    }
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MixRegion {
     pub id: String,
@@ -49,6 +65,9 @@ pub struct MixRegion {
     pub pan: f64,
     pub fade_in: f64,
     pub fade_out: f64,
+    /// Missing in earlier local sessions and manifests: use legacy linear fade.
+    #[serde(default)]
+    pub fade_curve: MixFadeCurve,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Track {

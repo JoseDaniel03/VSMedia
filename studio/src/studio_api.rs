@@ -127,6 +127,7 @@ async fn compose_audio(asset:AudioAsset,version:Version,duration:f64)->Result<Va
             "clip_edits":[{
                 "track_index":0,"clip_index":0,"source_in_ms":start,
                 "pan":version.pan,"fade_in_ms":fade_in,"fade_out_ms":fade_out,
+                "fade_curve":region.fade_curve.as_str(),
                 "reversed":version.reversed,"muted":false,
                 "gain_points":gain_points,"filters":filters
             }]
@@ -351,7 +352,8 @@ async fn compose_mix(assets:&[AudioAsset],tracks:&[Track])->Result<Value,String>
                 .map(|player|player.duration()).unwrap_or(0.);
             vec![media::MixRegion{id:format!("legacy-{}",track.id),
                 asset_id:track.asset_id.clone(),start:0.,duration,source_in:0.,
-                volume:1.,pan:0.,fade_in:track.fade_in,fade_out:track.fade_out}]
+                volume:1.,pan:0.,fade_in:track.fade_in,fade_out:track.fade_out,
+                fade_curve:media::MixFadeCurve::Linear}]
         }else{track.regions.clone()};
         total_clips=total_clips.saturating_add(regions.len());
         if total_clips>256 {return Err("La mezcla supera el límite de 256 regiones".into());}
@@ -528,6 +530,9 @@ async fn load_mix(name:&str,assets:RwSignal<Vec<AudioAsset>>,
                     .and_then(Value::as_u64).unwrap_or(0) as f64/1000.,
                 fade_out:edit.and_then(|value|value.get("fade_out_ms"))
                     .and_then(Value::as_u64).unwrap_or(0) as f64/1000.,
+                fade_curve:edit.and_then(|value|value.get("fade_curve"))
+                    .and_then(Value::as_str).and_then(media::MixFadeCurve::from_str)
+                    .unwrap_or_default(),
             });
         }
         let legacy_id=regions.first().map(|region|region.asset_id.clone())
