@@ -829,6 +829,29 @@ mod tests{
         assert!(rejected.is_err());
     }
 
+    #[tokio::test]
+    async fn interface_manager_can_retrieve_source_metadata_and_canonical_zip(){
+        let hub=PackHub::default();
+        let path="assets/virgo/textures/gui/icon.png";
+        let original=fixture(&[(path,b"\x89PNG\r\n\x1a\nimage")]);
+        import(Extension(hub.clone()),Path("gui".into()),headers(),
+            Bytes::from(original)).await.unwrap();
+        let info=source_info(Extension(hub.clone()),Path("gui".into())).await.unwrap().0;
+        assert_eq!(info.id,"gui");
+        assert_eq!(info.files,2);
+        let resp=download_source(Extension(hub.clone()),Path("gui".into()))
+            .await.unwrap();
+        assert_eq!(resp.status(),StatusCode::OK);
+        assert_eq!(resp.headers()[header::CONTENT_TYPE],"application/zip");
+        let body=to_bytes(resp.into_body(),16*1024*1024).await.unwrap();
+        let decoded=archive::import_zip(&body,"export",0,limits()).unwrap();
+        assert!(decoded.iter().any(|item|item.path==path &&
+            item.data.starts_with(b"\x89PNG\r\n\x1a\n")));
+        assert!(source_info(Extension(hub.clone()),Path("missing".into()))
+            .await.is_err());
+        assert!(download_source(Extension(hub),Path("missing".into()))
+            .await.is_err());
+    }
     #[test]
     fn pack_id_and_category_boundaries(){
         assert!(valid_id("pack_base"));
