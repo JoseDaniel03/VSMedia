@@ -53,7 +53,11 @@ fn friendly_error(err:impl std::fmt::Display)->ApiError{
 }
 pub async fn list(Extension(hub):Extension<PackHub>)->Json<Value>{
     let packs=hub.0.lock().await;
-    Json(json!({"packs":packs.iter().map(PackInfo::from).collect::<Vec<_>>(),
+    Json(json!({"schema":"vspack-catalog-v1",
+        "resource_index":"vspack-resources-v1",
+        "supports_texture_overrides":true,
+        "supports_interface_catalog":true,
+        "packs":packs.iter().map(PackInfo::from).collect::<Vec<_>>(),
         "total_bytes":packs.iter().map(|pack|pack.bytes).sum::<usize>(),
         "max_packs":MAX_PACKS,"max_ram_bytes":MAX_RAM_BYTES,
         "max_zip_bytes":MAX_ZIP_BYTES,"session_only":true,
@@ -217,6 +221,7 @@ fn namespace(path:&str)->Option<&str>{
     path.strip_prefix("assets/")?.split_once('/').map(|v|v.0)
 }
 #[derive(Deserialize,Default)]
+#[serde(deny_unknown_fields)]
 pub struct ResourceQuery {
     #[serde(default)] limit:Option<usize>,
     #[serde(default)] offset:Option<usize>,
@@ -361,6 +366,27 @@ pub async fn resource_choices(
 )->Json<Value>{
     let items=hub.1.lock().await.clone();
     Json(json!({"schema":"vspack-resources-v1","overrides":items}))
+}
+
+/// Single-resource download for future interface editors. Return bytes from
+/// the resolved, merged pack. Force attachment + nosniff, never inline HTML.
+pub async fn resource_file(
+    Extension(hub):Extension<PackHub>,Query(q):Query<TextureQuery>
+)->Result<Response,ApiError>{
+    vsmedia_pack::validate_path(&q.path).map_err(friendly_error)?;
+    let merged=composed(&hub).await?;
+    let data=merged.files.get(&q.path)
+        .ok_or_else(||ApiError(StatusCode::NOT_FOUND,"Recurso no encontrado".into()))?;
+    if data.len()>8*1024*1024{
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,
+            "Recurso supera 8 MiB".into()));
+    }
+    Ok(([
+        (header::CONTENT_TYPE,"application/octet-stream"),
+        (header::CONTENT_DISPOSITION,"attachment; filename=\"resource.bin\""),
+        (header::CACHE_CONTROL,"no-store"),
+        (header::X_CONTENT_TYPE_OPTIONS,"nosniff"),
+    ],data.clone()).into_response())
 }
 
 #[derive(Deserialize)]
