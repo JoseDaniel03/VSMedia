@@ -215,7 +215,7 @@ fn begin_selected_move(
     });
 }
 #[derive(Clone,Copy)]
-enum SelectionCommand {SelectAll,Clear,Nudge(f64),Duplicate,Delete}
+enum SelectionCommand {SelectAll,Clear,Nudge(f64),Duplicate,Delete,RippleDelete}
 fn selection_command(
     tracks:RwSignal<Vec<Track>>,selected:RwSignal<HashSet<String>>,
     status:RwSignal<String>,command:SelectionCommand
@@ -254,7 +254,85 @@ fn selection_command(
             selected.set(HashSet::new());
             if count>0 {status.set(format!("{count} regiones eliminadas. Podés deshacer."));}
         }
+        SelectionCommand::RippleDelete=>{
+            let chosen=selected.get_untracked();
+            if chosen.is_empty(){return;}
+            let mut result=Ok(0usize);
+            tracks.update(|all|result=mix_batch::ripple_delete(all,&chosen));
+            match result{
+                Ok(count)=>{
+                    if count>0 {
+                        selected.set(HashSet::new());
+                        status.set(format!("{count} regiones eliminadas con ripple. Podés deshacer."));
+                    }
+                }
+                Err(reason)=>status.set(reason),
+            }
+        }
     }
+}
+fn copy_selection(
+    tracks:RwSignal<Vec<Track>>,selected:RwSignal<HashSet<String>>,
+    clipboard:RwSignal<Option<mix_batch::MixClipboard>>,status:RwSignal<String>
+){
+    let chosen=selected.get_untracked();
+    let copied=tracks.with_untracked(|list|mix_batch::copy(list,&chosen));
+    match copied{
+        Some(data)=>{
+            let count=data.items.len();
+            clipboard.set(Some(data));
+            status.set(format!("{count} regiones copiadas al portapapeles interno de VSMix."));
+        }
+        None=>status.set("Seleccioná regiones antes de copiar.".into())
+    }
+}
+fn paste_selection(
+    tracks:RwSignal<Vec<Track>>,selected:RwSignal<HashSet<String>>,
+    clipboard:RwSignal<Option<mix_batch::MixClipboard>>,
+    target:RwSignal<String>,cursor:RwSignal<f64>,
+    ripple:RwSignal<bool>,status:RwSignal<String>
+){
+    let Some(data)=clipboard.get_untracked() else {
+        status.set("Primero copiá alguna región.".into());return;
+    };
+    let lane=target.get_untracked();
+    let mut result=Ok(Vec::new());
+    tracks.update(|all|{
+        result=mix_batch::paste(all,&data,&lane,cursor.get_untracked(),ripple.get_untracked());
+    });
+    match result{
+        Ok(created)=>{
+            let count=created.len();
+            selected.set(created.into_iter().collect());
+            status.set(format!("{count} regiones pegadas{} en el cursor. Podés deshacer.",
+                if ripple.get_untracked(){" con ripple"}else{""}));
+        }
+        Err(message)=>status.set(message),
+    }
+}
+fn timeline_end(tracks:&[Track])->f64 {
+    tracks.iter().flat_map(|track|track.regions.iter())
+        .map(|region|region.start+region.duration)
+        .fold(0.0f64,f64::max).min(MAX_SECONDS)
+}
+fn jump_to(cursor:RwSignal<f64>,zoom:RwSignal<f64>,seconds:f64){
+    if !seconds.is_finite(){return;}
+    let seconds=seconds.clamp(0.0,MAX_SECONDS);
+    cursor.set(seconds);
+    if let Some(element)=web_sys::window().and_then(|window|window.document())
+        .and_then(|document|document.get_element_by_id("mix-timeline-scroll")) {
+        element.set_scroll_left(((seconds*zoom.get_untracked())-180.0).max(0.0) as i32);
+    }
+}
+fn fit_timeline(tracks:RwSignal<Vec<Track>>,zoom:RwSignal<f64>,
+    cursor:RwSignal<f64>) {
+    let length=tracks.with_untracked(|all|timeline_end(all)).max(10.0)+5.0;
+    let usable=web_sys::window().and_then(|window|window.document())
+        .and_then(|document|document.get_element_by_id("mix-timeline-scroll"))
+        .map(|element|(f64::from(element.client_width())-130.0).max(180.0))
+        .unwrap_or(660.0);
+    zoom.set((usable/length).clamp(8.0,72.0));
+    jump_to(cursor,zoom,cursor.get_untracked());
 }
 fn target_lane(event: &web_sys::PointerEvent) -> Option<String> {
     let document = web_sys::window()?.document()?;
@@ -428,6 +506,11 @@ pub fn MixTimeline(
     let waves_busy = RwSignal::new(false);
     let crossfade_curve=RwSignal::new(MixFadeCurve::EqualPower);
     let selected=RwSignal::new(HashSet::<String>::new());
+    let clipboard=RwSignal::new(None::<mix_batch::MixClipboard>);
+    let paste_lane=RwSignal::new(String::new());
+    let cursor=RwSignal::new(0.0f64);
+    let ripple=RwSignal::new(false);
+    let magnetic=RwSignal::new(true);
     let track_ids = move || tracks.get().into_iter().map(|track| track.id).collect::<Vec<String>>();
     let ruler_ticks = move || {
         let duration = ruler_width(tracks, zoom) / zoom.get();
@@ -447,12 +530,33 @@ pub fn MixTimeline(
                 if editing {return;}
                 let key=event.key().to_lowercase();
                 let ctrl=event.ctrl_key() || event.meta_key();
+                if ctrl && key=="c" {
+                    event.prevent_default();event.stop_propagation();
+                    copy_selection(tracks,selected,clipboard,status);
+                    return;
+                }
+                if ctrl && key=="v" {
+                    event.prevent_default();event.stop_propagation();
+                    paste_selection(tracks,selected,clipboard,paste_lane,cursor,ripple,status);
+                    return;
+                }
+                if key=="home" {
+                    event.prevent_default();
+                    jump_to(cursor,zoom,0.0);
+                    return;
+                }
+                if key=="end" {
+                    event.prevent_default();
+                    jump_to(cursor,zoom,tracks.with_untracked(|all|timeline_end(all)));
+                    return;
+                }
                 let action=if ctrl && key=="a" {
                     Some(SelectionCommand::SelectAll)
                 }else if ctrl && key=="d" {
                     Some(SelectionCommand::Duplicate)
                 }else if key=="delete" || key=="backspace" {
-                    Some(SelectionCommand::Delete)
+                    Some(if event.shift_key() {SelectionCommand::RippleDelete}
+                        else{SelectionCommand::Delete})
                 }else if !ctrl && key=="arrowleft"{
                     Some(SelectionCommand::Nudge(if event.shift_key(){-1.0}else{-0.1}))
                 }else if !ctrl && key=="arrowright" {
@@ -488,6 +592,62 @@ pub fn MixTimeline(
                     disabled=move ||selected.with(|ids|ids.is_empty())
                     on:click=move |_|selection_command(tracks,selected,status,SelectionCommand::Delete)>"✕ Eliminar"</button>
                 <button type="button" class="mix-timeline-action"
+                    title="Ctrl+C · Copiar clips completos a un portapapeles interno"
+                    disabled=move ||selected.with(|ids|ids.is_empty())
+                    on:click=move |_|copy_selection(tracks,selected,clipboard,status)>"⧉ Copiar"</button>
+                <select class="mix-curve-select" aria-label="Pista de destino para pegar"
+                    prop:value=move ||paste_lane.get()
+                    on:change=move |event|paste_lane.set(event_target_value(&event))>
+                    <option value="">"Pista destino…"</option>
+                    <For each=move ||tracks.with(|all|all.iter()
+                        .map(|track|(track.id.clone(),track.name.clone()))
+                        .collect::<Vec<_>>())
+                        key=|item|item.0.clone() children=move |(id,name)|{
+                            view!{<option value=id>{name}</option>}
+                        }/>
+                </select>
+                <button type="button" class="mix-timeline-action"
+                    title="Ctrl+V · Pegar desde el portapapeles interno en el cursor"
+                    disabled=move ||clipboard.with(|value|value.is_none()) ||paste_lane.get().is_empty()
+                    on:click=move |_|paste_selection(tracks,selected,clipboard,paste_lane,cursor,ripple,status)>"⎘ Pegar"</button>
+                <button type="button" class="mix-timeline-action"
+                    class:lit=move ||ripple.get()
+                    title="Alternar inserción ripple: desplaza clips posteriores en la pista destino"
+                    on:click=move |_|ripple.update(|value|*value=!*value)>
+                    {move ||if ripple.get(){"Ripple: sí"}else{"Ripple: no"}}
+                </button>
+                <button type="button" class="mix-timeline-action"
+                    disabled=move ||selected.with(|ids|ids.is_empty())
+                    title="Mayús+Supr · Eliminar clips y cerrar los huecos sin cortar otros clips"
+                    on:click=move |_|selection_command(tracks,selected,status,SelectionCommand::RippleDelete)>"Ripple borrar"</button>
+                <button type="button" class="mix-timeline-action"
+                    class:lit=move ||magnetic.get()
+                    title="Imán a bordes de regiones, cero y cursor: tolerancia de 9 píxeles"
+                    on:click=move |_|magnetic.update(|value|*value=!*value)>
+                    {move ||if magnetic.get(){"Imán: sí"}else{"Imán: no"}}
+                </button>
+                <div class="mix-timeline-navigator">
+                    <button type="button" title="Inicio (Home)"
+                        on:click=move |_|jump_to(cursor,zoom,0.0)>"|◀"</button>
+                    <button type="button" title="Retroceder 10 segundos"
+                        on:click=move |_|jump_to(cursor,zoom,cursor.get_untracked()-10.0)>"−10s"</button>
+                    <label>"Cursor (s)"<input type="number" min="0" max="3600" step="0.1"
+                        aria-label="Posición del cursor en segundos"
+                        prop:value=move ||format!("{:.1}",cursor.get())
+                        on:change=move |event|{
+                            if let Ok(at)=event_target_value(&event).parse::<f64>(){
+                                jump_to(cursor,zoom,at);
+                            }
+                        }/></label>
+                    <button type="button" title="Avanzar 10 segundos"
+                        on:click=move |_|jump_to(cursor,zoom,cursor.get_untracked()+10.0)>"+10s"</button>
+                    <button type="button" title="Fin (End)"
+                        on:click=move |_|jump_to(cursor,zoom,
+                            tracks.with_untracked(|all|timeline_end(all)))>"▶|"</button>
+                    <button type="button" title="Ajustar zoom al contenido"
+                        on:click=move |_|fit_timeline(tracks,zoom,cursor)>"Ajustar"</button>
+                </div>
+                <button type="button" class="mix-timeline-action"
                     title="Analiza únicamente los audios utilizados, sin subir archivos"
                     disabled=move || waves_busy.get()
                     on:click=move |_| waveform::load_for_mix(assets,tracks,waveforms,status,waves_busy)>
@@ -519,7 +679,7 @@ pub fn MixTimeline(
                 <span>{move || format!("{:.0} px/s", zoom.get())}</span>
                 <button type="button" title="Acercar" on:click=move |_| zoom.update(|value| *value = (*value * 1.5).min(72.0))>"＋"</button>
             </div>
-            <div class="mix-timeline-scroll"
+            <div class="mix-timeline-scroll" id="mix-timeline-scroll"
                 on:pointermove=move |event|{
                     let next=pointer.with_untracked(|active|active.as_ref()
                         .filter(|current|current.pointer_id==event.pointer_id())
@@ -548,9 +708,13 @@ pub fn MixTimeline(
                         return;
                     }
                     let raw_delta=(event.client_x()-active.origin_x) as f64/zoom.get_untracked();
-                    let delta=if matches!(active.mode,EditMode::GainPoint(_)){
+                    let mut delta=if matches!(active.mode,EditMode::GainPoint(_)){
                         (raw_delta*1000.0).round()/1000.0
                     }else{snap(raw_delta)};
+                    if active.mode==EditMode::Move && magnetic.get_untracked(){
+                        delta=tracks.with_untracked(|all|mix_batch::snap_move_delta(
+                            all,&active.members,cursor.get_untracked(),delta,zoom.get_untracked()));
+                    }
                     let vertical=(event.client_y()-active.origin_y) as f64;
                     let destination = if active.mode == EditMode::Move {
                         // Horizontal moves keep all selected regions on their
@@ -572,6 +736,8 @@ pub fn MixTimeline(
                 <div class="mix-timeline-ruler" style=move || format!("width:{:.1}px", ruler_width(tracks,zoom)+120.0)>
                     <div class="mix-timeline-gutter">"SEG"</div>
                     <div class="mix-timeline-ticks">
+                        <span class="mix-playhead-indicator"
+                            style=move ||format!("left:{:.2}px",cursor.get()*zoom.get())></span>
                         <For each=ruler_ticks key=|second| *second children=move |step| {
                             view! {<span style=move ||format!("left:{:.1}px", f64::from(step)*10.0*zoom.get())>{format!("{}s",step*10)}</span>}
                         }/>
@@ -593,6 +759,8 @@ pub fn MixTimeline(
                             }</div>
                             <div class="mix-timeline-canvas" style=move ||
                                 format!("background-size:{:.1}px 100%", zoom.get()*5.0)>
+                                <span class="mix-playhead-line"
+                                    style=move ||format!("left:{:.2}px",cursor.get()*zoom.get())></span>
                                 <For each=region_ids key=|id| id.clone() children=move |region_id| {
                                     view! {<TimelineClip track_id=clip_track_id.clone()
                                         region_id=region_id tracks=tracks assets=assets
