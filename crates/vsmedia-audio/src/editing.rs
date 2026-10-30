@@ -359,6 +359,33 @@ mod tests {
         assert!(tracks.is_empty());
     }
     #[test]
+    fn gain_keyframes_interpolate_in_amplitude_and_reject_duplicates() {
+        let edits=ClipEdit {
+            gain_points:vec![
+                GainPoint{at_ms:0,gain_db:-6.0206},
+                GainPoint{at_ms:500,gain_db:0.0},
+                GainPoint{at_ms:1000,gain_db:-6.0206},
+            ],
+            ..ClipEdit::default()
+        };
+        let p=project();
+        validate_edits(&p,&[edits.clone()]).unwrap();
+        let mut frames=vec![[0.5,0.5];8_000];
+        process_clip_frames(&mut frames,8_000,&edits).unwrap();
+        assert!((frames[0][0]-0.25).abs()<0.001);
+        assert!((frames[2_000][0]-0.375).abs()<0.002);
+        assert!((frames[4_000][0]-0.5).abs()<0.001);
+        assert!((frames[6_000][0]-0.375).abs()<0.002);
+        let duplicate=ClipEdit {
+            gain_points:vec![
+                GainPoint{at_ms:500,gain_db:0.0},
+                GainPoint{at_ms:500,gain_db:-3.0},
+            ],
+            ..ClipEdit::default()
+        };
+        assert!(validate_edits(&p,&[duplicate]).is_err());
+    }
+    #[test]
     fn legacy_clip_edit_defaults_to_linear_fades() {
         let old=r#"{"track_index":0,"clip_index":0,"fade_in_ms":500}"#;
         let parsed:ClipEdit=serde_json::from_str(old).unwrap();
