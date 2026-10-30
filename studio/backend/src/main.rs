@@ -565,9 +565,11 @@ mod tests {
         assert_eq!(result.status(),StatusCode::OK);
         let bytes=to_bytes(result.into_body(),64*1024*1024).await.unwrap();
         let rendered=decode_wav(&bytes).unwrap();
-        assert_eq!(rendered.frames.len(),12_000);
+        // Studio draft render normalizes to 48 kHz irrespective of source rate.
+        assert_eq!(rendered.sample_rate,48_000);
+        assert_eq!(rendered.frames.len(),72_000);
         let expected=0.5*std::f32::consts::FRAC_1_SQRT_2;
-        assert!((rendered.frames[6_000][0]-expected).abs()<0.002);
+        assert!((rendered.frames[36_000][0]-expected).abs()<0.002);
         assert!(db.list_assets("studio","projects/",10).unwrap().is_empty());
         drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
     }
