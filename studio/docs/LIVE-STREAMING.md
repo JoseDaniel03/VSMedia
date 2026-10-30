@@ -12,8 +12,12 @@
 ## VSRadio: funciones implementadas
 
 - Playlists persistentes en **localStorage** (hasta 32 listas de 512 entradas).
-  Se guardan nombres, orden e identificadores, **no los bytes del audio**:
-  tras recargar la página se deben reimportar las fuentes para escucharlas.
+  Se guardan nombres de archivo, orden e identificadores, **no los bytes
+  del audio**. Tras recargar se deben reimportar las fuentes para
+  escucharlas: VSRadio reencuentra automáticamente un archivo con el
+  mismo nombre si cambió su identificador temporal. Si existen varios
+  archivos con nombres idénticos se utiliza la primera coincidencia,
+  por lo que conviene darles nombres únicos.
 - Reordenar pistas, eliminar, grabar voz local, reproducción secuencial,
   anterior/siguiente, omitir archivos ausentes y repetición configurable.
 - Programación como notas locales, no como scheduler de emisión en backend.

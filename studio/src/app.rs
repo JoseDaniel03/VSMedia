@@ -1155,11 +1155,11 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                             radio_advance(assets,playlists,active_playlist,play_index,status,
                                 repeat_radio.get_untracked(),false);
                         }>"Audio HTML5 no disponible"</audio>
-                    <small>"La playlist se conserva en este navegador, pero los archivos binarios NO. Si recargás, reimportá el material. La emisión P2P comienza sólo al conectarte como emisor."</small>
+                    <small>"Se guardan listas y nombres, no archivos binarios. Si recargás, reimportá audios con el mismo nombre para recuperarlos. P2P inicia sólo cuando conectás la emisión."</small>
                 </div>
             </section>
-            <aside class="schedule-panel"><div class="stage-topline"><span>"PROGRAMACIÓN"</span></div>
-                <label>"Plan de emisiones, horarios y notas"
+            <aside class="schedule-panel"><div class="stage-topline"><span>"NOTAS DE PROGRAMACIÓN"</span></div>
+                <label>"Guion, horarios previstos y notas (sin emisión programada automática)"
                     <textarea placeholder="Ejemplo: 18:00 — Inicio del programa…"
                         prop:value=move ||schedule.get()
                         on:input=move |ev|{

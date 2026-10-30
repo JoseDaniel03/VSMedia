@@ -29,8 +29,9 @@ VSStreams requiere Plasmo Voice en Minecraft y una integración futura con VSEng
   lineales/equal-power, automatización, selección múltiple, operaciones
   ripple, snapping, portapapeles y undo/redo. Render sin guardar y proyectos
   persistentes `.vsaudio` mediante Rust/Axum.
-- **VSRadio:** playlists persistentes, reproducción anterior/siguiente,
-  repetir, programación local, mezcla micrófono+playlist y emisión P2P
+- **VSRadio:** playlists persistentes con reconexión por nombre al reimportar,
+  reproducción anterior/siguiente, repetir, notas de programación local,
+  mezcla micrófono+playlist y emisión P2P
   para un emisor y hasta 15 oyentes.
 - **VSStreams:** panel de integración de Plasmo Voice, mod/plugin de voz
   por proximidad para Minecraft; sólo presenta estado real de integración
