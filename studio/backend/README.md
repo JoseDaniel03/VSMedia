@@ -14,14 +14,18 @@ sin crear una revisión.
 
 ## Señalización WebRTC
 
-`GET /api/v1/live/ws` abre un WebSocket de señalización para salas de
-`radio` (roles emisor/oyente; máximo 16 conexiones) o `voice`
-(participantes con micrófono; máximo 8 conexiones). El backend sólo
+`GET /api/v1/live/ws` abre WebSocket de señalización **sólo para
+radio** (roles emisor/oyente; máximo 16 conexiones por sala).
+Los pedidos de salas `voice` se rechazan: VSStreams utiliza Plasmo
+Voice como motor de proximidad dentro de Minecraft. El backend sólo
 intercambia oferta, respuesta y candidatos ICE, sin transportar PCM ni
 grabar audio. Las salas son efímeras y se vacían al desconectar.
 
 `GET /api/v1/live/status` presenta métricas agregadas (cantidad de salas,
 participantes y límites), sin códigos de sala.
+`GET /api/v1/streams/integration` informa si el backend está
+conectado al servidor Plasmo Voice; en la etapa actual devuelve
+`server_connected: false` y no realiza operaciones administrativas.
 
 El sistema no es un servidor de streaming masivo y no existe sesión de
 radio Minecraft habilitada: `POST /api/v1/radio/sessions` y

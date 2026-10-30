@@ -1,7 +1,7 @@
 # VSMedia Studio 26.3 — FullCanvas
 
 Aplicación web ligera con **Leptos 0.8/WASM**, **Rust Audio Engine** y
-**Axum** como API local. El cliente de WebRTC para VSRadio y VSStreams usa
+**Axum** como API local. El cliente de WebRTC para VSRadio usa
 JavaScript nativo de navegador porque implementa el transporte multimedia
 sin pasar PCM ni paquetes RTP por la capa WASM. Interfaz clara en español.
 
@@ -18,8 +18,8 @@ cd studio
 ```
 
 Abrir http://127.0.0.1:3060. El script inicia Trunk en el puerto 3060 y
-el servidor Rust/Axum + VSCore local en `127.0.0.1:3061`. La emisión
-de radio y salas de voz requieren que el backend esté funcionando.
+el servidor Rust/Axum + VSCore local en `127.0.0.1:3061`. La emisión P2P de VSRadio requiere que el backend esté funcionando.
+VSStreams requiere Plasmo Voice en Minecraft y una integración futura con VSEngine para mostrar telemetría.
 
 ## Módulos
 
@@ -29,10 +29,12 @@ de radio y salas de voz requieren que el backend esté funcionando.
   lineales/equal-power, automatización, selección múltiple, operaciones
   ripple, snapping, portapapeles y undo/redo. Render sin guardar y proyectos
   persistentes `.vsaudio` mediante Rust/Axum.
-- **VSRadio:** playlists y programación local, reproductor con micrófono,
-  emisión P2P para salas pequeñas (un emisor, 15 oyentes como máximo).
-- **VSStreams:** chat de voz P2P con hasta 8 participantes por sala, permisos
-  de micrófono explícitos, mute, conexión/desconexión y audio remoto.
+- **VSRadio:** playlists persistentes, reproducción anterior/siguiente,
+  repetir, programación local, mezcla micrófono+playlist y emisión P2P
+  para un emisor y hasta 15 oyentes.
+- **VSStreams:** panel de integración de Plasmo Voice, mod/plugin de voz
+  por proximidad para Minecraft; sólo presenta estado real de integración
+  y requisitos. La administración avanzada se implementará después.
 - **Guion:** lector automático de texto/doblaje.
 
 ### Estado de radio y voz
@@ -45,9 +47,9 @@ escucha únicamente en loopback; no se debe exponer a Internet sin
 autenticación, HTTPS/WSS, política de permisos y servidores TURN.
 
 **Radio masiva no está implementada.** Para centenares de oyentes se
-necesitaría SFU o una vía de distribución de segmentos, un servicio
-de control de acceso y monitoreo. Chat de voz dentro de Minecraft también
-requiere integración específica con el plugin/mod.
+necesitaría SFU o distribución segmentada y un servicio de control de acceso.
+VSStreams no tiene un chat WebRTC alternativo: reutiliza Plasmo Voice
+para la voz dentro de Minecraft y espera el futuro adaptador VSEngine.
 
 Ver [LIVE-STREAMING.md](docs/LIVE-STREAMING.md) y
 [AUDIO-EDITING.md](../docs/AUDIO-EDITING.md).

@@ -1,99 +1,88 @@
-# VSMedia 26.3 — VSRadio Live y VSStreams (primera integración)
+# VSMedia Studio 26.3 — VSRadio y VSStreams
 
-## Alcance real
+## Dos sistemas diferentes
 
-La consola ofrece **audio WebRTC de navegador a navegador** en salas pequeñas.
-El backend Axum es únicamente servidor de **señalización WebSocket**:
-transmite ofertas, respuestas y candidatos ICE; **no recibe, almacena,
-graba ni mezcla audio**. La señal de voz viaja directamente por las
-conexiones WebRTC cifradas entre participantes.
+- **VSRadio:** emisión local WebRTC P2P desde el navegador. No requiere
+  Minecraft para probar playlists, música y locución en una sala pequeña.
+- **VSStreams:** interfaz de integración de **Plasmo Voice**, el mod/plugin
+  gratuito usado por Virgoland para el **chat de voz por proximidad dentro
+  de Minecraft**. No crea salas de voz alternativas ni pide micrófono.
+  La integración administrativa con VSEngine se realizará después.
 
-### VSRadio
+## VSRadio: funciones implementadas
 
-En la pestaña **VSRadio**, abajo de las listas, aparece **Transmisión en
-vivo**. Crear un código de sala alfanumérico, seleccionar **Emisor** y una
-fuente (**Micrófono**, **Playlist** o **Playlist + micrófono**). Para playlist,
-elegir primero un audio y reproducirlo en el reproductor de VSRadio. Al
-pulsar **Conectar**, se abre la sala y cada oyente conectará su audio P2P.
-La salida de la playlist se captura con Web Audio, se envía al destino
-WebRTC sin copiar el archivo al backend y sigue sonando localmente. Los
-controles **Volumen playlist** y **Volumen micrófono** permiten variar
-independientemente ambas fuentes cuando se elige la mezcla, sin
-monitorizar la voz localmente para evitar realimentación.
+- Playlists persistentes en **localStorage** (hasta 32 listas de 512 entradas).
+  Se guardan nombres, orden e identificadores, **no los bytes del audio**:
+  tras recargar la página se deben reimportar las fuentes para escucharlas.
+- Reordenar pistas, eliminar, grabar voz local, reproducción secuencial,
+  anterior/siguiente, omitir archivos ausentes y repetición configurable.
+- Programación como notas locales, no como scheduler de emisión en backend.
+- Radio en vivo: un **emisor** y hasta **15 oyentes** en una sala WebRTC.
+  Fuentes de transmisión: micrófono, reproductor local de la playlist o
+  mezcla de ambas con controles separados de ganancia de música/micrófono.
+- Código aleatorio de sala que se puede copiar; mute local del micrófono,
+  salir, métricas por conexión y mensajes de estado para diferenciar
+  conexión a señalización de una conexión real de audio.
+- Rust/Axum sólo **señaliza** SDP/ICE; la voz y la música viajan entre
+  navegadores mediante WebRTC cifrado. Axum no graba, decodifica ni
+  almacena el audio de las salas.
+- Heartbeat cada 30 segundos y desconexión por 100 segundos de inactividad.
+  Máximo 16 peers por sala y 128 conexiones por instancia; los códigos
+  de sala son identificadores, **no contraseñas**.
 
-Quienes escuchen eligen **Oyente**, ingresan el mismo código y pulsan
-Conectar. No se solicita permiso de micrófono a los oyentes. Sólo hay
-**un emisor por sala**, con un máximo de **16 participantes** contando
-al emisor. El backend rechaza una segunda conexión como emisor.
+### Probar la radio localmente
 
-### VSStreams / Salas de voz
+En `studio/` ejecutar `./start.sh`. Abrir
+`http://127.0.0.1:3060` en dos pestañas del mismo equipo con auriculares.
+En la primera, entrar a VSRadio, cargar una fuente en la biblioteca,
+agregarla a una playlist, reproducirla y crear código de sala. Elegir
+**Emisor**, fuente **Playlist**, luego **Conectar**. En la segunda pestaña,
+ingresar el mismo código, elegir **Oyente** y conectar. La conexión real
+de audio debe mostrarse mediante el estado de WebRTC, no sólo por
+haber ingresado a la sala.
 
-La pestaña **VSStreams** permite crear o unirse a una sala de hasta
-**8 participantes**. El usuario pulsa **Conectar**, concede permiso de
-micrófono al navegador si acepta y puede silenciarlo/desilenciarlo o
-salir. Cada otro participante se recibe a través de elementos HTMLAudio
-con controles por si el navegador bloquea la reproducción automática.
+**Límite esencial:** el transmisor P2P genera una copia de la señal por
+oyente. Esto no es una radio de difusión pública escalable ni una
+emisión conectada al mundo Minecraft. Para ello se requerirá un
+SFU o distribución segmentada, infraestructura TLS/WSS, autenticación y
+servidores TURN en redes que lo necesiten. Por defecto no se consulta
+ningún STUN/TURN externo. La URL WS actualmente apunta a loopback.
 
-### Arquitectura y transporte
+## VSStreams y Plasmo Voice
 
-- Rust/Axum: `GET /api/v1/live/ws`, WebSocket JSON, local
-  `127.0.0.1:3061`; `GET /api/v1/live/status` indica conteos globales
-  sin divulgar códigos de sala.
-- Modo `radio`: rol `host` sólo puede ofrecer SDP; rol `listener`
-  sólo puede responder. ICE únicamente entre emisor y oyente.
-- Modo `voice`: rol `speaker` y malla de WebRTC entre participantes.
-- Señales: `join` con `room`, `mode` y `role`; eventos
-  `joined`, `peer_joined`, `peer_left`, `error`; `signal`
-  incluye `to`, `kind` (`offer`, `answer`, `candidate`) y
-  `data`. El servidor responde con `from`.
-- Los mensajes JSON tienen un límite de 48 KiB, las colas tienen
-  límite de 64, y hasta 128 participantes pueden conectarse a la vez.
-  Las salas se eliminan de memoria cuando salen sus miembros.
-  El navegador envía heartbeat cada 30 segundos; Axum desconecta
-  sesiones sin actividad durante 100 segundos para liberar las salas
-  que pierdan la conexión inesperadamente.
-- El audio de micrófono sólo se captura tras una acción explícita. Salir
-  detiene las pistas de micrófono y cierra conexiones P2P. No existen
-  grabaciones automáticas, subida de voz al CAS ni historial de chat.
-- Protocolo de audio y compresión negociados por WebRTC, normalmente
-  Opus. No se requiere ni inventa un formato propio para paquetes RTP.
+Plasmo Voice implementa el micrófono, audio posicional 3D, distancia,
+Push-to-Talk, permisos y muteos dentro de Minecraft. Se instala en
+**VSEngine/CanvasMC (servidor Folia/Paper)** y como mod Fabric en
+**VSClient**. Ya existen funciones administrativas nativas, como
+`/vmute`, `/vunmute` y `/vlist`; no vamos a reimplementarlas como
+otro chat de voz.
 
-## Limitaciones críticas
+La sección VSStreams informa el estado real mediante
+`GET /api/v1/streams/integration`. **Ahora devuelve
+`server_connected: false`**, porque el puente Axum no dispone de un
+adaptador autenticado a VSEngine/Plasmo. La página presenta instrucciones
+de instalación verificables y evita inventar jugadores, mutear desde
+la web o simular conexiones. La futura consola de moderación (muteos,
+historial, permisos, políticas por mundo y regiones) queda expresamente
+pospuesta.
 
-1. **Es un prototipo funcional local**, no una radio pública escalable ni
-   un servicio remoto autenticado. El servidor escucha sólo en localhost.
-   Los códigos de sala **no son contraseñas** ni autentican identidades.
-2. El modo radio usa P2P: el emisor envía una copia de su stream por cada
-   oyente. Para cientos/miles de oyentes se necesita un **SFU**,
-   retransmisión/segmentación (por ejemplo HLS/LL-HLS) y control de ancho
-   de banda y acceso.
-3. No está configurado un servicio TURN. Por defecto `iceServers`
-   está vacío para evitar contactar servicios externos sin consentimiento.
-   Puede configurarse opcionalmente `window.VSMEDIA_ICE_SERVERS` en el
-   navegador antes de cargar `live.js` si existe infraestructura propia.
-   Dos redes/NAT distintos suelen requerir TURN.
-4. **Internet:** se necesitan TLS/HTTPS, WSS, un reverse proxy con
-   autenticación/roles/sesiones, control de invitados, rate limiting
-   persistente y configuración explícita del endpoint WebSocket (el
-   prototipo utiliza `ws://127.0.0.1:3061`). No exponer tal como está.
-5. Web Audio `MediaElementAudioSourceNode` depende del soporte del
-   navegador y captura el audio que pasa por el reproductor local. No
-   se compone una mezcla multicanal de producción ni una programación
-   automática de radio a nivel servidor.
-6. Quedan pendientes pruebas manuales E2E con **dos o más navegadores**,
-   permisos de micrófono, autoplay, reconexión, desconexión, NAT y
-   efectos de audio del sistema. Los tests de Axum no prueban calidad
-   acústica real. La emisión remota y el chat de voz en Minecraft no
-   están conectados al plugin Java.
+Las URLs de descarga oficiales son
+https://modrinth.com/plugin/plasmo-voice y
+https://modrinth.com/plugin/plasmo-voice/versions?l=fabric .
+La API oficial para futuros adaptadores está en
+https://plasmovoice.com/docs/api/ .
 
-## Ejecución local
+## Seguridad y verificaciones
 
-Desde `studio/`, ejecutar `./start.sh`: levanta Axum en
-`127.0.0.1:3061` y Trunk en `127.0.0.1:3060`. Abrir la web, entrar
-a VSRadio o VSStreams y crear/unirse a una sala. Para probar con dos
-pestañas locales, mantener la misma sala y utilizar auriculares para
-evitar realimentación.
+El bridge sigue limitado a `127.0.0.1:3061`, valida el Origin local
+para conexiones WebSocket y no debe exponerse a Internet sin autorización.
+`/api/v1/live/ws` **sólo acepta `mode: radio`** y rechaza el modo
+anterior `voice`. No hay almacenamiento del audio de la conversación.
 
-Se mantiene la política del proyecto: **sin JAR, ZIP ni release
-prematuro**. La integración a plugins/datapacks queda para la última
-etapa de Virgoland.
+GitHub Actions comprueba Rust, Axum, Leptos wasm32, Java, las pruebas
+de navegación de playlists y `node --check` del cliente WebRTC.
+**No sustituye** la prueba E2E en navegadores reales con micrófonos, ni
+verifica que Plasmo esté instalado en el servidor de Minecraft.
+
+Sin JAR, ZIP finales ni releases. Los datapacks y la administración
+avanzada de Plasmo se abordarán en otra etapa.

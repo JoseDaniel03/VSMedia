@@ -14,22 +14,23 @@ nativo VSAudio/VSMix.
 | POST /api/v1/audio/projects/{id}/commands | Editar con SHA esperado |
 | POST /api/v1/audio/render | Render de borrador WAV, sin guardar proyecto |
 | GET /api/v1/live/status | Conteos globales anónimos de salas WebRTC |
-| GET /api/v1/live/ws | Upgrade a WebSocket de señalización WebRTC |
+| GET /api/v1/live/ws | Upgrade a WebSocket sólo para radio P2P |
+| GET /api/v1/streams/integration | Estado comprobable de integración Plasmo Voice (aún desconectado) |
 | POST /api/v1/media/jobs | HTTP 501: plugin aún no conectado |
 | POST /api/v1/radio/sessions | HTTP 501: broadcast Minecraft no conectado |
 
 ## Protocolo WebSocket
 
-Cliente: `{"type":"join","room":"voice_abcd1234","mode":"voice","role":"speaker"}`.
+Cliente: `{"type":"join","room":"radio_abcd1234","mode":"radio","role":"listener"}`.
 Responde `joined` con ID de sesión y pares actuales; emite
 `peer_joined` o `peer_left`. Para intercambiar WebRTC:
 `{"type":"signal","to":123,"kind":"offer","data":{"type":"offer","sdp":"..."}}`,
 o `answer` y `candidate`. El receptor obtiene `signal` con `from`.
 
 La sala radio exige `host` o `listener`; sólo `host` puede ofrecer y
-sólo `listener` puede responder. La sala voice acepta `speaker`. No
-hay mezcla ni retransmisión de audio en Axum; el audio P2P está cifrado
-por WebRTC y no se persiste.
+sólo `listener` puede responder. Las salas `voice` se rechazan:
+la voz por proximidad la provee Plasmo Voice (servidor/mod).
+Axum no retransmite PCM ni persiste audio.
 
 **No exponer el backend local directamente a Internet**: HTTPS/WSS,
 autenticación, TURN, control de permisos y auditoría son requisitos para
