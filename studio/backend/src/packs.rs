@@ -701,6 +701,103 @@ mod tests{
         };
         assert!(export_layers(Extension(hub),headers(),Json(invalid)).await.is_err());
     }
+
+    #[tokio::test]
+    async fn manually_selects_texture_winner_and_resolves_equal_priority_conflict(){
+        let hub=PackHub::default();
+        let path="assets/virgo/textures/gui/hotbar.png";
+        let first=fixture(&[(path,b"VIRGO_A")]);
+        let second=fixture(&[(path,b"VIRGO_B")]);
+        import(Extension(hub.clone()),Path("first".into()),headers(),
+            Bytes::from(first)).await.unwrap();
+        import(Extension(hub.clone()),Path("second".into()),headers(),
+            Bytes::from(second)).await.unwrap();
+        for id in ["first","second"]{
+            priority(Extension(hub.clone()),Path(id.into()),headers(),
+                Json(PriorityInput{priority:10})).await.unwrap();
+        }
+        // A tie remains inspectable even when exporting the pack is blocked.
+        let initial=resource_plan(&hub,ResourceQuery{
+            scope:Some("textures".into()),conflicts_only:Some(true),
+            ..Default::default()
+        }).await.unwrap().0;
+        assert_eq!(initial["schema"],"vspack-resources-v1");
+        assert_eq!(initial["total"],1);
+        assert_eq!(initial["blocked"],1);
+        assert_eq!(initial["items"][0]["chosen_source"],Value::Null);
+        assert_eq!(initial["items"][0]["candidates"].as_array().unwrap().len(),2);
+        assert!(composed(&hub).await.is_err());
+
+        choose_resource(Extension(hub.clone()),headers(),Json(OverrideInput{
+            path:path.into(),source_id:"first".into()
+        })).await.unwrap();
+        let selected=resource_plan(&hub,ResourceQuery::default()).await.unwrap().0;
+        let texture=selected["items"].as_array().unwrap().iter().find(|item|
+            item["path"]==path).unwrap();
+        assert_eq!(texture["chosen_source"],"first");
+        assert_eq!(texture["override_source"],"first");
+        assert_eq!(texture["blocked"],false);
+        assert_eq!(composed(&hub).await.unwrap().files[path],b"VIRGO_A");
+        let response=resource_file(Extension(hub.clone()),Query(TextureQuery{
+            path:path.into()
+        })).await.unwrap();
+        assert_eq!(response.headers()[header::CONTENT_TYPE],"application/octet-stream");
+        assert_eq!(response.headers()[header::X_CONTENT_TYPE_OPTIONS],"nosniff");
+        let content=to_bytes(response.into_body(),4096).await.unwrap();
+        assert_eq!(content.as_ref(),b"VIRGO_A");
+
+        clear_resource_choice(Extension(hub.clone()),headers(),
+            Query(TextureQuery{path:path.into()})).await.unwrap();
+        assert!(composed(&hub).await.is_err());
+        assert!(choose_resource(Extension(hub.clone()),headers(),Json(OverrideInput{
+            path:path.into(),source_id:"third_missing".into()
+        })).await.is_err());
+        choose_resource(Extension(hub.clone()),headers(),Json(OverrideInput{
+            path:path.into(),source_id:"first".into()
+        })).await.unwrap();
+        remove(Extension(hub.clone()),Path("first".into()),headers()).await.unwrap();
+        assert!(hub.1.lock().await.is_empty());
+        assert_eq!(composed(&hub).await.unwrap().files[path],b"VIRGO_B");
+    }
+
+    #[tokio::test]
+    async fn interface_catalog_filters_groups_and_paginates_without_audio_assets(){
+        let hub=PackHub::default();
+        let archive=fixture(&[
+            ("assets/virgo/textures/gui/menu.png",b"gui"),
+            ("assets/virgo/textures/hud/hotbar.png",b"hud"),
+            ("assets/virgo/font/default.json",br#"{"providers":[]}"#),
+            ("assets/virgo/atlases/gui.json",br#"{"sources":[]}"#),
+            ("assets/virgo/models/item/icon.json",br#"{"parent":"item/generated"}"#),
+            ("assets/virgo/lang/es_ar.json",br#"{"item.example":"Hola"}"#),
+            ("assets/virgo/textures/block/rock.png",b"block"),
+            ("assets/other/textures/gui/foreign.png",b"other")
+        ]);
+        import(Extension(hub.clone()),Path("ui".into()),headers(),
+            Bytes::from(archive)).await.unwrap();
+        let result=interfaces(Extension(hub.clone()),Query(ResourceQuery{
+            namespace:Some("virgo".into()),limit:Some(3),
+            ..Default::default()
+        })).await.unwrap().0;
+        assert_eq!(result["scope"],"interfaces");
+        assert_eq!(result["total"],6);
+        assert_eq!(result["items"].as_array().unwrap().len(),3);
+        let result=interfaces(Extension(hub.clone()),Query(ResourceQuery{
+            namespace:Some("virgo".into()),
+            search:Some("hotbar".into()),..Default::default()
+        })).await.unwrap().0;
+        assert_eq!(result["total"],1);
+        assert_eq!(result["items"][0]["interface_kind"],"gui_textures");
+        let invalid=resource_plan(&hub,ResourceQuery{
+            scope:Some("datapacks".into()),..Default::default()
+        }).await;
+        assert!(invalid.is_err());
+        let rejected=resource_file(Extension(hub),Query(TextureQuery{
+            path:"assets/virgo/../../secret.txt".into()
+        })).await;
+        assert!(rejected.is_err());
+    }
+
     #[test]
     fn pack_id_and_category_boundaries(){
         assert!(valid_id("pack_base"));
