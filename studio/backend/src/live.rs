@@ -3,7 +3,7 @@
 //! the same validated room can exchange offer/answer/ICE messages.
 //! Production public deployment requires TLS, an authenticated proxy and TURN.
 use std::{collections::HashMap,sync::Arc};
-use axum::{extract::{ws::{WebSocket,WebSocketUpgrade,Message},Extension},http::{HeaderMap,StatusCode},response::IntoResponse,Json};
+use axum::{extract::{ws::{WebSocket,WebSocketUpgrade,Message},Extension},http::HeaderMap,response::IntoResponse,Json};
 use futures_util::{SinkExt,StreamExt};
 use serde_json::{Value,json};
 use tokio::sync::{Mutex,mpsc};
@@ -52,25 +52,28 @@ impl LiveHub {
         if state.members.len()>=MAX_TOTAL_PEERS {
             return Err("Servidor local completo".into());
         }
+        // Copy the small, bounded signaling metadata to release immutable
+        // references before allocating a new member in the shared room map.
         let existing=state.members.iter()
             .filter(|(_,member)|member.room==room)
+            .map(|(id,member)|(*id,member.mode.clone(),member.role.clone(),member.tx.clone()))
             .collect::<Vec<_>>();
-        if existing.iter().any(|(_,member)|member.mode!=mode){
+        if existing.iter().any(|(_,peer_mode,_,_)|peer_mode!=mode){
             return Err("Esa sala ya usa otro tipo de comunicación".into());
         }
-        if mode=="radio" && role=="host" && existing.iter().any(|(_,m)|m.role=="host"){
+        if mode=="radio" && role=="host" && existing.iter().any(|(_,_,role,_)|role=="host"){
             return Err("Esta radio ya tiene un emisor".into());
         }
         let limit=if mode=="radio"{MAX_RADIO_PEERS}else{MAX_VOICE_PEERS};
         if existing.len()>=limit{return Err("La sala alcanzó su límite".into());}
-        let peers=existing.iter().map(|(id,m)|json!({"id":id,"role":m.role}))
+        let peers=existing.iter().map(|(id,_,role,_)|json!({"id":id,"role":role}))
             .collect::<Vec<_>>();
         state.next=state.next.checked_add(1).ok_or("No hay más identificadores")?;
         let id=state.next;
         emit(&tx,json!({"type":"joined","id":id,"room":room,
             "mode":mode,"role":role,"peers":peers,"limit":limit}));
-        for (_,member) in existing{
-            emit(&member.tx,json!({"type":"peer_joined","id":id,"role":role}));
+        for (_,_,_,sender) in existing{
+            emit(&sender,json!({"type":"peer_joined","id":id,"role":role}));
         }
         state.members.insert(id,Member{
             room:room.to_owned(),mode:mode.to_owned(),role:role.to_owned(),tx
