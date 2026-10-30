@@ -829,3 +829,23 @@ pub fn preview_draft_audio(
         });
     });
 }
+
+/// Consultar el estado REAL del adaptador a Plasmo Voice. No simula
+/// jugadores, salas, muteos ni plugin conectado.
+pub fn probe_streams(integration:RwSignal<String>){
+    integration.set("Comprobando conexión con VSEngine…".into());
+    spawn_local(async move {
+        let value=request("/streams/integration","GET",JsValue::NULL,"").await;
+        match value {
+            Ok(state)=>{
+                let connected=state.get("server_connected").and_then(Value::as_bool)==Some(true);
+                integration.set(if connected {
+                    "Plasmo Voice informa conexión al servidor.".to_owned()
+                }else{
+                    "Plasmo Voice: todavía no conectado con la API de VSEngine.".to_owned()
+                });
+            }
+            Err(why)=>integration.set(format!("Backend local no disponible: {why}")),
+        }
+    });
+}
