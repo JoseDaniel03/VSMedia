@@ -125,3 +125,180 @@ pub fn move_group(
         Ok(chosen.len())
     } else {Ok(moved)}
 }
+
+
+/// In-memory clipboard retains the source's local media IDs and all region
+/// editing fields (gain envelopes, pan, fades, source offset). No PCM copied.
+#[derive(Clone)]
+pub struct MixClipboard {
+    pub items:Vec<ClipboardItem>,
+    pub anchor_start:f64,
+    pub anchor_lane:usize,
+}
+#[derive(Clone)]
+pub struct ClipboardItem {
+    pub source_lane:usize,
+    pub region:media::MixRegion,
+}
+pub fn copy(tracks:&[Track],selected:&HashSet<String>)->Option<MixClipboard>{
+    let mut items=Vec::new();
+    for (lane,track) in tracks.iter().enumerate(){
+        for region in &track.regions {
+            if selected.contains(&region.id) {
+                items.push(ClipboardItem{source_lane:lane,region:region.clone()});
+            }
+        }
+    }
+    if items.is_empty(){return None;}
+    let anchor_start=items.iter().map(|item|item.region.start)
+        .min_by(|a,b|a.total_cmp(b))?;
+    let anchor_lane=items.iter().map(|item|item.source_lane).min()?;
+    Some(MixClipboard{items,anchor_start,anchor_lane})
+}
+
+/// Paste a clipboard group into a target track at the requested timeline
+/// cursor, preserving source-lane offsets. Ripple insertion shifts complete
+/// later regions in each destination lane, rejecting clips straddling cursor.
+pub fn paste(
+    tracks:&mut Vec<Track>,clipboard:&MixClipboard,target_lane:&str,
+    at:f64,ripple:bool
+)->Result<Vec<String>,String>{
+    if !at.is_finite() || !(0.0..=MAX_DURATION).contains(&at){
+        return Err("Posición de pegado fuera de la línea de tiempo".into());
+    }
+    let dest=tracks.iter().position(|t|t.id==target_lane)
+        .ok_or("Seleccioná una pista de destino".to_owned())?;
+    if clipboard.items.is_empty(){return Ok(Vec::new());}
+    let count=tracks.iter().map(|t|t.regions.len()).sum::<usize>();
+    if count+clipboard.items.len()>MAX_REGIONS{
+        return Err("El pegado supera las 256 regiones de VSMix".into());
+    }
+    let mut incoming=vec![Vec::<media::MixRegion>::new();tracks.len()];
+    for item in &clipboard.items {
+        let offset=item.source_lane.checked_sub(clipboard.anchor_lane)
+            .ok_or("Portapapeles de pistas inválido")?;
+        let target=dest.checked_add(offset)
+            .filter(|index|*index<tracks.len())
+            .ok_or("No existen suficientes pistas de destino")?;
+        let mut region=item.region.clone();
+        region.start=at+(region.start-clipboard.anchor_start);
+        if !region.start.is_finite() || !region.duration.is_finite()
+            || region.start<0. || region.duration<=0.
+            || region.start+region.duration>MAX_DURATION{
+            return Err("Una región pegada supera el límite de 3600 segundos".into());
+        }
+        incoming[target].push(region);
+    }
+    for (index,regions) in incoming.iter().enumerate(){
+        if tracks[index].regions.len()+regions.len()>MAX_REGIONS_PER_TRACK{
+            return Err("El pegado supera 32 regiones en una pista".into());
+        }
+        if ripple && !regions.is_empty(){
+            let shift=regions.iter().map(|r|r.start+r.duration)
+                .fold(at,f64::max)-at;
+            for old in &tracks[index].regions{
+                if old.start<at && old.start+old.duration>at {
+                    return Err("Ripple no puede cortar una región existente".into());
+                }
+                if old.start>=at && old.start+old.duration+shift>MAX_DURATION{
+                    return Err("Ripple supera los 3600 segundos".into());
+                }
+            }
+        }
+    }
+    // Preflight succeeded: only now mutate and generate new stable IDs.
+    let mut created=Vec::with_capacity(clipboard.items.len());
+    for (index,regions) in incoming.iter_mut().enumerate(){
+        if regions.is_empty(){continue;}
+        if ripple{
+            let shift=regions.iter().map(|r|r.start+r.duration)
+                .fold(at,f64::max)-at;
+            for old in &mut tracks[index].regions{
+                if old.start>=at{old.start+=shift;}
+            }
+        }
+        for mut region in regions.drain(..){
+            region.id=media::uid("region");
+            created.push(region.id.clone());
+            tracks[index].regions.push(region);
+        }
+    }
+    Ok(created)
+}
+
+/// Remove selected regions and close their occupied time ranges. To avoid
+/// silently chopping or resampling another source, a region intersecting
+/// a removed interval causes a total rollback rather than a partial edit.
+pub fn ripple_delete(tracks:&mut [Track],selected:&HashSet<String>)
+    ->Result<usize,String>{
+    let mut all_intervals=Vec::with_capacity(tracks.len());
+    let mut total=0;
+    for track in tracks.iter(){
+        let mut intervals=track.regions.iter()
+            .filter(|r|selected.contains(&r.id))
+            .map(|r|(r.start,r.start+r.duration))
+            .collect::<Vec<_>>();
+        total+=intervals.len();
+        intervals.sort_by(|a,b|a.0.total_cmp(&b.0));
+        let mut joined=Vec::<(f64,f64)>::new();
+        for (begin,end) in intervals{
+            if !begin.is_finite() || !end.is_finite() || begin<0. || end>MAX_DURATION{
+                return Err("Región ripple con tiempos inválidos".into());
+            }
+            if let Some(last)=joined.last_mut(){
+                if begin<=last.1 {last.1=last.1.max(end);continue;}
+            }
+            joined.push((begin,end));
+        }
+        for region in track.regions.iter().filter(|r|!selected.contains(&r.id)){
+            if joined.iter().any(|(from,to)|
+                region.start<*to && region.start+region.duration>*from){
+                return Err("Ripple se cruza con otra región; separalas antes de borrar".into());
+            }
+        }
+        all_intervals.push(joined);
+    }
+    if total==0{return Ok(0);}
+    for (track,intervals) in tracks.iter_mut().zip(all_intervals.iter()){
+        track.regions.retain(|r|!selected.contains(&r.id));
+        for region in &mut track.regions{
+            let shift=intervals.iter().filter(|(_,end)|*end<=region.start)
+                .map(|(begin,end)|end-begin).sum::<f64>();
+            region.start-=shift;
+        }
+        if track.regions.is_empty(){track.asset_id.clear();}
+    }
+    Ok(total)
+}
+
+/// Align a selected region's start/end with the nearest unselected region
+/// edge, playhead, or timeline origin inside a 9px threshold. The full group
+/// receives one delta, so its relative timing is never distorted.
+pub fn snap_move_delta(tracks:&[Track],selected:&HashSet<String>,cursor:f64,
+    offset:f64,px_per_second:f64)->f64{
+    if !offset.is_finite() || !cursor.is_finite()
+        || !px_per_second.is_finite() || px_per_second<=0.{
+        return offset;
+    }
+    let threshold=9.0/px_per_second;
+    let mut edges=vec![0.0,cursor];
+    let mut moving=Vec::new();
+    for region in tracks.iter().flat_map(|t|t.regions.iter()){
+        if selected.contains(&region.id){
+            moving.push(region.start+offset);
+            moving.push(region.start+region.duration+offset);
+        }else{
+            edges.push(region.start);
+            edges.push(region.start+region.duration);
+        }
+    }
+    let mut best=(threshold,f64::NAN);
+    for from in moving{
+        for target in &edges {
+            let dist=(target-from).abs();
+            if dist<best.0 {best=(dist,target-from);}
+        }
+    }
+    if best.1.is_finite(){((offset+best.1)*1000.0).round()/1000.0}
+    else{offset}
+}
