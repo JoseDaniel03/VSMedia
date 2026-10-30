@@ -300,3 +300,51 @@ pruebas nativas no simulan DOM ni eventos reales de navegador.
 
 Se mantiene la rama `main`, el formato `.vsaudio` original y
 la decisión de no generar JAR, ZIP finales ni releases; datapacks al final.
+
+## Cierre funcional VSMix 26.3 — Portapapeles, ripple y navegación
+
+La línea de tiempo incorpora un portapapeles **interno y temporal**. Después
+de seleccionar regiones, usar **Copiar** (Ctrl/Cmd+C), elegir una **Pista destino**
+y fijar un **Cursor (s)**; el botón **Pegar** (Ctrl/Cmd+V) inserta copias nuevas.
+Los ID se regeneran y se conservan archivos originales, recortes, ganancia,
+paneo, fades y automatización. Si la selección comprende varias pistas, el
+pegado conserva la distancia entre pistas y las posiciones relativas. Los
+archivos de audio no se duplican ni se vuelven a subir. El portapapeles no
+interactúa con el portapapeles del sistema operativo.
+
+**Ripple: sí** antes de pegar desplaza hacia la derecha todas las regiones
+posteriores en cada pista afectada, dejando espacio para el grupo insertado.
+Se rechaza si ya existe una región que cruce la posición del cursor, si
+faltan pistas de destino o si se exceden 32 regiones por pista, 256 por
+mezcla o 3600 segundos. **Ripple borrar** (Mayús+Supr) elimina regiones
+seleccionadas y cierra el tiempo que ocupaban sin recortar otras regiones
+que se solapen: en ese caso se rechaza toda la operación. La edición
+puede deshacerse con el historial local.
+
+El **Imán** se puede activar y desactivar independientemente de ripple.
+Al soltar un grupo, el editor alinea su inicio o final con el borde de
+otras regiones, el segundo cero o el cursor de reproducción cuando la
+distancia al punto de referencia es de 9 píxeles o menos. El grupo
+conserva sus distancias internas y los límites de tiempo vigentes.
+
+La navegación añade un cursor visual sobre la regla y las pistas, campo
+de tiempo en segundos, retroceder y avanzar 10 segundos, saltar al
+inicio o al final, y **Ajustar** para establecer el zoom según la duración
+de la sesión. Atajos con el foco en la línea de tiempo: **Home** y **End**
+para navegar; **Ctrl/Cmd+C y Ctrl/Cmd+V** para copiar y pegar; **Mayús+Supr**
+para borrar con ripple. Los atajos no interrumpen la escritura en campos
+de formulario y pueden funcionar junto con los comandos de la tanda
+anterior.
+
+El arnés Rust `studio/test-support` prueba las funciones de producción
+`mix_batch.rs` y `mix_history.rs`: copias multiplataforma de pistas,
+pegado atómico con validación de límites, inserción y eliminación ripple,
+mantenimiento de IDs originales y snapping a extremos de clips y cursor.
+La validación del frontend incluye la compilación Leptos a WebAssembly.
+**Limitación:** las interacciones mouse/táctiles no tienen aún una prueba
+E2E en un navegador gráfico. En particular, la captura de puntero y
+la posición de scroll deben validarse visualmente antes de producción.
+
+Fin de la etapa de funcionalidades principales VSMix 26.3. Se conserva
+el esquema nativo `.vsaudio` y el render de borrador Rust. Sin empaquetado
+final, JAR, ZIP ni release, de acuerdo con el plan de desarrollo.
