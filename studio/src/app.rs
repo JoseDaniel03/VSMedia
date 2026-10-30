@@ -700,6 +700,7 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                     <div class="empty-canvas large-empty"><span>"≋"</span><strong>"Tu sesión no tiene pistas"</strong>
                     <p>"Añadí pistas, vinculá archivos de la biblioteca o grabá directamente en un canal."</p></div>
                 </Show>
+                <crate::mix_timeline::MixTimeline tracks=tracks assets=assets status=status />
                 <div class="track-list">
                     <For each=move ||tracks.get() key=|t|t.id.clone() children=move |track| {
                         let tid=track.id.clone();

@@ -46,3 +46,24 @@
 .region-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:7px}
 .region-fields label{font-size:10px;line-height:1.3}
 .region-fields input{width:100%;padding:7px 8px;font-size:11px}
+
+/* VSMix timeline 2.0: clips are positioned by seconds, never by audio pixels. */
+.mix-timeline-shell{flex:0 0 auto;min-height:110px;max-height:min(320px,40vh);display:flex;flex-direction:column;border-bottom:1px solid var(--line);background:#fcfcff}
+.mix-timeline-toolbar{flex:0 0 auto;display:flex;align-items:center;gap:9px;padding:7px 12px;border-bottom:1px solid #e7e6f2}
+.mix-timeline-toolbar strong{font-size:10px;letter-spacing:.1em;color:#6b5a9b}
+.mix-timeline-toolbar small{flex:1;color:#8992ac;font-size:10px}
+.mix-timeline-toolbar button{border:1px solid #dbd5ed;border-radius:5px;background:#fff;color:#6354a3;padding:3px 9px}
+.mix-timeline-toolbar>span{font-size:10px;color:#8190ab;white-space:nowrap}
+.mix-timeline-scroll{overflow:auto;min-height:65px;flex:1;position:relative;user-select:none;touch-action:pan-x pan-y}
+.mix-timeline-ruler,.mix-timeline-lane{display:grid;grid-template-columns:120px minmax(0,1fr);min-width:100%}
+.mix-timeline-ruler{position:sticky;top:0;z-index:5;height:26px;background:#f4f3fb;border-bottom:1px solid #e5e2ef}
+.mix-timeline-gutter{position:sticky;left:0;z-index:3;background:#f6f6fc;border-right:1px solid #e0dced;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 9px;font-size:10px;font-weight:700;color:#78729e}
+.mix-timeline-ticks{position:relative;overflow:hidden}
+.mix-timeline-ticks span{position:absolute;top:5px;font-size:9px;color:#888ba9}
+.mix-timeline-lane{height:47px;border-bottom:1px solid #e9e7f4}
+.mix-timeline-canvas{position:relative;min-width:0;background-image:linear-gradient(90deg,#e8e5f5 1px,transparent 1px);background-repeat:repeat}
+.mix-timeline-clip{position:absolute;top:7px;height:32px;display:flex;align-items:center;min-width:10px;border:1px solid #9c88e1;border-radius:5px;background:linear-gradient(180deg,#d8cafa,#b9b2ed);color:#3b316a;overflow:hidden;cursor:grab;touch-action:none}
+.mix-timeline-clip:active{cursor:grabbing}
+.mix-timeline-clip-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:750;pointer-events:none}
+.mix-timeline-handle{align-self:stretch;flex:0 0 7px;cursor:ew-resize;background:#8f79d5;opacity:.55}
+.mix-timeline-handle:hover{opacity:1;background:#6046aa}

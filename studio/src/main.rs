@@ -5,6 +5,7 @@ mod export;
 mod api_contract;
 mod teleprompter;
 mod studio_api;
+mod mix_timeline;
 
 fn main() {
     console_error_panic_hook::set_once();

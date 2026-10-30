@@ -18,7 +18,7 @@ web-sys = { version = "0.3", features = [
  "Url", "AudioContext", "AudioBuffer", "BaseAudioContext", "AudioDestinationNode",
  "MediaDevices", "Navigator", "MediaStream", "MediaStreamTrack", "MediaStreamConstraints",
  "MediaRecorder", "Event", "EventTarget", "ProgressEvent", "DomTokenList",
- "Request", "RequestInit", "RequestMode", "Response", "Headers"
+ "Request", "RequestInit", "RequestMode", "Response", "Headers", "PointerEvent"
 ] }
 
 [workspace]
