@@ -207,3 +207,41 @@ Pruebas automáticas: compatibilidad de documentos anteriores, potencia
 normalizada, mezcla multipista con solapamiento, y render de borrador
 que no crea una revisión guardada. Falta una prueba manual en navegador
 de arrastres, zoom, superposición visual de curvas y comportamiento táctil.
+
+## VSMix 26.3 — Automatización de volumen por región
+
+Cada región ahora permite añadir, mover y eliminar puntos de volumen locales
+mediante **＋ Punto**, los campos numéricos y los tiradores de color turquesa
+sobre la forma de onda. **Restablecer** vuelve a ganancia constante. Los puntos
+se almacenan como tiempo en segundos y ganancia lineal (0–200%) y son
+independientes del volumen, paneo y fades de la región.
+
+El editor representa una curva de hasta 61 segmentos; el render nativo
+recibe la lista original de puntos en `clip_edits.gain_points` con tiempo
+en milisegundos y ganancia en dB. **Rust interpola en amplitud lineal, no
+en decibelios**, por lo que la curva visual y la señal comparten la misma
+regla. Los archivos anteriores conservan `gain_points: []` y no cambian
+su comportamiento. No se modifica la versión del formato `.vsaudio`.
+
+Los puntos deben estar estrictamente ordenados, dentro de la duración
+del clip y no superar 256 por región. El límite de la interfaz es 200%;
+al abrir archivos nativos con automatizaciones más altas, VSMix rechaza la
+sesión en lugar de alterar su volumen silenciosamente. Los fades
+continúan aplicándose *además* de la automatización, y la ganancia de la
+región y la pista permanecen multiplicativas. Al recortar el comienzo,
+se interpola el valor de volumen en el nuevo punto de inicio para no
+alterar el sonido del fragmento conservado.
+
+Los borradores se renderizan con el endpoint de audio sin crear revisión
+de proyecto. La acción puede subir fuentes al CAS local (como antes);
+la mera edición de puntos o su visualización no realiza ninguna subida.
+Se comprueba la secuencia de puntos antes de iniciar una subida.
+
+**Pruebas automáticas:** interpolación de puntos en el core Rust, rechazo de
+puntos repetidos, render de borrador con envolvente en Axum y ausencia de
+proyecto guardado. **Por comprobar manualmente en navegador:** gestos de
+arrastre (incluido el uso táctil), zoom, recorte con automatización y
+sincronización de campos numéricos.
+
+Seguimos sin generar JAR, ZIP finales ni releases. Los datapacks quedan
+fuera de esta fase.
