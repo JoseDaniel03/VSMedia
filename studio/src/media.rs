@@ -52,6 +52,13 @@ impl MixFadeCurve {
         match self {Self::Linear=>fraction,Self::EqualPower=>(fraction*std::f64::consts::FRAC_PI_2).sin()}
     }
 }
+/// Non-destructive local-time automation. Gain is linear (0..2); the native
+/// .vsaudio renderer interpolates equivalent dB keyframes in amplitude.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MixGainPoint {
+    pub at: f64,
+    pub gain: f64,
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MixRegion {
     pub id: String,
@@ -68,6 +75,9 @@ pub struct MixRegion {
     /// Missing in earlier local sessions and manifests: use legacy linear fade.
     #[serde(default)]
     pub fade_curve: MixFadeCurve,
+    /// Missing in previous sessions means constant 100% automation.
+    #[serde(default)]
+    pub gain_points: Vec<MixGainPoint>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Track {

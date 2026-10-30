@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use crate::media::{self,AudioAsset,Folder,Version,Track,MixRegion,MixFadeCurve,Playlist};
+use crate::media::{self,AudioAsset,Folder,Version,Track,MixRegion,MixGainPoint,MixFadeCurve,Playlist};
 use crate::{export,recording,studio_api};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -815,7 +815,8 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
                                             track.regions.push(MixRegion{
                                                 id:media::uid("region"),asset_id:track.asset_id.clone(),
                                                 start,duration,source_in:0.,volume:1.,pan:0.,
-                                                fade_in:0.,fade_out:0.,fade_curve:MixFadeCurve::Linear
+                                                fade_in:0.,fade_out:0.,fade_curve:MixFadeCurve::Linear,
+                                                gain_points:Vec::new()
                                             });
                                         });
                                         if missing {

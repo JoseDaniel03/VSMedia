@@ -352,7 +352,7 @@ async fn compose_mix(assets:&[AudioAsset],tracks:&[Track])->Result<Value,String>
             vec![media::MixRegion{id:format!("legacy-{}",track.id),
                 asset_id:track.asset_id.clone(),start:0.,duration,source_in:0.,
                 volume:1.,pan:0.,fade_in:track.fade_in,fade_out:track.fade_out,
-                fade_curve:media::MixFadeCurve::Linear}]
+                fade_curve:media::MixFadeCurve::Linear,gain_points:Vec::new()}]
         }else{track.regions.clone()};
         total_clips=total_clips.saturating_add(regions.len());
         if total_clips>256 {return Err("La mezcla supera el límite de 256 regiones".into());}
@@ -393,6 +393,26 @@ async fn compose_mix(assets:&[AudioAsset],tracks:&[Track])->Result<Value,String>
                     "sha256":sha,"codec":kind
                 }));
             }
+            // Validate before any upload or project mutation. Keyframes must
+            // remain strictly ordered after converting to millisecond units.
+            if region.gain_points.len()>256 {
+                return Err(format!("Demasiados puntos de automatización en {}",track.name));
+            }
+            let mut gain_points=Vec::with_capacity(region.gain_points.len());
+            let mut last=None;
+            for point in &region.gain_points {
+                if !point.at.is_finite() || !point.gain.is_finite()
+                    || !(0.0..=2.0).contains(&point.gain) {
+                    return Err(format!("Punto de automatización inválido en {}",track.name));
+                }
+                let at_ms=millis(point.at)?;
+                if at_ms>length || last.is_some_and(|previous|at_ms<=previous) {
+                    return Err(format!("Los puntos deben estar ordenados y dentro de la región {}",track.name));
+                }
+                last=Some(at_ms);
+                let gain_db=if point.gain==0.0 {-120.0}else{20.0*point.gain.log10()};
+                gain_points.push(json!({"at_ms":at_ms,"gain_db":gain_db}));
+            }
             let gain_db=if region.volume==0. {-120.0} else{20.*region.volume.log10()};
             clips.push(json!({
                 "asset":{"namespace":"studio","name":format!("audio/{}",asset.id)},
@@ -403,7 +423,7 @@ async fn compose_mix(assets:&[AudioAsset],tracks:&[Track])->Result<Value,String>
                 "source_in_ms":source_in_ms,"pan":region.pan,
                 "fade_in_ms":fade_in,"fade_out_ms":fade_out,
                 "fade_curve":region.fade_curve.as_str(),
-                "reversed":false,"muted":false,"gain_points":[],"filters":[]
+                "reversed":false,"muted":false,"gain_points":gain_points,"filters":[]
             }));
         }
         timeline_tracks.push(json!({"name":track.name,"muted":false,"clips":clips}));
@@ -533,6 +553,33 @@ async fn load_mix(name:&str,assets:RwSignal<Vec<AudioAsset>>,
                 fade_curve:edit.and_then(|value|value.get("fade_curve"))
                     .and_then(Value::as_str).and_then(media::MixFadeCurve::from_str)
                     .unwrap_or_default(),
+                gain_points: {
+                    let stored=edit.and_then(|value|value.get("gain_points"))
+                        .and_then(Value::as_array);
+                    let mut points=Vec::new();
+                    if let Some(stored)=stored {
+                        if stored.len()>256 {return Err("Demasiados puntos de automatización".into());}
+                        let mut previous=None;
+                        for point in stored {
+                            let at_ms=point.get("at_ms").and_then(Value::as_u64)
+                                .ok_or("Punto de automatización sin posición")?;
+                            if previous.is_some_and(|v|at_ms<=v) {
+                                return Err("Puntos de automatización fuera de orden".into());
+                            }
+                            let gain_db=point.get("gain_db").and_then(Value::as_f64)
+                                .ok_or("Punto de automatización sin ganancia")?;
+                            if !gain_db.is_finite() || !(-120.0..=24.0).contains(&gain_db){
+                                return Err("Ganancia de automatización inválida".into());
+                            }
+                            previous=Some(at_ms);
+                            points.push(media::MixGainPoint{
+                                at:at_ms as f64/1000.,
+                                gain:if gain_db<=-120.0 {0.0}else{10_f64.powf(gain_db/20.)},
+                            });
+                        }
+                    }
+                    points
+                },
             });
         }
         let legacy_id=regions.first().map(|region|region.asset_id.clone())
