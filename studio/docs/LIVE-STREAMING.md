@@ -16,7 +16,10 @@ fuente (**Micrófono**, **Playlist** o **Playlist + micrófono**). Para playlist
 elegir primero un audio y reproducirlo en el reproductor de VSRadio. Al
 pulsar **Conectar**, se abre la sala y cada oyente conectará su audio P2P.
 La salida de la playlist se captura con Web Audio, se envía al destino
-WebRTC sin copiar el archivo al backend y sigue sonando localmente.
+WebRTC sin copiar el archivo al backend y sigue sonando localmente. Los
+controles **Volumen playlist** y **Volumen micrófono** permiten variar
+independientemente ambas fuentes cuando se elige la mezcla, sin
+monitorizar la voz localmente para evitar realimentación.
 
 Quienes escuchen eligen **Oyente**, ingresan el mismo código y pulsan
 Conectar. No se solicita permiso de micrófono a los oyentes. Sólo hay
@@ -46,6 +49,9 @@ con controles por si el navegador bloquea la reproducción automática.
 - Los mensajes JSON tienen un límite de 48 KiB, las colas tienen
   límite de 64, y hasta 128 participantes pueden conectarse a la vez.
   Las salas se eliminan de memoria cuando salen sus miembros.
+  El navegador envía heartbeat cada 30 segundos; Axum desconecta
+  sesiones sin actividad durante 100 segundos para liberar las salas
+  que pierdan la conexión inesperadamente.
 - El audio de micrófono sólo se captura tras una acción explícita. Salir
   detiene las pistas de micrófono y cierra conexiones P2P. No existen
   grabaciones automáticas, subida de voz al CAS ni historial de chat.
