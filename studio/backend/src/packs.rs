@@ -326,6 +326,33 @@ mod tests{
         remove(Extension(hub.clone()),Path("a".into()),headers()).await.unwrap();
         assert_eq!(list(Extension(hub)).await.0["total_bytes"],0);
     }
+    #[tokio::test]
+    async fn preview_only_serves_image_signatures_and_bounded_paths(){
+        let hub=PackHub::default();
+        let image=b"\x89PNG\r\n\x1a\nfake.png.bytes";
+        let zip=fixture(&[
+            ("assets/virgo/textures/gui/icon.png",image),
+            ("assets/virgo/models/item/test.json",br#"{"parent":"item/generated"}"#),
+        ]);
+        import(Extension(hub.clone()),Path("base".into()),headers(),
+            Bytes::from(zip)).await.unwrap();
+        let path="assets/virgo/textures/gui/icon.png".to_owned();
+        let response=texture(Extension(hub.clone()),Query(TextureQuery{path}))
+            .await.unwrap();
+        assert_eq!(response.status(),StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE],"image/png");
+        let bytes=to_bytes(response.into_body(),2*1024*1024).await.unwrap();
+        assert_eq!(bytes.as_ref(),image);
+        assert!(texture(Extension(hub.clone()),Query(TextureQuery{
+            path:"assets/virgo/models/item/test.json".into(),
+        })).await.is_err());
+        assert!(texture(Extension(hub.clone()),Query(TextureQuery{
+            path:"assets/virgo/../private.png".into(),
+        })).await.is_err());
+        assert!(texture(Extension(hub),Query(TextureQuery{
+            path:"assets/virgo/textures/gui/missing.webp".into(),
+        })).await.is_err());
+    }
     #[test]
     fn pack_id_and_category_boundaries(){
         assert!(valid_id("pack_base"));
