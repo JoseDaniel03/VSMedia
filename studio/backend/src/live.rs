@@ -2,7 +2,7 @@
 //! This server NEVER receives audio, SDP is not persisted, and only peers in
 //! the same validated room can exchange offer/answer/ICE messages.
 //! Production public deployment requires TLS, an authenticated proxy and TURN.
-use std::{collections::HashMap,sync::Arc};
+use std::{collections::HashMap,sync::Arc,time::Duration};
 use axum::{extract::{ws::{WebSocket,WebSocketUpgrade,Message},Extension},http::HeaderMap,response::IntoResponse,Json};
 use futures_util::{SinkExt,StreamExt};
 use serde_json::{Value,json};
@@ -14,6 +14,7 @@ const MAX_TOTAL_PEERS:usize=128;
 const MAX_VOICE_PEERS:usize=8;
 const MAX_RADIO_PEERS:usize=16;
 const MAX_QUEUE:usize=64;
+const HEARTBEAT_TIMEOUT:Duration=Duration::from_secs(100);
 
 #[derive(Clone,Default)]
 pub struct LiveHub(Arc<Mutex<Rooms>>);
@@ -94,6 +95,20 @@ impl LiveHub {
             return Err("Señal WebRTC desconocida".into());
         }
         if !data.is_object(){return Err("Señal sin datos válidos".into());}
+        match kind{
+            "offer"|"answer"=>{
+                if data.get("type").and_then(Value::as_str)!=Some(kind)
+                    || data.get("sdp").and_then(Value::as_str).is_none_or(str::is_empty){
+                    return Err("Descripción SDP inválida".into());
+                }
+            }
+            "candidate"=>{
+                if data.get("candidate").and_then(Value::as_str).is_none(){
+                    return Err("Candidato ICE inválido".into());
+                }
+            }
+            _=>return Err("Señal no permitida".into()),
+        }
         let wire=json!({"type":"signal","from":from,"kind":kind,"data":data});
         let payload=wire.to_string();
         if payload.len()>MAX_MESSAGE{return Err("Señal demasiado grande".into());}
@@ -139,7 +154,7 @@ async fn serve(socket:WebSocket,hub:LiveHub){
         }
     });
     let mut id=None;
-    while let Some(Ok(message))=source.next().await {
+    while let Ok(Some(Ok(message)))=tokio::time::timeout(HEARTBEAT_TIMEOUT,source.next()).await {
         let Message::Text(text)=message else{
             if matches!(message,Message::Close(_)){break;}
             continue;
@@ -169,6 +184,9 @@ async fn serve(socket:WebSocket,hub:LiveHub){
                 if let Err(problem)=hub.signal(id.unwrap_or_default(),to,kind,data).await{
                     emit(&tx,json!({"type":"error","message":problem}));
                 }
+            }
+            Some("ping") if id.is_some()=>{
+                emit(&tx,json!({"type":"pong"}));
             }
             Some("leave")=>break,
             _=>emit(&tx,json!({"type":"error","message":"Primero ingresá a una sala"})),
@@ -209,9 +227,9 @@ mod tests{
         let _=outsider.recv().await;
         assert!(hub.signal(listener_id,host_id,"offer",&json!({"sdp":"bad"})).await.is_err());
         assert!(hub.signal(host_id,outsider_id,"offer",&json!({"sdp":"bad"})).await.is_err());
-        hub.signal(host_id,listener_id,"offer",&json!({"sdp":"test"})).await.unwrap();
+        hub.signal(host_id,listener_id,"offer",&json!({"type":"offer","sdp":"test"})).await.unwrap();
         assert!(listener.recv().await.unwrap().contains("\"from\":1"));
-        hub.signal(listener_id,host_id,"answer",&json!({"sdp":"ok"})).await.unwrap();
+        hub.signal(listener_id,host_id,"answer",&json!({"type":"answer","sdp":"ok"})).await.unwrap();
         assert!(host.recv().await.unwrap().contains("\"answer\""));
         hub.leave(host_id).await;
         assert!(listener.recv().await.unwrap().contains("peer_left"));
