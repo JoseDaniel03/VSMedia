@@ -179,3 +179,77 @@
 .vs-streams-info strong{display:block;color:#50547c;margin:3px 0 5px;font-size:12px}
 .studio-toolbar button.lit{background:#e0d9f5;color:#4c3b97}
 @media(max-width:750px){.vs-streams-checklist{grid-template-columns:1fr}}
+
+
+/* VSPack FullCanvas: airy industrial resource-workspace. */
+.vspack-root{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:auto;background:#f7f8fe;color:#303a55}
+.vspack-head{display:flex;justify-content:space-between;align-items:center;padding:25px 28px 19px;gap:24px;border-bottom:1px solid #e5e8f2;background:linear-gradient(100deg,#fff 45%,#f1edff)}
+.vspack-head small{font-size:10px;letter-spacing:.15em;color:#8667c8;font-weight:800}
+.vspack-head h2{font-size:clamp(21px,2.3vw,32px);color:#303451;margin:7px 0 6px;letter-spacing:-.04em}
+.vspack-head p{font-size:12px;color:#8692a6;max-width:560px}
+.vspack-head>span{color:#7368a1;background:#fff;border:1px solid #e3def3;border-radius:16px;padding:7px 12px;font-size:10px;font-weight:750;white-space:nowrap}
+.vspack-workspace{display:grid;grid-template-columns:minmax(222px,22%) minmax(0,1fr) minmax(215px,23%);gap:0;flex:1;min-height:0}
+.vspack-sidebar,.vspack-inspector,.vspack-output{padding:17px 16px;min-width:0;overflow:auto;background:#fff}
+.vspack-sidebar{border-right:1px solid #e4e7f1}
+.vspack-output{border-left:1px solid #e4e7f1;background:#fcfbff}
+.vspack-inspector{display:flex;flex-direction:column;gap:15px}
+.vspack-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:10px;letter-spacing:.08em;color:#64708b;border-bottom:1px solid #ebeef5;padding:0 0 10px;margin-bottom:11px}
+.vspack-heading span{font-size:10px;letter-spacing:0;color:#a0a9ba}
+.vspack-upload{position:relative;display:flex;align-items:center;justify-content:center;min-height:45px;border:1px dashed #ab95e8;border-radius:9px;background:#f4f0ff;color:#6846b6;font-size:12px;font-weight:800;cursor:pointer;overflow:hidden;margin:12px 0}
+.vspack-upload:hover{background:#ebe4ff}
+.vspack-upload input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.vspack-upload:focus-within{outline:2px solid #9877df;outline-offset:2px}
+.vspack-sources{display:flex;flex-direction:column;gap:8px}
+.vspack-source{padding:12px;background:#fafaff;border:1px solid #e2e4f0;border-radius:10px;min-width:0}
+.vspack-source-head{display:flex;flex-direction:column;gap:4px;min-width:0}
+.vspack-source-head strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#3b4266}
+.vspack-source-head small{font-size:10px;color:#96a0b4}
+.vspack-source-tools{margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.vspack-source-tools label{display:flex;align-items:center;gap:7px;color:#7f88a0;font-size:10px}
+.vspack-source-tools input{width:71px;padding:6px 7px;border-radius:6px;border:1px solid #d8dceb;background:#fff;color:#4d496e;font-size:11px}
+.vspack-remove{padding:7px 8px;border-radius:6px;background:#fff3f5;border:1px solid #f0dce3;color:#a9576b;font-size:10px}
+.vspack-source-tools button:hover{background:#fae5e9}
+.vspack-usage{margin-top:14px;display:flex;flex-direction:column;gap:6px;color:#8a96ad;font-size:10px}
+.vspack-usage progress{appearance:none;width:100%;height:5px;border:0;border-radius:8px;overflow:hidden}
+.vspack-usage progress::-webkit-progress-bar{background:#e9e6f7}
+.vspack-usage progress::-webkit-progress-value{background:#8c70d8}
+.vspack-usage progress::-moz-progress-bar{background:#8c70d8}
+.vspack-note{margin-top:15px;font-size:10px;line-height:1.65;color:#94a0b4}
+.vspack-note code{font-size:10px;color:#715db2}
+.vspack-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.vspack-stat{display:flex;flex-direction:column;gap:7px;padding:13px 14px;background:#fafaff;border:1px solid #e8e9f5;border-radius:10px}
+.vspack-stat small{font-size:9px;color:#95a0b3;font-weight:750;letter-spacing:.07em}
+.vspack-stat strong{font-size:clamp(16px,1.5vw,23px);color:#524b81}
+.vspack-conflicts,.vspack-files{border:1px solid #e5e8f3;border-radius:9px;overflow:auto}
+.vspack-conflicts{max-height:136px;min-height:40px}
+.vspack-conflict{display:flex;gap:12px;justify-content:space-between;align-items:center;padding:8px 11px;background:#fffbf5;border-bottom:1px solid #f0e9dd}
+.vspack-conflict code{font-size:10px;color:#896343;overflow:hidden;text-overflow:ellipsis}
+.vspack-conflict small{font-size:10px;color:#a9783c;white-space:nowrap}
+.vspack-empty{padding:13px;font-size:11px;color:#a0a8b9;text-align:center}
+.vspack-filters{display:flex;gap:8px;margin-bottom:7px}
+.vspack-filters input{flex:1;min-width:0}
+.vspack-filters input,.vspack-filters select{border-radius:7px;border:1px solid #dfe3ee;background:#fff;padding:9px;font-size:11px;color:#59647d}
+.vspack-files{min-height:190px;max-height:390px}
+.vspack-file{display:grid;grid-template-columns:90px minmax(0,1fr) 70px;gap:9px;align-items:center;border-bottom:1px solid #eff1f7;padding:8px 10px;min-width:0}
+.vspack-file:last-child{border-bottom:0}
+.vspack-file:hover{background:#f9f8ff}
+.vspack-category{background:#f0eff9;color:#7b69ad;border-radius:5px;padding:4px 5px;text-align:center;font-size:9px;text-transform:uppercase;white-space:nowrap;overflow:hidden}
+.vspack-path{font-family:ui-monospace,monospace;font-size:10px;color:#56627a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vspack-size{text-align:right;white-space:nowrap;font-size:10px;color:#a3adbe}
+.vspack-pagination{display:flex;justify-content:flex-end;gap:7px;align-items:center;margin-top:7px;color:#a1a8b9;font-size:10px}
+.vspack-pagination button,.vspack-reload{background:#fff;border:1px solid #dfe2f0;color:#7368a2;border-radius:7px;padding:8px 10px;font-size:10px;font-weight:650}
+.vspack-output>strong{font-size:11px;letter-spacing:.13em;color:#6d6294}
+.vspack-output>p:not(.vspack-note){font-size:11px;line-height:1.7;color:#8b95aa;margin-top:12px}
+.vspack-output dl{display:grid;grid-template-columns:1fr auto;gap:10px 5px;margin-top:28px;font-size:11px}
+.vspack-output dt{color:#8791a9}
+.vspack-output dd{color:#474c73;font-weight:700;text-align:right;overflow:hidden;text-overflow:ellipsis}
+.vspack-export{width:100%;background:#7663ca;color:#fff;border:1px solid #7663ca;border-radius:8px;margin-top:22px;padding:13px 8px;font-size:12px;font-weight:750}
+.vspack-export:disabled{opacity:.48;cursor:not-allowed}
+.vspack-export:not(:disabled):hover{background:#604aae}
+.vspack-reload{width:100%;margin-top:8px}
+.vspack-status{border-top:1px solid #e3e5f2;padding:9px 17px;background:#fff;color:#66759b;min-height:35px;font-size:11px}
+.vspack-status.error{color:#ae4152;background:#fff6f8}
+.vspack-root.busy{cursor:progress}
+@media(max-width:1200px){.vspack-workspace{grid-template-columns:225px minmax(0,1fr)}.vspack-output{grid-column:1/-1;border-left:0;border-top:1px solid #e4e7f1}.vspack-output dl{grid-template-columns:repeat(4,auto);gap:8px 12px;align-items:baseline}.vspack-output dd{text-align:left}.vspack-output .vspack-export{max-width:270px}}
+@media(max-width:850px){.vspack-head{padding:18px}.vspack-workspace{grid-template-columns:1fr}.vspack-sidebar{border-right:0;border-bottom:1px solid #e4e7f1}.vspack-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.vspack-files{max-height:350px}.vspack-root{overflow:visible}.vspack-head>span{display:none}}
+@media(max-width:550px){.vspack-filters{flex-direction:column}.vspack-file{grid-template-columns:70px minmax(0,1fr) 52px;gap:5px}.vspack-source-tools{justify-content:flex-start}.vspack-output dl{display:grid;grid-template-columns:1fr auto}}
