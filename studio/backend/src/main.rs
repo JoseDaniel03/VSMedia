@@ -345,6 +345,38 @@ mod tests {
             .body(Body::from(body)).unwrap()
     }
     #[tokio::test]
+    async fn live_room_status_and_capabilities_are_aggregated_without_room_secrets(){
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let status=app.clone().oneshot(request(Method::GET,
+            "/api/v1/live/status",vec![])).await.unwrap();
+        assert_eq!(status.status(),StatusCode::OK);
+        let value:Value=serde_json::from_slice(
+            &to_bytes(status.into_body(),4096).await.unwrap()
+        ).unwrap();
+        assert_eq!(value["transport"],"webrtc_p2p");
+        assert_eq!(value["rooms"],0);
+        assert_eq!(value["peers"],0);
+        assert_eq!(value["max_radio"],16);
+        assert_eq!(value["max_voice"],8);
+        assert_eq!(value["audio_recorded"],false);
+        assert!(value.get("room").is_none());
+        let caps=app.clone().oneshot(request(Method::GET,
+            "/api/v1/capabilities",vec![])).await.unwrap();
+        assert_eq!(caps.status(),StatusCode::OK);
+        let capabilities:Value=serde_json::from_slice(
+            &to_bytes(caps.into_body(),4096).await.unwrap()
+        ).unwrap();
+        assert_eq!(capabilities["webrtc_signaling"],true);
+        assert_eq!(capabilities["webrtc_voice_rooms"],true);
+        assert_eq!(capabilities["webrtc_radio_peer_mesh"],true);
+        assert_eq!(capabilities["radio_broadcast"],false);
+        let unsupported=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/sessions",vec![])).await.unwrap();
+        assert_eq!(unsupported.status(),StatusCode::NOT_IMPLEMENTED);
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+    #[tokio::test]
     async fn catalog_retrieval_and_editor_commands_work_end_to_end() {
         let (db,dir)=store();
         let sound_key=AssetKey::new("studio","audio/fixture").unwrap();
