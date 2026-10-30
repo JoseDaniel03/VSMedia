@@ -29,7 +29,7 @@ function install(root){
     '<span>Sin datapacks · Sesión local</span></div>'+
     '<div class="vspack-workspace">'+
       '<aside class="vspack-sidebar"><div class="vspack-heading"><strong>PAQUETES</strong><span data-field="count">0 / 6</span></div>'+
-      '<label class="vspack-upload">＋ Importar ZIP <input data-field="upload" type="file" accept=".zip,application/zip" multiple></label>'+
+      '<label class="vspack-upload">＋ Importar ZIP <input data-field="upload" id="vspack-upload" type="file" accept=".zip,application/zip" multiple></label>'+
       '<div class="vspack-sources" data-field="packs"></div>'+
       '<div class="vspack-usage"><span data-field="usage">0 / 64 MiB</span><progress data-field="memory" max="67108864" value="0"></progress></div>'+
       '<p class="vspack-note">La prioridad más alta gana. Los eventos de sounds.json se fusionan por clave. Las colisiones con igual prioridad se rechazan.</p>'+
@@ -55,7 +55,7 @@ function install(root){
       '<dt>Archivos</dt><dd data-field="totalfiles">0</dd>'+
       '<dt>Datos</dt><dd data-field="totalbytes">0 B</dd>'+
       '<dt>Namespaces</dt><dd data-field="namespaces">—</dd></dl>'+
-      '<button data-action="export" type="button" class="vspack-export" disabled>↓ Exportar Resource Pack</button>'+
+      '<button data-action="export" id="vspack-export" type="button" class="vspack-export" disabled>↓ Exportar Resource Pack</button>'+
       '<button data-action="reload" type="button" class="vspack-reload">↻ Analizar de nuevo</button>'+
       '<p class="vspack-note">La exportación descarga un ZIP local; todavía no lo publica en VSEngine ni en una CDN.</p>'+
       '</aside>'+
