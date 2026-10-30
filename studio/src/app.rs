@@ -3,6 +3,7 @@ use crate::media::{self,AudioAsset,Folder,Version,Track,MixRegion,MixGainPoint,M
 use crate::{export,recording,studio_api};
 use crate::mix_history::MixHistory;
 use wasm_bindgen::JsCast;
+use std::collections::HashSet;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {Home, Audio, Mix, Radio, Streams}
@@ -737,6 +738,16 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
             <button type="button" class="toolbar-button" on:click=move |_|{
                 for track in tracks.get_untracked(){if let Some(p)=media::player(&format!("track-{}",track.id)){p.pause().ok();}}
             }>"Ⅱ Pausar"</button>
+            <button type="button" class="toolbar-button" title="Pista anterior"
+                on:click=move |_|radio_advance(assets,playlists,active_playlist,play_index,status,false,true)>"◀ Anterior"</button>
+            <button type="button" class="toolbar-button" title="Siguiente pista disponible"
+                on:click=move |_|radio_advance(assets,playlists,active_playlist,play_index,status,repeat_radio.get_untracked(),false)>"Siguiente ▶"</button>
+            <button type="button" class="toolbar-button"
+                class:lit=move ||repeat_radio.get()
+                title="Al terminar la lista, volver a empezar"
+                on:click=move |_|repeat_radio.update(|repeat|*repeat=!*repeat)>
+                {move ||if repeat_radio.get(){"↻ Repetir: sí"}else{"↻ Repetir: no"}}
+            </button>
             <Show when=move ||!recording.get()>
                 <button id="mix-record" type="button" class="toolbar-button record-button" on:click=move |_|{
                     let active_id=selected_track.get_untracked();
@@ -946,19 +957,45 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
 fn play_radio(assets: RwSignal<Vec<AudioAsset>>,playlists: RwSignal<Vec<Playlist>>,
               active_playlist: RwSignal<String>,index: RwSignal<usize>,status: RwSignal<String>) {
     let pid=active_playlist.get_untracked();
-    let Some(playlist)=playlists.get_untracked().into_iter().find(|p|p.id==pid) else {
-        status.set("Creá o seleccioná una playlist.".to_owned());return;
+    let Some(playlist)=playlists.with_untracked(|all|all.iter().find(|p|p.id==pid).cloned()) else {
+        status.set("Creá o seleccioná una playlist.".into());return;
     };
-    let Some(file_id)=playlist.items.get(index.get_untracked()) else {
-        status.set("La playlist terminó o está vacía.".to_owned());return;
+    let ids=assets.with_untracked(|all|all.iter().map(|a|a.id.clone()).collect::<HashSet<String>>());
+    // Persisted playlists only contain IDs, never binary media. Skip missing
+    // sources after reload instead of getting stuck at the first absent asset.
+    let Some(pos)=(index.get_untracked()..playlist.items.len())
+        .find(|&i|ids.contains(&playlist.items[i])) else {
+        status.set("No quedan archivos disponibles. Reimportá los audios si recargaste el editor.".into());
+        if let Some(player)=media::player("radio-player"){let _=player.pause();}
+        return;
     };
-    let Some(asset)=media::asset_by_id(assets,file_id) else {
-        status.set("El archivo no está disponible en la sesión.".to_owned());return;
-    };
+    index.set(pos);
+    let Some(asset)=media::asset_by_id(assets,&playlist.items[pos]) else{return;};
     if let Some(player)=media::player("radio-player") {
         player.set_src(&asset.url);
         let _=player.play();
-        status.set(format!("Reproducción local: {}",asset.name));
+        status.set(format!("VSRadio · {} ({}/{})",asset.name,pos+1,playlist.items.len()));
+    }
+}
+fn radio_advance(assets: RwSignal<Vec<AudioAsset>>,playlists: RwSignal<Vec<Playlist>>,
+    active_playlist:RwSignal<String>,index:RwSignal<usize>,status:RwSignal<String>,
+    repeat:bool,backward:bool) {
+    let pid=active_playlist.get_untracked();
+    let Some(playlist)=playlists.with_untracked(|all|all.iter().find(|p|p.id==pid).cloned()) else{
+        status.set("Seleccioná una playlist.".into());return;
+    };
+    let ids=assets.with_untracked(|all|all.iter().map(|a|a.id.clone()).collect::<HashSet<String>>());
+    let next=if backward {
+        crate::radio_queue::previous_playable(&playlist.items,&ids,index.get_untracked())
+    }else {
+        crate::radio_queue::next_playable(&playlist.items,&ids,index.get_untracked(),repeat)
+    };
+    if let Some(next)=next{
+        index.set(next);
+        play_radio(assets,playlists,active_playlist,index,status);
+    }else{
+        if let Some(player)=media::player("radio-player"){let _=player.pause();}
+        status.set(if backward{"No hay pistas anteriores disponibles."}else{"La playlist terminó. Podés activar Repetir."}.into());
     }
 }
 
@@ -966,8 +1003,10 @@ fn play_radio(assets: RwSignal<Vec<AudioAsset>>,playlists: RwSignal<Vec<Playlist
 fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,selected: RwSignal<String>,
                status: RwSignal<String>,playlists: RwSignal<Vec<Playlist>>,recording: RwSignal<bool>,page: RwSignal<Page>) -> impl IntoView {
     let new_playlist=RwSignal::new(String::new());
-    let active_playlist=RwSignal::new(String::new());
+    let active_playlist=RwSignal::new(media::storage_get("vsmedia:radio:active_playlist"));
+    Effect::new(move |_|media::storage_set("vsmedia:radio:active_playlist",&active_playlist.get()));
     let play_index=RwSignal::new(0usize);
+    let repeat_radio=RwSignal::new(false);
     let schedule=RwSignal::new(media::storage_get("vsmedia:radio:schedule"));
     let active_items=move ||playlists.get().into_iter().find(|p|p.id==active_playlist.get()).map(|p|p.items).unwrap_or_default();
     let indexed_items=move ||active_items().into_iter().enumerate().collect::<Vec<(usize,String)>>();
@@ -988,7 +1027,9 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                     recording::start(assets,status,recording,move |file_id|{
                         let pid=active_playlist.get_untracked();
                         if !pid.is_empty(){
-                            playlists.update(|list|if let Some(p)=list.iter_mut().find(|p|p.id==pid){p.items.push(file_id.clone());});
+                            playlists.update(|list|if let Some(p)=list.iter_mut().find(|p|p.id==pid){
+                                if p.items.len()<crate::radio_queue::MAX_ITEMS{p.items.push(file_id.clone());}
+                            });
                         }
                     });
                 }>"● Grabar micrófono"</button>
@@ -1005,7 +1046,13 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                     <input id="radio-new-playlist" aria-label="Nombre de playlist" placeholder="Nombre de nueva playlist" prop:value=move ||new_playlist.get()
                         on:input=move |ev|new_playlist.set(event_target_value(&ev)) />
                     <button class="action-primary" type="button" on:click=move |_|{
-                        let name=new_playlist.get_untracked().trim().to_owned();if name.is_empty(){return;}
+                        let name=new_playlist.get_untracked().trim().to_owned();
+                        if !crate::radio_queue::valid_name(&name){
+                            status.set("Nombre de lista inválido (máximo 80 caracteres).".into());return;
+                        }
+                        if playlists.with_untracked(|all|all.len()>=crate::radio_queue::MAX_PLAYLISTS){
+                            status.set("Máximo 32 playlists por sesión.".into());return;
+                        }
                         let id=media::uid("playlist");
                         playlists.update(|list|list.push(Playlist{id:id.clone(),name,items:Vec::new()}));
                         active_playlist.set(id);new_playlist.set(String::new());
@@ -1031,7 +1078,13 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                         <button class="action-secondary" type="button" on:click=move |_|{
                             let file=selected.get_untracked();let pid=active_playlist.get_untracked();
                             if file.is_empty(){status.set("Seleccioná un archivo de la biblioteca.".to_owned());return;}
-                            playlists.update(|all|if let Some(p)=all.iter_mut().find(|p|p.id==pid){p.items.push(file.clone());});
+                            let mut added=false;
+                            playlists.update(|all|if let Some(p)=all.iter_mut().find(|p|p.id==pid){
+                                if p.items.len()<crate::radio_queue::MAX_ITEMS {
+                                    p.items.push(file.clone());added=true;
+                                }
+                            });
+                            if !added{status.set("La playlist está llena o no fue encontrada (máximo 512 pistas).".into());}
                         }>"＋ Agregar archivo seleccionado"</button>
                         <span>{move ||format!("{} archivos",active_items().len())}</span>
                     </div>
@@ -1068,11 +1121,10 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                 <div class="radio-player-block"><div class="pane-title">"REPRODUCTOR LOCAL"</div>
                     <audio id="radio-player" controls preload="metadata"
                         on:ended=move |_|{
-                            let next=play_index.get_untracked()+1;
-                            play_index.set(next);
-                            play_radio(assets,playlists,active_playlist,play_index,status);
+                            radio_advance(assets,playlists,active_playlist,play_index,status,
+                                repeat_radio.get_untracked(),false);
                         }>"Audio HTML5 no disponible"</audio>
-                    <small>"Esta playlist puede compartirse con los oyentes P2P al conectar VSRadio como emisor. La reproducción sigue siendo local si no conectás una sala."</small>
+                    <small>"La playlist se conserva en este navegador, pero los archivos binarios NO. Si recargás, reimportá el material. La emisión P2P comienza sólo al conectarte como emisor."</small>
                 </div>
             </section>
             <aside class="schedule-panel"><div class="stage-topline"><span>"PROGRAMACIÓN"</span></div>
