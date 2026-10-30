@@ -73,25 +73,22 @@ async fn decode(id:&str) -> Result<Waveform,String> {
         if frames==0 || frames>MAX_DECODED_FRAMES || !duration.is_finite() || duration<=0. {
             return Err("Audio demasiado largo para esta vista previa local".into());
         }
-        let left=buffer.get_channel_data(0).map_err(|_|"No hay canal de audio")?;
-        let right=if buffer.number_of_channels()>1 {
-            Some(buffer.get_channel_data(1).map_err(|_|"Canal derecho inválido")?)
-        } else {None};
+        let stereo=buffer.number_of_channels()>1;
         let count=frames.min(PEAK_BUCKETS);
         let mut peaks=Vec::with_capacity(count);
         for bucket in 0..count {
             let start=bucket*frames/count;
             let end=(bucket+1)*frames/count;
-            // Each temporary segment is at most ~13k samples for 10m frames.
-            let left_values=left.subarray(start as u32,end as u32).to_vec();
-            let right_values=right.as_ref().map(|values|
-                values.subarray(start as u32,end as u32).to_vec());
-            let mut amplitude=0.0f32;
-            for (index, value) in left_values.iter().enumerate() {
-                amplitude=amplitude.max(value.abs());
-                if let Some(values)=right_values.as_ref() {
-                    amplitude=amplitude.max(values[index].abs());
-                }
+            // Read only ~13k frames per bucket. Do not copy full PCM into WASM.
+            let mut left=vec![0.0f32;end-start];
+            buffer.copy_from_channel_with_start_in_channel(&mut left,0,start as u32)
+                .map_err(|_|"No se pudo leer el canal izquierdo")?;
+            let mut amplitude=left.iter().fold(0.0f32,|max,s|max.max(s.abs()));
+            if stereo {
+                let mut right=vec![0.0f32;end-start];
+                buffer.copy_from_channel_with_start_in_channel(&mut right,1,start as u32)
+                    .map_err(|_|"No se pudo leer el canal derecho")?;
+                amplitude=right.iter().fold(amplitude,|max,s|max.max(s.abs()));
             }
             peaks.push(amplitude.min(1.));
         }
