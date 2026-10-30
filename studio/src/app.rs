@@ -5,9 +5,9 @@ use crate::mix_history::MixHistory;
 use wasm_bindgen::JsCast;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Page {Home, Audio, Mix, Radio}
+enum Page {Home, Audio, Mix, Radio, Streams}
 impl Page {
-    fn title(self)->&'static str {match self {Self::Home=>"Home",Self::Audio=>"VSAudio",Self::Mix=>"VSMix",Self::Radio=>"VSRadio"}}
+    fn title(self)->&'static str {match self {Self::Home=>"Home",Self::Audio=>"VSAudio",Self::Mix=>"VSMix",Self::Radio=>"VSRadio",Self::Streams=>"VSStreams"}}
 }
 
 #[component]
@@ -35,7 +35,7 @@ pub fn App() -> impl IntoView {
         <div class="app-shell">
             <header class="app-topbar">
                 <nav class="app-tabs" aria-label="Espacios de trabajo">
-                    { [Page::Home,Page::Audio,Page::Mix,Page::Radio].into_iter().map(|target| view! {
+                    { [Page::Home,Page::Audio,Page::Mix,Page::Radio,Page::Streams].into_iter().map(|target| view! {
                         <button type="button" class:active=move || page.get()==target
                             on:click=move |_|{crate::teleprompter::stop();page.set(target);}>{target.title()}</button>
                     }).collect_view() }
@@ -67,6 +67,9 @@ pub fn App() -> impl IntoView {
                 <Show when=move ||page.get()==Page::Radio>
                     <RadioStudio assets folders selected status playlists recording page />
                 </Show>
+                <Show when=move ||page.get()==Page::Streams>
+                    <StreamsStudio page status />
+                </Show>
             </main>
             <Show when=move ||!status.get().is_empty()>
                 <div class="toast" role="status">{move ||status.get()}</div>
@@ -97,7 +100,10 @@ fn Home(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,selecte
                 <span class="tile-symbol">"≋"</span><strong>"VSMix"</strong><small>"Multipista · mezcla · voces · doblaje"</small><span class="tile-open">"Abrir estudio ↗"</span>
             </button>
             <button type="button" on:click=move |_|page.set(Page::Radio)>
-                <span class="tile-symbol">"◉"</span><strong>"VSRadio"</strong><small>"Playlists · programación · grabación"</small><span class="tile-open">"Abrir consola ↗"</span>
+                <span class="tile-symbol">"◉"</span><strong>"VSRadio"</strong><small>"Playlists · programación · emisión P2P"</small><span class="tile-open">"Abrir consola ↗"</span>
+            </button>
+            <button type="button" on:click=move |_|page.set(Page::Streams)>
+                <span class="tile-symbol">"◎"</span><strong>"VSStreams"</strong><small>"Salas de voz WebRTC · micrófono · controles"</small><span class="tile-open">"Abrir salas ↗"</span>
             </button>
         </div>
         <div class="home-library-head"><h2>"Biblioteca"</h2><span>"Carpetas, subcarpetas y clasificación de archivos"</span></div>
@@ -966,7 +972,7 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
         <div class="studio-toolbar">
             <EditorMenu page status />
             <strong>"VSRadio"</strong><span class="toolbar-separator"></span><span class="toolbar-caption">"CONSOLA LOCAL"</span>
-            <span class="connection-badge">"● Sin emisión conectada"</span>
+            <span class="connection-badge">"● Emisión P2P local disponible"</span>
             <button id="radio-play" type="button" class="toolbar-button" on:click=move |_|{
                 play_index.set(0);
                 play_radio(assets,playlists,active_playlist,play_index,status);
@@ -1055,6 +1061,7 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                         }/>
                     </div>
                 </Show>
+                <div class="vs-live-panel" data-vslive="radio"></div>
                 <div class="radio-player-block"><div class="pane-title">"REPRODUCTOR LOCAL"</div>
                     <audio id="radio-player" controls preload="metadata"
                         on:ended=move |_|{
@@ -1062,7 +1069,7 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                             play_index.set(next);
                             play_radio(assets,playlists,active_playlist,play_index,status);
                         }>"Audio HTML5 no disponible"</audio>
-                    <small>"La salida se escucha en este navegador; no equivale a transmitir por Internet."</small>
+                    <small>"Esta playlist puede compartirse con los oyentes P2P al conectar VSRadio como emisor. La reproducción sigue siendo local si no conectás una sala."</small>
                 </div>
             </section>
             <aside class="schedule-panel"><div class="stage-topline"><span>"PROGRAMACIÓN"</span></div>
@@ -1073,12 +1080,31 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                             let value=event_target_value(&ev);schedule.set(value.clone());media::storage_set("vsmedia:radio:schedule",&value);
                         }></textarea>
                 </label>
-                <small>"Las notas se guardan localmente. La conexión de streaming se añadirá mediante el backend del plugin."</small>
+                <small>"Las notas se guardan localmente. La transmisión P2P utiliza señalización Axum en localhost; no hay servidor de distribución masiva."</small>
             </aside>
         </div>
     </div>}
 }
 
+#[component]
+fn StreamsStudio(page:RwSignal<Page>,status:RwSignal<String>)->impl IntoView {
+    view! {
+        <div class="studio-screen">
+            <div class="studio-toolbar">
+                <EditorMenu page status />
+                <strong>"VSStreams"</strong>
+                <span class="toolbar-separator"></span>
+                <span class="toolbar-caption">"SALAS DE VOZ EN DIRECTO"</span>
+                <span class="connection-badge">"● WebRTC P2P · 8 personas"</span>
+            </div>
+            <main class="vs-streams-workspace">
+                <div class="stage-topline"><span>"SALAS DE VOZ"</span><span>"Micrófono · entrada/salida · silencio"</span></div>
+                <div class="vs-live-panel" data-vslive="voice"></div>
+                <p class="field-note">"Creá un código privado y compartilo con los participantes que utilicen el mismo servidor de señalización. El sistema no graba conversaciones ni enciende el micrófono sin permiso."</p>
+            </main>
+        </div>
+    }
+}
 fn click_control(id: &str) {
     if let Some(elem)=web_sys::window().and_then(|w|w.document()).and_then(|d|d.get_element_by_id(id)) {
         if let Ok(html)=wasm_bindgen::JsCast::dyn_into::<web_sys::HtmlElement>(elem){html.click();}
@@ -1103,6 +1129,7 @@ fn handle_menu(command: MenuCommand,page: RwSignal<Page>,status: RwSignal<String
             Page::Audio=>click_control("audio-new-version"),
             Page::Mix=>click_control("mix-add-track"),
             Page::Radio=>focus_control("radio-new-playlist"),
+            Page::Streams=>{},
             Page::Home=>{},
         },
         MenuCommand::Export => match page.get_untracked() {
@@ -1120,6 +1147,7 @@ fn handle_menu(command: MenuCommand,page: RwSignal<Page>,status: RwSignal<String
             Page::Audio=>{page.set(Page::Mix);status.set("Elegí una pista para grabar el micrófono.".to_owned());},
             Page::Mix=>click_control("mix-record"),
             Page::Radio=>click_control("radio-record"),
+            Page::Streams=>{},
             Page::Home=>{},
         },
         MenuCommand::Playback => match page.get_untracked(){
@@ -1129,10 +1157,11 @@ fn handle_menu(command: MenuCommand,page: RwSignal<Page>,status: RwSignal<String
             },
             Page::Mix=>click_control("mix-play"),
             Page::Radio=>click_control("radio-play"),
+            Page::Streams=>{},
             Page::Home=>{},
         },
         MenuCommand::View=>scroll_to("media-library"),
-        MenuCommand::Help=>status.set("Archivos locales · VSAudio exporta WAV · VSMix graba pistas · VSRadio reproduce listas. No hay emisión remota conectada.".to_owned()),
+        MenuCommand::Help=>status.set("VSAudio edita · VSMix mezcla · VSRadio emite a una sala P2P · VSStreams conecta salas de voz. Internet requiere HTTPS, proxy autenticado y TURN.".to_owned()),
     }
 }
 
