@@ -68,7 +68,10 @@ pub async fn import(
             "ZIP debe ocupar entre 1 byte y 12 MiB".into()));
     }
     let label=headers.get("x-vspack-label").and_then(|h|h.to_str().ok())
-        .unwrap_or(&id).trim().to_owned();
+        .map(|raw|percent_encoding::percent_decode_str(raw).decode_utf8()
+            .map(|value|value.trim().to_owned()))
+        .transpose().map_err(|_|bad("Nombre UTF-8 inválido"))?
+        .unwrap_or_else(||id.clone());
     if label.is_empty()||label.chars().count()>80||label.chars().any(char::is_control) {
         return Err(bad("Nombre de pack inválido (máximo 80 caracteres)"));
     }
@@ -168,9 +171,12 @@ pub async fn preview(Extension(hub):Extension<PackHub>)->Result<Json<Value>,ApiE
         .collect::<BTreeSet<_>>();
     let total_bytes:usize=merged.files.values().map(Vec::len).sum();
     let has_manifest=merged.files.contains_key("pack.mcmeta");
+    let valid_manifest=merged.files.get("pack.mcmeta")
+        .and_then(|bytes|serde_json::from_slice::<Value>(bytes).ok())
+        .is_some_and(|root|root.get("pack").is_some_and(Value::is_object));
     let conflicts_count=merged.conflicts.len();
     Ok(Json(json!({
-        "ready":has_manifest,"has_manifest":has_manifest,
+        "ready":valid_manifest,"has_manifest":has_manifest,
         "file_count":merged.files.len(),"bytes":total_bytes,
         "categories":counts,"namespaces":namespaces,
         "conflicts_count":conflicts_count,
@@ -180,8 +186,8 @@ pub async fn preview(Extension(hub):Extension<PackHub>)->Result<Json<Value>,ApiE
         "files":merged.files.iter().map(|(path,data)|
             json!({"path":path,"bytes":data.len(),"category":category(path)})
         ).collect::<Vec<_>>(),
-        "warning":if has_manifest{""}
-            else{"Falta pack.mcmeta: añadí un pack base con su manifiesto antes de exportar"}
+        "warning":if valid_manifest{""}
+            else{"Falta un pack.mcmeta válido con el objeto pack. Añadí un pack base antes de exportar"}
     })))
 }
 pub async fn export(Extension(hub):Extension<PackHub>)->Result<Response,ApiError>{
@@ -199,6 +205,93 @@ pub async fn export(Extension(hub):Extension<PackHub>)->Result<Response,ApiError
 #[cfg(test)]
 mod tests{
     use super::*;
+    use std::collections::BTreeMap;
+    use vsmedia_pack::{PackAsset,MergeOutput};
+    use axum::body::to_bytes;
+
+    fn fixture(files:&[(&str,&[u8])])->Vec<u8>{
+        let mut map=BTreeMap::from([
+            ("pack.mcmeta".to_owned(),
+                br#"{"pack":{"pack_format":1,"description":"Studio fixture"}}"#.to_vec())
+        ]);
+        for (name,content) in files {map.insert((*name).to_owned(),content.to_vec());}
+        archive::export_zip(&MergeOutput{files:map,conflicts:vec![]},limits()).unwrap()
+    }
+    fn headers()->HeaderMap{
+        let mut h=HeaderMap::new();
+        h.insert(header::ORIGIN,header::HeaderValue::from_static("http://127.0.0.1:3060"));
+        h
+    }
+    #[tokio::test]
+    async fn zip_import_priority_preview_export_round_trip(){
+        let hub=PackHub::default();
+        let source_a=fixture(&[
+            ("assets/virgo/textures/gui/menu.png",b"old"),
+            ("assets/virgo/sounds.json",br#"{"a":{"sounds":["a"]}}"#)
+        ]);
+        let source_b=fixture(&[
+            ("assets/virgo/textures/gui/menu.png",b"new"),
+            ("assets/virgo/sounds.json",br#"{"b":{"sounds":["b"]}}"#)
+        ]);
+        import(Extension(hub.clone()),Path("base".into()),headers(),Bytes::from(source_a))
+            .await.unwrap();
+        import(Extension(hub.clone()),Path("overlay".into()),headers(),Bytes::from(source_b))
+            .await.unwrap();
+        let summary=preview(Extension(hub.clone())).await.unwrap().0;
+        assert_eq!(summary["ready"],true);
+        assert_eq!(summary["file_count"],3);
+        assert_eq!(summary["conflicts_count"],1);
+        assert_eq!(summary["conflicts"][0]["winner"],"overlay");
+        assert_eq!(summary["categories"]["textures"],1);
+        assert!(summary["namespaces"].as_array().unwrap().iter().any(|x|x=="virgo"));
+        let response=export(Extension(hub.clone())).await.unwrap();
+        assert_eq!(response.status(),StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE],"application/zip");
+        let zipped=to_bytes(response.into_body(),16*1024*1024).await.unwrap();
+        let files=archive::import_zip(&zipped,"result",0,limits()).unwrap();
+        let icon=files.iter().find(|file|file.path.ends_with("menu.png")).unwrap();
+        assert_eq!(icon.data,b"new");
+        let sounds=files.iter().find(|file|file.path.ends_with("sounds.json")).unwrap();
+        let json:Value=serde_json::from_slice(&sounds.data).unwrap();
+        assert!(json.get("a").is_some()&&json.get("b").is_some());
+        let again=export(Extension(hub.clone())).await.unwrap();
+        let again=to_bytes(again.into_body(),16*1024*1024).await.unwrap();
+        assert_eq!(zipped,again);
+    }
+    #[tokio::test]
+    async fn invalid_zip_external_origin_and_conflicting_priority_are_rejected(){
+        let hub=PackHub::default();
+        let response=import(Extension(hub.clone()),Path("bad".into()),
+            headers(),Bytes::from_static(b"not a zip")).await;
+        assert!(response.is_err());
+        assert_eq!(list(Extension(hub.clone())).await.0["packs"].as_array().unwrap().len(),0);
+        let mut blocked=headers();
+        blocked.insert(header::ORIGIN,header::HeaderValue::from_static("https://attacker.example"));
+        let source=fixture(&[("assets/virgo/textures/gui/a.png",b"a")]);
+        assert_eq!(import(Extension(hub.clone()),Path("base".into()),
+            blocked,Bytes::from(source.clone())).await.unwrap_err().0,StatusCode::FORBIDDEN);
+        import(Extension(hub.clone()),Path("base".into()),
+            headers(),Bytes::from(source)).await.unwrap();
+        let modified=fixture(&[("assets/virgo/textures/gui/a.png",b"b")]);
+        import(Extension(hub.clone()),Path("other".into()),headers(),
+            Bytes::from(modified)).await.unwrap();
+        priority(Extension(hub.clone()),Path("base".into()),headers(),
+            Json(PriorityInput{priority:5})).await.unwrap();
+        priority(Extension(hub.clone()),Path("other".into()),headers(),
+            Json(PriorityInput{priority:5})).await.unwrap();
+        assert!(preview(Extension(hub.clone())).await.is_err());
+        assert!(export(Extension(hub)).await.is_err());
+    }
+    #[tokio::test]
+    async fn invalid_manifest_cannot_export_and_remove_frees_resources(){
+        let hub=PackHub::default();
+        let bytes=fixture(&[]);
+        import(Extension(hub.clone()),Path("a".into()),headers(),
+            Bytes::from(bytes)).await.unwrap();
+        assert_eq!(list(Extension(hub.clone())).await.0["packs"].as_array().unwrap().len(),1);
+        remove(Extension(hub.clone()),Path("a".into()),headers()).await.unwrap();
+        assert_eq!(list(Extension(hub)).await.0["total_bytes"],0);
+    }
     #[test]
     fn pack_id_and_category_boundaries(){
         assert!(valid_id("pack_base"));

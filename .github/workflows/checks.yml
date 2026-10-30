@@ -36,6 +36,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - run: node --check studio/assets/live.js
+      - run: node --check studio/assets/pack.js
       - run: cargo check --manifest-path studio/Cargo.toml --target wasm32-unknown-unknown
       # Native headless tests exercise the exact timeline history/batch modules.
       - run: cargo test --manifest-path studio/test-support/Cargo.toml --all-targets
