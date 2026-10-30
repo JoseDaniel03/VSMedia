@@ -167,7 +167,7 @@ function install(root){
       const row=el("div","vspack-file");
       row.append(el("span","vspack-category",item.category),
         el("code","vspack-path",item.path),el("span","vspack-size",size(item.bytes)));
-      if(item.category==="textures" && /.(png|jpe?g|webp)$/i.test(item.path)){
+      if(item.category==="textures" && /\.(png|jpe?g|webp)$/i.test(item.path)){
         const view=el("button","vspack-view","Ver");
         view.type="button";view.title="Vista previa de "+item.path;
         view.onclick=()=>guard(async()=>{
@@ -229,8 +229,7 @@ function install(root){
   button("layers").onclick=()=>guard(async()=>{
     if(!state.preview?.ready)throw Error("Necesitás pack.mcmeta válido.");
     const base_id=f("baseid").value.trim();
-    const lines=f("rules").value.split(/?
-/).map(line=>line.trim()).filter(Boolean);
+    const lines=f("rules").value.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
     if(!/^[a-z0-9_-]{1,64}$/.test(base_id))throw Error("ID de base inválido.");
     if(!lines.length||lines.length>5)throw Error("Ingresá de 1 a 5 overlays (id=assets/namespace/ruta/).");
     const rules=lines.map(line=>{
