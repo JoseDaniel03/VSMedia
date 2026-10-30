@@ -161,3 +161,21 @@
 .app-tabs{min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:thin}
 @media(max-width:1180px){.home-module-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.home-module-grid{grid-template-columns:1fr}}
+
+/* VSStreams is the Plasmo Voice integration inspector, not another WebRTC voice client. */
+.vs-streams-intro{padding:18px 18px 12px;background:linear-gradient(110deg,#fbfaff,#f0f4fd);border:1px solid #e1e4f2;border-radius:12px}
+.vs-streams-intro h2{font-size:clamp(17px,2vw,25px);font-weight:750;color:#343f63;margin:0 0 8px}
+.vs-streams-intro p,.vs-streams-status p,.vs-streams-info p{font-size:12px;color:#7c879f;line-height:1.65;margin:6px 0 10px}
+.vs-streams-status{padding:14px 17px;background:#fff;border:1px solid #e2e5f0;border-radius:10px}
+.vs-streams-status-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#525b74}
+.vs-streams-status-line strong{flex:1;min-width:200px}
+.vs-streams-status-line button{font-size:11px;padding:8px 11px}
+.vs-streams-checklist{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.vs-streams-checklist section,.vs-streams-info{padding:15px;border:1px solid #e3e6f1;border-radius:10px;background:#fff}
+.vs-streams-checklist h3{font-size:13px;color:#4c4c80;margin:0 0 8px}
+.vs-streams-checklist p{font-size:11px;color:#8490a6;line-height:1.55}
+.vs-streams-checklist a{display:inline-block;margin-top:9px;font-size:11px;color:#6650c4;text-decoration:none;font-weight:700}
+.vs-streams-checklist a:hover{text-decoration:underline}
+.vs-streams-info strong{display:block;color:#50547c;margin:3px 0 5px;font-size:12px}
+.studio-toolbar button.lit{background:#e0d9f5;color:#4c3b97}
+@media(max-width:750px){.vs-streams-checklist{grid-template-columns:1fr}}
