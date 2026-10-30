@@ -1,4 +1,5 @@
-/* VSMedia: ephemeral peer-to-peer radio and voice rooms. No server audio. */
+/* VSRadio only: ephemeral peer-to-peer broadcast. Minecraft proximity
+ * voice is provided by Plasmo Voice, never by this browser client. */
 (() => {
 "use strict";
 const URL = "ws://127.0.0.1:3061/api/v1/live/ws";
@@ -47,9 +48,9 @@ function getRadioSource(player, microphone) {
   };
 }
 function mount(root) {
-  if (root.dataset.liveReady) return;
+  if (root.dataset.vslive!=="radio" || root.dataset.liveReady) return;
   root.dataset.liveReady="1";
-  const radio=root.dataset.vslive==="radio";
+  const radio=true;
   root.innerHTML =
     '<header class="vs-live-header"><div><strong>'+(radio?"VSRadio · Emisión en vivo":"VSStreams · Chat de voz")+
     '</strong><small>'+(radio?"1 emisor + 15 oyentes máximo":"8 participantes máximo")+
@@ -281,7 +282,7 @@ function refresh(){
   for(const [root,state] of mounted){
     if(!root.isConnected){state.stop().catch(()=>{});mounted.delete(root);}
   }
-  document.querySelectorAll("[data-vslive]").forEach(mount);
+  document.querySelectorAll('[data-vslive="radio"]').forEach(mount);
 }
 function boot(){refresh();new MutationObserver(refresh).observe(document.body,{childList:true,subtree:true});}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);
