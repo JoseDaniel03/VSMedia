@@ -106,7 +106,7 @@ fn Home(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,selecte
                 <span class="tile-symbol">"◉"</span><strong>"VSRadio"</strong><small>"Playlists · programación · emisión P2P"</small><span class="tile-open">"Abrir consola ↗"</span>
             </button>
             <button type="button" on:click=move |_|page.set(Page::Streams)>
-                <span class="tile-symbol">"◎"</span><strong>"VSStreams"</strong><small>"Salas de voz WebRTC · micrófono · controles"</small><span class="tile-open">"Abrir salas ↗"</span>
+                <span class="tile-symbol">"◎"</span><strong>"VSStreams"</strong><small>"Plasmo Voice · proximidad · integración"</small><span class="tile-open">"Abrir salas ↗"</span>
             </button>
         </div>
         <div class="home-library-head"><h2>"Biblioteca"</h2><span>"Carpetas, subcarpetas y clasificación de archivos"</span></div>
@@ -1091,23 +1091,63 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
 
 #[component]
 fn StreamsStudio(page:RwSignal<Page>,status:RwSignal<String>)->impl IntoView {
+    let integration=RwSignal::new("Estado no consultado".to_owned());
+    studio_api::probe_streams(integration);
     view! {
         <div class="studio-screen">
             <div class="studio-toolbar">
                 <EditorMenu page status />
                 <strong>"VSStreams"</strong>
                 <span class="toolbar-separator"></span>
-                <span class="toolbar-caption">"SALAS DE VOZ EN DIRECTO"</span>
-                <span class="connection-badge">"● WebRTC P2P · 8 personas"</span>
+                <span class="toolbar-caption">"INTEGRACIÓN DE VOZ POR PROXIMIDAD"</span>
+                <span class="connection-badge">"Plasmo Voice · no sustituimos su motor"</span>
             </div>
             <main class="vs-streams-workspace">
-                <div class="stage-topline"><span>"SALAS DE VOZ"</span><span>"Micrófono · entrada/salida · silencio"</span></div>
-                <div class="vs-live-panel" data-vslive="voice"></div>
-                <p class="field-note">"Creá un código privado y compartilo con los participantes que utilicen el mismo servidor de señalización. El sistema no graba conversaciones ni enciende el micrófono sin permiso."</p>
+                <div class="stage-topline">
+                    <span>"VSSTREAMS / VIRGOLAND 26.3"</span>
+                    <span>"Estado de integración"</span>
+                </div>
+                <section class="vs-streams-intro">
+                    <h2>"Voz de Minecraft, administrada desde VSMedia."</h2>
+                    <p>"Plasmo Voice proporciona el audio espacial, el micrófono, el alcance por distancia y el transporte entre jugadores. VSStreams no abre otra sala de voz WebRTC ni solicita acceso a tu micrófono."</p>
+                </section>
+                <section class="vs-streams-status" aria-label="Estado de Plasmo Voice">
+                    <div class="vs-streams-status-line">
+                        <span class="privacy-dot offline"></span>
+                        <strong>{move ||integration.get()}</strong>
+                        <button type="button" class="action-secondary"
+                            on:click=move |_|studio_api::probe_streams(integration)>"↻ Comprobar conexión"</button>
+                    </div>
+                    <p>"Esta comprobación consulta el backend local. Todavía falta conectar la telemetría de Plasmo Voice con VSEngine; no se muestran datos inventados del juego."</p>
+                </section>
+                <div class="vs-streams-checklist">
+                    <section>
+                        <h3>"1 · Servidor"</h3>
+                        <p>"Instalar Plasmo Voice para Folia/Paper compatible con Minecraft 26.3 en VSEngine."</p>
+                        <a href="https://modrinth.com/plugin/plasmo-voice" target="_blank" rel="noopener noreferrer">"Ver Plasmo Voice para servidor ↗"</a>
+                    </section>
+                    <section>
+                        <h3>"2 · Cliente"</h3>
+                        <p>"Instalar el mod Fabric correspondiente en VSClient para la voz de proximidad."</p>
+                        <a href="https://modrinth.com/plugin/plasmo-voice/versions?l=fabric" target="_blank" rel="noopener noreferrer">"Versiones Fabric ↗"</a>
+                    </section>
+                    <section>
+                        <h3>"3 · Integración"</h3>
+                        <p>"La futura conexión con VSEngine expondrá presencia, permisos y moderación sin introducir otro protocolo de audio."</p>
+                        <a href="https://plasmovoice.com/docs/api/" target="_blank" rel="noopener noreferrer">"Documentación de la API ↗"</a>
+                    </section>
+                </div>
+                <section class="vs-streams-info">
+                    <strong>"Funciones nativas de Plasmo Voice"</strong>
+                    <p>"Proximidad 3D, Push-to-Talk, distancia configurable y silenciamiento desde el servidor. Por ahora los controles se utilizan en Minecraft y en la consola del servidor, no desde esta página."</p>
+                    <strong>"Administración avanzada: etapa posterior"</strong>
+                    <p>"Panel de jugadores, muteos temporales, auditoría, reglas por mundos y regiones. No se habilitan botones sin un adaptador VSEngine autenticado."</p>
+                </section>
             </main>
         </div>
     }
 }
+
 fn click_control(id: &str) {
     if let Some(elem)=web_sys::window().and_then(|w|w.document()).and_then(|d|d.get_element_by_id(id)) {
         if let Ok(html)=wasm_bindgen::JsCast::dyn_into::<web_sys::HtmlElement>(elem){html.click();}
@@ -1164,7 +1204,7 @@ fn handle_menu(command: MenuCommand,page: RwSignal<Page>,status: RwSignal<String
             Page::Home=>{},
         },
         MenuCommand::View=>scroll_to("media-library"),
-        MenuCommand::Help=>status.set("VSAudio edita · VSMix mezcla · VSRadio emite a una sala P2P · VSStreams conecta salas de voz. Internet requiere HTTPS, proxy autenticado y TURN.".to_owned()),
+        MenuCommand::Help=>status.set("VSAudio edita · VSMix mezcla · VSRadio emite audio P2P · VSStreams prepara la integración con Plasmo Voice, sin duplicar su motor.".to_owned()),
     }
 }
 
