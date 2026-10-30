@@ -56,6 +56,7 @@ function mount(root) {
     '</small></div><span class="vs-live-status" data-field="status" role="status">Sin conectar</span></header>'+
     '<div class="vs-live-fields"><label>Código de sala <input data-field="room" maxlength="64" autocomplete="off" spellcheck="false"></label>'+
     '<button type="button" data-action="generate">Crear código</button>'+
+    '<button type="button" data-action="copy">Copiar código</button>'+
     (radio?'<label>Mi función <select data-field="role"><option value="listener">Oyente</option><option value="host">Emisor</option></select></label>'+
     '<label>Fuente <select data-field="source"><option value="mic">Micrófono</option><option value="player">Playlist</option><option value="both">Playlist + micrófono</option></select></label>':"")+
     '</div>'+(radio?'<div class="vs-live-mixer">'+
@@ -66,7 +67,7 @@ function mount(root) {
     '<button class="action-primary" type="button" data-action="join">Conectar</button>'+
     '<button type="button" data-action="leave" disabled>Salir</button>'+
     '<button type="button" data-action="mute" disabled>Silenciar micrófono</button></div>'+
-    '<div class="vs-live-peers"><strong data-field="count">0 participantes</strong><div data-field="peers"></div></div>'+
+    '<div class="vs-live-peers"><strong data-field="count">0 conexiones</strong><div data-field="peers"></div></div>'+
     '<div class="vs-live-remote" data-field="remote"></div>'+
     '<small class="vs-live-note">WebRTC P2P: el audio no pasa por Axum ni se graba. Micrófono sólo con permiso al pulsar Conectar. '+
     'Esta versión funciona en el entorno local; Internet requiere HTTPS/WSS, autenticación y TURN. No es radio pública masiva.</small>';
@@ -79,7 +80,7 @@ function mount(root) {
     field("status").classList.toggle("error",error);
   }
   function peersDisplay(){
-    field("count").textContent=String(state.peers.size+(state.id==null?0:1))+" participantes";
+    field("count").textContent=String(state.peers.size+(state.id==null?0:1))+" conexiones de esta sesión";
     field("peers").textContent=Array.from(state.peers,([id,p])=>"#"+id+" · "+p.role).join(" | ");
   }
   function send(payload){
@@ -111,7 +112,11 @@ function mount(root) {
       audio.play().catch(()=>status("Activá reproducir para escuchar al otro participante"));
     };
     pc.onconnectionstatechange=()=>{
-      if(pc.connectionState==="failed")status("No se pudo conectar el audio. Podría requerir TURN.",true);
+      if(pc.connectionState==="failed"){
+        status("No se pudo conectar el audio. Podría requerir TURN.",true);
+      }else if(pc.connectionState==="connected"){
+        status(radio?(state.role==="host"?"Audio en directo con oyentes":"Escuchando audio en directo"):"Voz WebRTC conectada");
+      }
     };
     peersDisplay();
     return record;
@@ -208,7 +213,7 @@ function mount(root) {
           }else if(msg.type==="joined"){
             state.id=msg.id;
             button("leave").disabled=false;button("mute").disabled=!state.mic;
-            status(radio?(state.role==="host"?"Transmitiendo":"Escuchando"):"Voz conectada");
+            status(radio?(state.role==="host"?"Sala activa · esperando oyentes":"Sala activa · esperando audio"):"Sala de voz activa · conectando audio");
             for(const p of msg.peers||[]){
               if(radio && p.role===state.role)continue;
               if(offerNeeded(p.role,true))await makeOffer(p.id,p.role);
@@ -250,6 +255,17 @@ function mount(root) {
     updateSliders();
   }
   button("generate").onclick=()=>field("room").value=roomCode(radio?"radio":"voice");
+  button("copy").onclick=async()=>{
+    const code=field("room").value.trim();
+    if(!code){status("Primero generá un código de sala.",true);return;}
+    try{
+      await navigator.clipboard.writeText(code);
+      status("Código de sala copiado.");
+    }catch(_){
+      field("room").select();
+      status("Seleccioná el código y copialo manualmente.");
+    }
+  };
   button("join").onclick=()=>join();
   button("leave").onclick=()=>stop();
   button("mute").onclick=()=>{
