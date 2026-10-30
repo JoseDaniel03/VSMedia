@@ -533,6 +533,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn draft_equal_power_mix_uses_native_fades_without_saving_project() {
+        let (db,dir)=store();
+        let key=AssetKey::new("studio","audio/equal-power").unwrap();
+        let wav=encode_wav_pcm16(&StereoAudio{
+            sample_rate:8_000,frames:vec![[0.25,0.25];8_000],
+        }).unwrap();
+        let stored=db.publish_for("studio",key.clone(),AssetKind::Sound,&wav).unwrap();
+        let document=json!({"magic":"VSMEDIA","version":1,
+            "payload":{"kind":"audio","data":{
+                "timeline":{"name":"Draft transition","tracks":[{
+                    "name":"Dialogue","muted":false,"clips":[
+                        {"asset":key,"start_ms":0,"duration_ms":1000,"gain_db":0},
+                        {"asset":{"namespace":"studio","name":"audio/equal-power"},
+                         "start_ms":500,"duration_ms":1000,"gain_db":0}
+                    ]
+                }]},
+                "sources":[{"key":{"namespace":"studio","name":"audio/equal-power"},
+                    "sha256":stored.sha256,"codec":"wav"}],
+                "clip_edits":[
+                    {"track_index":0,"clip_index":0,"fade_out_ms":500,
+                     "fade_curve":"equal_power"},
+                    {"track_index":0,"clip_index":1,"fade_in_ms":500,
+                     "fade_curve":"equal_power"}
+                ]
+            }}});
+        let app=router(db.clone());
+        let result=app.clone().oneshot(request(Method::POST,
+            "/api/v1/audio/render",serde_json::to_vec(&document).unwrap()
+        )).await.unwrap();
+        assert_eq!(result.status(),StatusCode::OK);
+        let bytes=to_bytes(result.into_body(),64*1024*1024).await.unwrap();
+        let rendered=decode_wav(&bytes).unwrap();
+        assert_eq!(rendered.frames.len(),12_000);
+        let expected=0.5*std::f32::consts::FRAC_1_SQRT_2;
+        assert!((rendered.frames[6_000][0]-expected).abs()<0.002);
+        assert!(db.list_assets("studio","projects/",10).unwrap().is_empty());
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn compressed_audio_preview_is_explicitly_unsupported() {
         let (db,dir)=store();
         let key=AssetKey::new("studio","audio/mp3-preview").unwrap();
