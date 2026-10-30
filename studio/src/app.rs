@@ -3,7 +3,7 @@ use crate::media::{self,AudioAsset,Folder,Version,Track,MixRegion,MixGainPoint,M
 use crate::{export,recording,studio_api};
 use crate::mix_history::MixHistory;
 use wasm_bindgen::JsCast;
-use std::collections::HashSet;
+use std::collections::{HashSet,HashMap};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {Home, Audio, Mix, Radio, Streams}
@@ -944,15 +944,28 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
     </div>}
 }
 
+/// Match the active in-memory Blob first; otherwise reconcile a reimported
+/// local file by its persisted filename. No file bytes enter localStorage.
+fn radio_resolve_asset(assets:RwSignal<Vec<AudioAsset>>,playlist:&Playlist,
+    source_id:&str)->Option<AudioAsset>{
+    media::asset_by_id(assets,source_id).or_else(||{
+        let filename=playlist.source_names.get(source_id)?;
+        assets.with_untracked(|all|all.iter().find(|asset|asset.name==*filename).cloned())
+    })
+}
+fn radio_available(assets:RwSignal<Vec<AudioAsset>>,playlist:&Playlist)->HashSet<String>{
+    playlist.items.iter().filter(|source_id|
+        radio_resolve_asset(assets,playlist,source_id).is_some()
+    ).cloned().collect()
+}
 fn play_radio(assets: RwSignal<Vec<AudioAsset>>,playlists: RwSignal<Vec<Playlist>>,
               active_playlist: RwSignal<String>,index: RwSignal<usize>,status: RwSignal<String>) {
     let pid=active_playlist.get_untracked();
     let Some(playlist)=playlists.with_untracked(|all|all.iter().find(|p|p.id==pid).cloned()) else {
         status.set("Creá o seleccioná una playlist.".into());return;
     };
-    let ids=assets.with_untracked(|all|all.iter().map(|a|a.id.clone()).collect::<HashSet<String>>());
-    // Persisted playlists only contain IDs, never binary media. Skip missing
-    // sources after reload instead of getting stuck at the first absent asset.
+    let ids=radio_available(assets,&playlist);
+    // Playlist source IDs persist even though reimported Blob IDs change.
     let Some(pos)=(index.get_untracked()..playlist.items.len())
         .find(|&i|ids.contains(&playlist.items[i])) else {
         status.set("No quedan archivos disponibles. Reimportá los audios si recargaste el editor.".into());
@@ -960,7 +973,7 @@ fn play_radio(assets: RwSignal<Vec<AudioAsset>>,playlists: RwSignal<Vec<Playlist
         return;
     };
     index.set(pos);
-    let Some(asset)=media::asset_by_id(assets,&playlist.items[pos]) else{return;};
+    let Some(asset)=radio_resolve_asset(assets,&playlist,&playlist.items[pos]) else{return;};
     if let Some(player)=media::player("radio-player") {
         player.set_src(&asset.url);
         let _=player.play();
@@ -974,7 +987,7 @@ fn radio_advance(assets: RwSignal<Vec<AudioAsset>>,playlists: RwSignal<Vec<Playl
     let Some(playlist)=playlists.with_untracked(|all|all.iter().find(|p|p.id==pid).cloned()) else{
         status.set("Seleccioná una playlist.".into());return;
     };
-    let ids=assets.with_untracked(|all|all.iter().map(|a|a.id.clone()).collect::<HashSet<String>>());
+    let ids=radio_available(assets,&playlist);
     let next=if backward {
         crate::radio_queue::previous_playable(&playlist.items,&ids,index.get_untracked())
     }else {
@@ -1028,7 +1041,12 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                         let pid=active_playlist.get_untracked();
                         if !pid.is_empty(){
                             playlists.update(|list|if let Some(p)=list.iter_mut().find(|p|p.id==pid){
-                                if p.items.len()<crate::radio_queue::MAX_ITEMS{p.items.push(file_id.clone());}
+                                if p.items.len()<crate::radio_queue::MAX_ITEMS{
+                                    if let Some(a)=media::asset_by_id(assets,&file_id){
+                                        p.source_names.insert(file_id.clone(),a.name.chars().take(160).collect());
+                                    }
+                                    p.items.push(file_id.clone());
+                                }
                             });
                         }
                     });
@@ -1054,7 +1072,7 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                             status.set("Máximo 32 playlists por sesión.".into());return;
                         }
                         let id=media::uid("playlist");
-                        playlists.update(|list|list.push(Playlist{id:id.clone(),name,items:Vec::new()}));
+                        playlists.update(|list|list.push(Playlist{id:id.clone(),name,items:Vec::new(),source_names:HashMap::new()}));
                         active_playlist.set(id);new_playlist.set(String::new());
                     }>"＋ Crear"</button>
                 </div>
@@ -1081,6 +1099,9 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                             let mut added=false;
                             playlists.update(|all|if let Some(p)=all.iter_mut().find(|p|p.id==pid){
                                 if p.items.len()<crate::radio_queue::MAX_ITEMS {
+                                    if let Some(a)=media::asset_by_id(assets,&file){
+                                        p.source_names.insert(file.clone(),a.name.chars().take(160).collect());
+                                    }
                                     p.items.push(file.clone());added=true;
                                 }
                             });
@@ -1092,11 +1113,18 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                         <For each=indexed_items
                             key=|(i,id)|format!("{}-{}",i,id) children=move |(i,file_id)|{
                             let file_for_play=file_id.clone();
-                            let file_name=media::asset_by_id(assets,&file_id).map(|a|a.name).unwrap_or("Archivo no disponible".to_owned());
+                            let file_name=playlists.with_untracked(|all|all.iter()
+                                .find(|p|p.id==active_playlist.get_untracked())
+                                .and_then(|p|radio_resolve_asset(assets,p,&file_id).map(|a|a.name)
+                                    .or_else(||p.source_names.get(&file_id).cloned())))
+                                .unwrap_or("Archivo no disponible".into());
                             view!{<div class="playlist-row">
                                 <span class="playlist-order">{format!("{:02}",i+1)}</span>
                                 <button type="button" class="playlist-song" on:click=move |_|{
-                                    if let Some(a)=media::asset_by_id(assets,&file_for_play){
+                                    let matched=playlists.with_untracked(|all|all.iter()
+                                        .find(|p|p.id==active_playlist.get_untracked())
+                                        .and_then(|p|radio_resolve_asset(assets,p,&file_for_play)));
+                                    if let Some(a)=matched{
                                         play_index.set(i);
                                         if let Some(p)=media::player("radio-player"){p.set_src(&a.url);let _=p.play();}
                                     }
@@ -1111,7 +1139,10 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                                 }>"↓"</button>
                                 <button type="button" title="Quitar de playlist" on:click=move |_|{
                                     let pid=active_playlist.get_untracked();
-                                    playlists.update(|list|if let Some(p)=list.iter_mut().find(|p|p.id==pid){if i<p.items.len(){p.items.remove(i);}});
+                                    playlists.update(|list|if let Some(p)=list.iter_mut().find(|p|p.id==pid){if i<p.items.len(){
+                                        let removed=p.items.remove(i);
+                                        if !p.items.contains(&removed){p.source_names.remove(&removed);}
+                                    }});
                                 }>"×"</button>
                             </div>}
                         }/>

@@ -105,7 +105,13 @@ pub struct Version {
     pub end_gain: Option<f64>,
 }
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Playlist { pub id: String, pub name: String, pub items: Vec<String> }
+pub struct Playlist {
+    pub id: String, pub name: String, pub items: Vec<String>,
+    /// Optional source filename for relinking after ephemeral Blob IDs change.
+    /// Legacy playlist manifests default to no mapping.
+    #[serde(default)]
+    pub source_names: HashMap<String,String>,
+}
 pub fn load_playlists()->Vec<Playlist>{
     let raw=storage_get("vsmedia:radio:playlists:v1");
     if raw.len()>128*1024{return Vec::new();}
@@ -118,6 +124,8 @@ pub fn load_playlists()->Vec<Playlist>{
     for playlist in &mut list {
         playlist.items.truncate(crate::radio_queue::MAX_ITEMS);
         playlist.items.retain(|id|!id.is_empty()&&id.len()<=128);
+        playlist.source_names.retain(|key,name|playlist.items.contains(key)
+            && !name.is_empty() && name.chars().count()<=160);
     }
     list
 }
