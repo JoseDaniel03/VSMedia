@@ -324,6 +324,7 @@ fn router(store:Store)->Router {
         .route("/api/v1/streams/integration",get(streams_integration))
         .route("/api/v1/packs",get(packs::list))
         .route("/api/v1/packs/preview",get(packs::preview))
+        .route("/api/v1/packs/texture",get(packs::texture))
         .route("/api/v1/packs/export",get(packs::export))
         .route("/api/v1/packs/{id}",post(packs::import).delete(packs::remove)
             .layer(DefaultBodyLimit::max(12*1024*1024)))

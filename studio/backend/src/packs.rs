@@ -4,7 +4,7 @@
 //! All operations are local-only. Public CDN / Folia delivery comes later.
 use std::{collections::{BTreeMap,BTreeSet},sync::Arc};
 use axum::{
-    body::Bytes,extract::Path,Extension,http::{header,HeaderMap,StatusCode},
+    body::Bytes,extract::{Path,Query},Extension,http::{header,HeaderMap,StatusCode},
     response::{IntoResponse,Response},Json,
 };
 use serde::{Deserialize,Serialize};
@@ -190,6 +190,40 @@ pub async fn preview(Extension(hub):Extension<PackHub>)->Result<Json<Value>,ApiE
             else{"Falta un pack.mcmeta válido con el objeto pack. Añadí un pack base antes de exportar"}
     })))
 }
+
+#[derive(Deserialize)]
+pub struct TextureQuery {path:String}
+/// Only one merged texture at a time; no HTML, SVG or arbitrary file reads.
+pub async fn texture(
+    Extension(hub):Extension<PackHub>,Query(query):Query<TextureQuery>
+)->Result<Response,ApiError>{
+    vsmedia_pack::validate_path(&query.path).map_err(friendly_error)?;
+    let path=query.path.to_ascii_lowercase();
+    let mime=if path.ends_with(".png"){"image/png"}
+        else if path.ends_with(".jpg")||path.ends_with(".jpeg"){"image/jpeg"}
+        else if path.ends_with(".webp"){"image/webp"}
+        else{return Err(bad("Vista previa limitada a PNG, JPG o WebP"));};
+    let merged=composed(&hub).await?;
+    let data=merged.files.get(&query.path)
+        .ok_or_else(||ApiError(StatusCode::NOT_FOUND,"Textura no encontrada".into()))?;
+    if data.is_empty()||data.len()>4*1024*1024 {
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,
+            "La textura supera 4 MiB para la vista previa".into()));
+    }
+    let valid=match mime{
+        "image/png"=>data.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg"=>data.starts_with(&[0xff,0xd8,0xff]),
+        "image/webp"=>data.len()>=12 && &data[..4]==b"RIFF" && &data[8..12]==b"WEBP",
+        _=>false,
+    };
+    if !valid{return Err(bad("Cabecera de imagen no válida"));}
+    Ok(([
+        (header::CONTENT_TYPE,mime),
+        (header::CACHE_CONTROL,"no-store"),
+        (header::X_CONTENT_TYPE_OPTIONS,"nosniff")
+    ],data.clone()).into_response())
+}
+
 pub async fn export(Extension(hub):Extension<PackHub>)->Result<Response,ApiError>{
     let merged=composed(&hub).await?;
     let bytes=tokio::task::spawn_blocking(move||archive::export_zip(&merged,limits()))
