@@ -1,0 +1,211 @@
+//! Session-local Resource Pack compositor for FullCanvas Studio.
+//! Reuses the production Rust import/structured merge/deterministic export.
+//! Strict in-memory quotas; no arbitrary filesystem writes or external URLs.
+//! All operations are local-only. Public CDN / Folia delivery comes later.
+use std::{collections::{BTreeMap,BTreeSet},sync::Arc};
+use axum::{
+    body::Bytes,extract::{Path,State},http::{header,HeaderMap,StatusCode},
+    response::{IntoResponse,Response},Json,
+};
+use serde::{Deserialize,Serialize};
+use serde_json::{json,Value};
+use tokio::sync::Mutex;
+use vsmedia_pack::{archive::{self,ArchiveLimits},structured,PackAsset,MergeOutput};
+
+use crate::{ApiError,authorize_origin,bad};
+
+const MAX_ZIP_BYTES:usize=12*1024*1024;
+const MAX_RAM_BYTES:usize=64*1024*1024;
+const MAX_PACKS:usize=6;
+const MAX_PREVIEW_CONFLICTS:usize=200;
+fn limits()->ArchiveLimits {
+    ArchiveLimits {max_files:2048,max_total_bytes:32*1024*1024,
+        max_single_file_bytes:8*1024*1024}
+}
+#[derive(Clone,Default)]
+pub struct PackHub(Arc<Mutex<Vec<LoadedPack>>>);
+#[derive(Clone)]
+struct LoadedPack {
+    id:String,
+    name:String,
+    priority:i32,
+    files:Arc<Vec<PackAsset>>,
+    bytes:usize,
+}
+#[derive(Serialize)]
+pub struct PackInfo {
+    id:String,name:String,priority:i32,files:usize,bytes:usize
+}
+impl From<&LoadedPack> for PackInfo {
+    fn from(pack:&LoadedPack)->Self{
+        Self {id:pack.id.clone(),name:pack.name.clone(),
+            priority:pack.priority,files:pack.files.len(),bytes:pack.bytes}
+    }
+}
+fn valid_id(id:&str)->bool{
+    (1..=48).contains(&id.len())&&id.bytes().all(|b|
+        b.is_ascii_lowercase()||b.is_ascii_digit()||b==b'_'||b==b'-')
+}
+fn friendly_error(err:impl std::fmt::Display)->ApiError{
+    bad(format!("Resource Pack inválido: {err}"))
+}
+pub async fn list(State(hub):State<PackHub>)->Json<Value>{
+    let packs=hub.0.lock().await;
+    Json(json!({"packs":packs.iter().map(PackInfo::from).collect::<Vec<_>>(),
+        "total_bytes":packs.iter().map(|pack|pack.bytes).sum::<usize>(),
+        "max_packs":MAX_PACKS,"max_ram_bytes":MAX_RAM_BYTES,
+        "max_zip_bytes":MAX_ZIP_BYTES,"session_only":true,
+        "minecraft_delivery":false}))
+}
+pub async fn import(
+    State(hub):State<PackHub>,Path(id):Path<String>,
+    headers:HeaderMap,bytes:Bytes
+)->Result<Json<PackInfo>,ApiError>{
+    authorize_origin(&headers)?;
+    if !valid_id(&id){return Err(bad("ID de pack inválido"));}
+    if bytes.is_empty()||bytes.len()>MAX_ZIP_BYTES {
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,
+            "ZIP debe ocupar entre 1 byte y 12 MiB".into()));
+    }
+    let label=headers.get("x-vspack-label").and_then(|h|h.to_str().ok())
+        .unwrap_or(&id).trim().to_owned();
+    if label.is_empty()||label.chars().count()>80||label.chars().any(char::is_control) {
+        return Err(bad("Nombre de pack inválido (máximo 80 caracteres)"));
+    }
+    // Reject duplicate IDs and excessive packs BEFORE decompression.
+    {
+        let saved=hub.0.lock().await;
+        if saved.iter().any(|p|p.id==id) {
+            return Err(ApiError(StatusCode::CONFLICT,
+                "Ese pack ya se encuentra en la sesión".into()));
+        }
+        if saved.len()>=MAX_PACKS {return Err(bad("Máximo 6 packs por sesión"));}
+    }
+    let source_id=id.clone();
+    let imported=tokio::task::spawn_blocking(move||
+        archive::import_zip(&bytes,&source_id,0,limits())
+    ).await.map_err(|e|bad(format!("Importación interrumpida: {e}")))?
+        .map_err(friendly_error)?;
+    if imported.is_empty(){return Err(bad("ZIP sin archivos de Resource Pack"));}
+    let used=imported.iter().map(|p|p.data.len()).sum::<usize>();
+    let mut saved=hub.0.lock().await;
+    if saved.iter().any(|p|p.id==id) {
+        return Err(ApiError(StatusCode::CONFLICT,
+            "Ese pack ya se encuentra en la sesión".into()));
+    }
+    if saved.len()>=MAX_PACKS ||
+        saved.iter().map(|p|p.bytes).sum::<usize>().saturating_add(used)>MAX_RAM_BYTES {
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,
+            "El límite de 6 packs / 64 MiB de datos descomprimidos fue alcanzado".into()));
+    }
+    let next_priority=(saved.len() as i32)*10;
+    let pack=LoadedPack{id,name:label,priority:next_priority,files:Arc::new(imported),bytes:used};
+    let out=PackInfo::from(&pack);
+    saved.push(pack);
+    Ok(Json(out))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriorityInput {priority:i32}
+pub async fn priority(
+    State(hub):State<PackHub>,Path(id):Path<String>,
+    headers:HeaderMap,Json(change):Json<PriorityInput>
+)->Result<Json<PackInfo>,ApiError>{
+    authorize_origin(&headers)?;
+    if !(-1000..=1000).contains(&change.priority){
+        return Err(bad("La prioridad debe estar entre -1000 y 1000"));
+    }
+    let mut packs=hub.0.lock().await;
+    let item=packs.iter_mut().find(|p|p.id==id)
+        .ok_or_else(||ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()))?;
+    item.priority=change.priority;
+    Ok(Json(PackInfo::from(&*item)))
+}
+pub async fn remove(
+    State(hub):State<PackHub>,Path(id):Path<String>,headers:HeaderMap
+)->Result<Json<Value>,ApiError>{
+    authorize_origin(&headers)?;
+    let mut packs=hub.0.lock().await;
+    let len=packs.len();
+    packs.retain(|p|p.id!=id);
+    if len==packs.len(){
+        return Err(ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()));
+    }
+    Ok(Json(json!({"deleted":true,"id":id})))
+}
+/// Clone only small Arc handles under lock. CPU-heavy structured merge/ZIP
+/// compression runs on a bounded blocking thread, not a Folia/async worker.
+async fn composed(hub:&PackHub)->Result<MergeOutput,ApiError>{
+    let current=hub.0.lock().await.clone();
+    if current.is_empty(){return Err(bad("Primero importá un Resource Pack ZIP"));}
+    tokio::task::spawn_blocking(move || {
+        let files=current.iter().flat_map(|p|
+            p.files.iter().cloned().map(|mut file|{
+                file.priority=p.priority;file
+            })
+        ).collect::<Vec<PackAsset>>();
+        structured::merge_structured(&files)
+    }).await.map_err(|e|bad(format!("Fusión interrumpida: {e}")))?
+        .map_err(friendly_error)
+}
+fn category(path:&str)->&'static str{
+    if path=="pack.mcmeta"||path=="pack.png"{"metadata"}
+    else if path.contains("/textures/"){"textures"}
+    else if path.contains("/sounds/")||path.ends_with("/sounds.json"){"sounds"}
+    else if path.contains("/models/"){"models"}
+    else if path.contains("/font/"){"fonts"}
+    else if path.contains("/lang/"){"languages"}
+    else if path.contains("/shaders/"){"shaders"}
+    else{"other"}
+}
+pub async fn preview(State(hub):State<PackHub>)->Result<Json<Value>,ApiError>{
+    let merged=composed(&hub).await?;
+    let counts=merged.files.keys().fold(BTreeMap::<&str,usize>::new(),|mut acc,path|{
+        *acc.entry(category(path)).or_default()+=1;acc
+    });
+    let namespaces=merged.files.keys().filter_map(|path|
+        path.strip_prefix("assets/").and_then(|rest|rest.split('/').next()))
+        .collect::<BTreeSet<_>>();
+    let total_bytes:usize=merged.files.values().map(Vec::len).sum();
+    let has_manifest=merged.files.contains_key("pack.mcmeta");
+    let conflicts_count=merged.conflicts.len();
+    Ok(Json(json!({
+        "ready":has_manifest,"has_manifest":has_manifest,
+        "file_count":merged.files.len(),"bytes":total_bytes,
+        "categories":counts,"namespaces":namespaces,
+        "conflicts_count":conflicts_count,
+        "conflicts":merged.conflicts.into_iter().take(MAX_PREVIEW_CONFLICTS)
+            .map(|c|json!({"path":c.path,"winner":c.winner,"loser":c.loser}))
+            .collect::<Vec<_>>(),
+        "files":merged.files.iter().map(|(path,data)|
+            json!({"path":path,"bytes":data.len(),"category":category(path)})
+        ).collect::<Vec<_>>(),
+        "warning":if has_manifest{""}
+            else{"Falta pack.mcmeta: añadí un pack base con su manifiesto antes de exportar"}
+    })))
+}
+pub async fn export(State(hub):State<PackHub>)->Result<Response,ApiError>{
+    let merged=composed(&hub).await?;
+    let bytes=tokio::task::spawn_blocking(move||archive::export_zip(&merged,limits()))
+        .await.map_err(|e|bad(format!("Exportación interrumpida: {e}")))?
+        .map_err(friendly_error)?;
+    Ok(([
+        (header::CONTENT_TYPE,"application/zip"),
+        (header::CACHE_CONTROL,"no-store"),
+        (header::CONTENT_DISPOSITION,"attachment; filename=\"vsmedia-resourcepack.zip\""),
+        (header::X_CONTENT_TYPE_OPTIONS,"nosniff")
+    ],bytes).into_response())
+}
+#[cfg(test)]
+mod tests{
+    use super::*;
+    #[test]
+    fn pack_id_and_category_boundaries(){
+        assert!(valid_id("pack_base"));
+        assert!(!valid_id("../bad"));
+        assert!(!valid_id("A"));
+        assert_eq!(category("assets/virgoland/textures/ui/a.png"),"textures");
+        assert_eq!(category("assets/virgoland/sounds.json"),"sounds");
+        assert_eq!(category("assets/virgoland/models/item/a.json"),"models");
+    }
+}
