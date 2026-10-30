@@ -37,10 +37,27 @@ pub fn folder_rows(folders: Vec<Folder>) -> Vec<FolderRow> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+pub struct MixRegion {
+    pub id: String,
+    pub asset_id: String,
+    /// Position of this region on the output timeline (seconds).
+    pub start: f64,
+    /// Duration to play from the source file (seconds).
+    pub duration: f64,
+    pub source_in: f64,
+    pub volume: f64,
+    pub pan: f64,
+    pub fade_in: f64,
+    pub fade_out: f64,
+}
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Track {
     pub id: String, pub name: String, pub asset_id: String,
     pub volume: f64, pub muted: bool, pub solo: bool,
     pub fade_in: f64, pub fade_out: f64,
+    /// Empty keeps the old one-file-per-track VSMix session compatible.
+    #[serde(default)]
+    pub regions: Vec<MixRegion>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Version {

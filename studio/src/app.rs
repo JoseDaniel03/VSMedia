@@ -485,7 +485,7 @@ fn MixStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,se
             <button id="mix-add-track" type="button" class="toolbar-button" on:click=move |_|{
                 let id=media::uid("track");
                 let count=tracks.get_untracked().len()+1;
-                tracks.update(|list|list.push(Track{id:id.clone(),name:format!("Pista {}",count),asset_id:String::new(),volume:1.,muted:false,solo:false,fade_in:0.,fade_out:0.}));
+                tracks.update(|list|list.push(Track{id:id.clone(),name:format!("Pista {}",count),asset_id:String::new(),volume:1.,muted:false,solo:false,fade_in:0.,fade_out:0.,regions:Vec::new()}));
                 selected_track.set(id);
             }>"＋ Pista"</button>
             <button id="mix-open-projects" type="button" class="toolbar-button"
