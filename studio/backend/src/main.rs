@@ -61,10 +61,29 @@ async fn capabilities() -> Json<Value> {
         "audio_render_formats":["wav"],
         "audio_render_output":"wav_pcm16_48000_stereo",
         "radio_broadcast":false,"live_monitoring":false,
-        "webrtc_signaling":true,"webrtc_voice_rooms":true,
-        "webrtc_radio_peer_mesh":true,"max_radio_peers":16,"max_voice_peers":8,
+        "webrtc_signaling":true,"webrtc_voice_rooms":false,
+        "webrtc_radio_peer_mesh":true,"max_radio_peers":16,
+        "vsstreams_provider":"plasmo_voice","vsstreams_connected":false,
+        "vsstreams_moderation":false,
         "asset_storage":true,"audio_projects":true,
         "accepted_formats":["wav","flac","mp3","ogg","webm","opus"]}))
+}
+/// Real read-only integration state. This backend deliberately does not
+/// impersonate a Plasmo Voice server or expose unimplemented moderation.
+async fn streams_integration() -> Json<Value> {
+    Json(json!({
+        "provider":"plasmo_voice",
+        "transport":"native_minecraft_voice",
+        "server_connected":false,
+        "client_mod_probed":false,
+        "administrative_actions":false,
+        "minecraft_broadcast":false,
+        "local_radio_webrtc":true,
+        "required":["plasmo_voice_server_plugin_26_3",
+                    "plasmo_voice_fabric_client_26_3",
+                    "vse_engine_adapter"],
+        "message":"VSEngine todavía no expone telemetría de Plasmo Voice a este bridge. No se iniciará un chat WebRTC alternativo."
+    }))
 }
 async fn put_asset(
     State(store):State<Store>,Path(name):Path<String>,
@@ -296,6 +315,7 @@ fn router(store:Store)->Router {
         .route("/api/v1/capabilities",get(capabilities))
         .route("/api/v1/live/ws",get(live::socket))
         .route("/api/v1/live/status",get(live::status))
+        .route("/api/v1/streams/integration",get(streams_integration))
         .route("/api/v1/assets/{name}/metadata",get(get_asset_metadata))
         .route("/api/v1/assets/{name}",post(put_asset).get(get_asset))
         .route("/api/v1/audio/projects",get(list_audio_projects))
@@ -358,7 +378,7 @@ mod tests {
         assert_eq!(value["rooms"],0);
         assert_eq!(value["peers"],0);
         assert_eq!(value["max_radio"],16);
-        assert_eq!(value["max_voice"],8);
+        assert_eq!(value["voice_rooms"],false);
         assert_eq!(value["audio_recorded"],false);
         assert!(value.get("room").is_none());
         let caps=app.clone().oneshot(request(Method::GET,
@@ -368,9 +388,20 @@ mod tests {
             &to_bytes(caps.into_body(),4096).await.unwrap()
         ).unwrap();
         assert_eq!(capabilities["webrtc_signaling"],true);
-        assert_eq!(capabilities["webrtc_voice_rooms"],true);
+        assert_eq!(capabilities["webrtc_voice_rooms"],false);
+        assert_eq!(capabilities["vsstreams_provider"],"plasmo_voice");
+        assert_eq!(capabilities["vsstreams_connected"],false);
         assert_eq!(capabilities["webrtc_radio_peer_mesh"],true);
         assert_eq!(capabilities["radio_broadcast"],false);
+        let integration=app.clone().oneshot(request(Method::GET,
+            "/api/v1/streams/integration",vec![])).await.unwrap();
+        assert_eq!(integration.status(),StatusCode::OK);
+        let streams:Value=serde_json::from_slice(
+            &to_bytes(integration.into_body(),4096).await.unwrap()
+        ).unwrap();
+        assert_eq!(streams["provider"],"plasmo_voice");
+        assert_eq!(streams["server_connected"],false);
+        assert_eq!(streams["administrative_actions"],false);
         let unsupported=app.clone().oneshot(request(Method::POST,
             "/api/v1/radio/sessions",vec![])).await.unwrap();
         assert_eq!(unsupported.status(),StatusCode::NOT_IMPLEMENTED);
