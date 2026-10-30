@@ -2,6 +2,7 @@
 //! Track/MixRegion model; the existing draft render and .vsaudio path are reused.
 use crate::media::{AudioAsset, MixFadeCurve, MixRegion, Track};
 use crate::waveform::{self, Waveform};
+use crate::gain_editor;
 use std::collections::HashMap;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -10,7 +11,7 @@ const MIN_DURATION: f64 = 0.1;
 const MAX_SECONDS: f64 = 3600.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum EditMode { Move, TrimStart, TrimEnd, FadeIn, FadeOut }
+enum EditMode { Move, TrimStart, TrimEnd, FadeIn, FadeOut, GainPoint(usize) }
 
 #[derive(Clone)]
 struct PointerEdit {
@@ -18,7 +19,9 @@ struct PointerEdit {
     region_id: String,
     pointer_id: i32,
     origin_x: i32,
+    origin_y: i32,
     delta_pixels: f64,
+    delta_vertical: f64,
     mode: EditMode,
 }
 
@@ -34,7 +37,7 @@ fn fit_fades(region: &mut MixRegion) {
     }
 }
 /// Shared by the preview geometry and final commit: no cumulative pointer drift.
-fn transform(region: &mut MixRegion, mode: EditMode, delta: f64) {
+fn transform(region: &mut MixRegion, mode: EditMode, delta: f64, vertical: f64) {
     if !delta.is_finite() { return; }
     match mode {
         EditMode::Move => {
@@ -48,11 +51,13 @@ fn transform(region: &mut MixRegion, mode: EditMode, delta: f64) {
             region.start += change;
             region.source_in += change;
             region.duration -= change;
+            gain_editor::trim_start(region,change);
             fit_fades(region);
         }
         EditMode::TrimEnd => {
             region.duration = (region.duration + delta)
                 .clamp(MIN_DURATION, MAX_SECONDS - region.start);
+            gain_editor::trim_end(region);
             fit_fades(region);
         }
         EditMode::FadeIn => {
@@ -62,6 +67,13 @@ fn transform(region: &mut MixRegion, mode: EditMode, delta: f64) {
         EditMode::FadeOut => {
             region.fade_out=(region.fade_out-delta)
                 .clamp(0.0,(region.duration-region.fade_in).max(0.0));
+        }
+        EditMode::GainPoint(index) => {
+            if let Some(point)=region.gain_points.get(index) {
+                let next_at=point.at+delta;
+                let next_gain=point.gain-vertical*(2.0/18.0);
+                gain_editor::adjust_point(region,index,Some(next_at),Some(next_gain));
+            }
         }
     }
 }
@@ -96,14 +108,18 @@ fn preview_region(
     pointer.with(|state|{
         if let Some(drag)=state {
             if drag.track_id==track_id && drag.region_id==region_id {
-                transform(&mut region,drag.mode,snap(drag.delta_pixels/zoom.get()));
+                let delta=if matches!(drag.mode,EditMode::GainPoint(_)){
+                    (drag.delta_pixels/zoom.get()*1000.0).round()/1000.0
+                } else {snap(drag.delta_pixels/zoom.get())};
+                transform(&mut region,drag.mode,delta,drag.delta_vertical);
             }
         }
     });
     Some(region)
 }
 fn apply_pointer_edit(
-    tracks: &mut Vec<Track>, edit: &PointerEdit, seconds: f64, target: Option<&str>
+    tracks: &mut Vec<Track>, edit: &PointerEdit, seconds: f64,
+    vertical: f64, target: Option<&str>
 ) -> Result<(), &'static str> {
     let source = tracks.iter().position(|t| t.id == edit.track_id)
         .ok_or("La pista original ya no existe")?;
@@ -116,7 +132,7 @@ fn apply_pointer_edit(
             return Err("La pista de destino ya tiene 32 regiones");
         }
         let mut region = tracks[source].regions[region_index].clone();
-        transform(&mut region, edit.mode, seconds);
+        transform(&mut region, edit.mode, seconds, vertical);
         if destination == source {
             tracks[source].regions[region_index] = region;
         } else {
@@ -125,7 +141,7 @@ fn apply_pointer_edit(
             tracks[destination].regions.push(region);
         }
     } else {
-        transform(&mut tracks[source].regions[region_index], edit.mode, seconds);
+        transform(&mut tracks[source].regions[region_index], edit.mode, seconds, vertical);
     }
     Ok(())
 }
@@ -179,7 +195,8 @@ fn pointer_start(
     }
     edit.set(Some(PointerEdit {
         track_id, region_id, pointer_id: event.pointer_id(),
-        origin_x: event.client_x(), delta_pixels: 0.0, mode,
+        origin_x: event.client_x(), origin_y: event.client_y(),
+        delta_pixels: 0.0, delta_vertical: 0.0, mode,
     }));
 }
 fn target_lane(event: &web_sys::PointerEvent) -> Option<String> {
@@ -228,6 +245,12 @@ fn TimelineClip(
     let grip_in_start_region=region_id.clone();
     let grip_out_start_track=track_id.clone();
     let grip_out_start_region=region_id.clone();
+    let automation_track=track_id.clone();
+    let automation_region=region_id.clone();
+    let keyframes_track=track_id.clone();
+    let keyframes_region=region_id.clone();
+    let grip_track=track_id.clone();
+    let grip_region=region_id.clone();
     view! {
         <div class="mix-timeline-clip"
             style=move || {
@@ -258,6 +281,36 @@ fn TimelineClip(
                 <path d=move ||preview_region(tracks,pointer,zoom,&envelope_track,&envelope_region)
                     .map(|region|envelope_path(&region)).unwrap_or_default()/>
             </svg>
+            <svg class="mix-gain-envelope" viewBox="0 0 120 24"
+                preserveAspectRatio="none" aria-hidden="true">
+                <path d=move ||preview_region(tracks,pointer,zoom,&automation_track,&automation_region)
+                    .map(|region|gain_editor::path(&region)).unwrap_or_default()/>
+            </svg>
+            <For each=move ||tracks.with(|list|list.iter().find(|t|t.id==keyframes_track)
+                .and_then(|t|t.regions.iter().find(|r|r.id==keyframes_region))
+                .map(|r|(0..r.gain_points.len()).collect::<Vec<usize>>())
+                .unwrap_or_default())
+                key=|index|*index children=move |index|{
+                    let current_track=grip_track.clone();
+                    let current_region=grip_region.clone();
+                    let start_track=grip_track.clone();
+                    let start_region=grip_region.clone();
+                    view! {
+                        <span class="mix-gain-keyframe"
+                            title="Arrastrá el punto: horizontal = tiempo, vertical = volumen"
+                            style=move ||preview_region(tracks,pointer,zoom,&current_track,&current_region)
+                                .and_then(|r|r.gain_points.get(index).map(|p|{
+                                    format!("left:{:.2}%;top:{:.2}%",
+                                        100.0*p.at/r.duration.max(0.1),
+                                        100.0*(21.0-18.0*(p.gain/2.0))/24.0)
+                                })).unwrap_or_else(||"display:none".to_owned())
+                            on:pointerdown=move |ev|{
+                                ev.stop_propagation();
+                                pointer_start(&ev,pointer,start_track.clone(),
+                                    start_region.clone(),EditMode::GainPoint(index));
+                            }></span>
+                    }
+                }/>
             <span class="mix-fade-grip begin" title="Arrastrá para ajustar fade in"
                 style=move ||preview_region(tracks,pointer,zoom,&grip_in_track,&grip_in_region)
                     .map(|r|format!("left:{:.2}%",100.0*r.fade_in/r.duration.max(0.1)))
@@ -361,19 +414,24 @@ pub fn MixTimeline(
                     if let Some(current) = active {
                         if current.pointer_id == event.pointer_id() {
                             current.delta_pixels = (event.client_x() - current.origin_x) as f64;
+                            current.delta_vertical = (event.client_y() - current.origin_y) as f64;
                         }
                     }
                 })
                 on:pointerup=move |event| {
                     let Some(active) = pointer.get_untracked() else { return; };
                     if active.pointer_id != event.pointer_id() { return; }
-                    let delta = snap((event.client_x() - active.origin_x) as f64 / zoom.get_untracked());
+                    let raw_delta=(event.client_x()-active.origin_x) as f64/zoom.get_untracked();
+                    let delta=if matches!(active.mode,EditMode::GainPoint(_)){
+                        (raw_delta*1000.0).round()/1000.0
+                    }else{snap(raw_delta)};
+                    let vertical=(event.client_y()-active.origin_y) as f64;
                     let destination = if active.mode == EditMode::Move {
                         target_lane(&event)
                     } else { None };
                     let mut result = Ok(());
                     tracks.update(|all| {
-                        result = apply_pointer_edit(all, &active, delta, destination.as_deref());
+                        result = apply_pointer_edit(all, &active, delta, vertical, destination.as_deref());
                     });
                     match result {
                         Ok(()) => status.set("Región actualizada en el borrador. Usá ▶ Motor (borrador) para escucharla.".into()),

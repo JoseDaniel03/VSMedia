@@ -497,6 +497,7 @@ fn edit_mix_region(
             .and_then(|track|track.regions.iter_mut()
                 .find(|region|region.id==region_id)) {
             update(region);
+            crate::gain_editor::trim_end(region);
         }
     });
 }
@@ -620,6 +621,8 @@ fn RegionEditor(
                         if value.is_finite(){edit_mix_region(tracks,&t_out,&r_out,|r|r.fade_out=value.max(0.));}
                     } }/></label>
             </div>
+            <crate::gain_editor::GainEditor tracks=tracks track_id=track_id.clone()
+                region_id=rid.clone()/>
         </div>
     }
 }

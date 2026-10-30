@@ -7,6 +7,7 @@ mod teleprompter;
 mod studio_api;
 mod mix_timeline;
 mod waveform;
+mod gain_editor;
 
 fn main() {
     console_error_panic_hook::set_once();
