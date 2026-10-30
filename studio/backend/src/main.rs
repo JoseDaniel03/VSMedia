@@ -2,6 +2,7 @@
 //! native document parser, project revisions and non-destructive Studio editor.
 //! Only listens on loopback. No plugin broadcasting or radio transmitters.
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
+mod live;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
 use sha2::{Digest,Sha256};
 use axum::{
@@ -60,6 +61,8 @@ async fn capabilities() -> Json<Value> {
         "audio_render_formats":["wav"],
         "audio_render_output":"wav_pcm16_48000_stereo",
         "radio_broadcast":false,"live_monitoring":false,
+        "webrtc_signaling":true,"webrtc_voice_rooms":true,
+        "webrtc_radio_peer_mesh":true,"max_radio_peers":16,"max_voice_peers":8,
         "asset_storage":true,"audio_projects":true,
         "accepted_formats":["wav","flac","mp3","ogg","webm","opus"]}))
 }
@@ -280,6 +283,7 @@ async fn unsupported() -> impl IntoResponse {
 }
 
 fn router(store:Store)->Router {
+    let hub=live::LiveHub::default();
     let cors=CorsLayer::new()
         .allow_origin(AllowOrigin::list([
             HeaderValue::from_static("http://127.0.0.1:3060"),
@@ -290,6 +294,8 @@ fn router(store:Store)->Router {
     Router::new()
         .route("/api/v1/health",get(health))
         .route("/api/v1/capabilities",get(capabilities))
+        .route("/api/v1/live/ws",get(live::socket))
+        .route("/api/v1/live/status",get(live::status))
         .route("/api/v1/assets/{name}/metadata",get(get_asset_metadata))
         .route("/api/v1/assets/{name}",post(put_asset).get(get_asset))
         .route("/api/v1/audio/projects",get(list_audio_projects))
@@ -302,6 +308,7 @@ fn router(store:Store)->Router {
         .route("/api/v1/radio/sessions",post(unsupported))
         .layer(DefaultBodyLimit::max(MAX_UPLOAD))
         .layer(cors)
+        .layer(axum::Extension(hub))
         .with_state(store)
 }
 #[tokio::main]
