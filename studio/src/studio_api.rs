@@ -647,3 +647,70 @@ pub fn export_engine_wav(name:String,status:RwSignal<String>) {
         });
     });
 }
+
+/// Render the current unsaved region layout. Audio sources are uploaded to
+/// Studio CAS on this explicit action, but NO .vsaudio project is persisted.
+async fn request_draft_wav(document:&Value)->Result<Blob,String> {
+    let settings=RequestInit::new();
+    settings.set_method("POST");
+    settings.set_mode(RequestMode::Cors);
+    settings.set_body(&JsValue::from_str(&document.to_string()));
+    let req=Request::new_with_str_and_init(&format!("{BASE}/audio/render"),&settings)
+        .map_err(|_|"No se pudo preparar el render del borrador")?;
+    req.headers().set("Content-Type","application/json")
+        .map_err(|_|"No se pudo enviar el manifiesto de la mezcla")?;
+    let window=web_sys::window().ok_or("No hay navegador")?;
+    let response=JsFuture::from(window.fetch_with_request(&req)).await
+        .map_err(|_|"El Audio Engine local no está disponible")?;
+    let response:Response=response.dyn_into()
+        .map_err(|_|"El Audio Engine devolvió una respuesta inválida")?;
+    if !response.ok() {
+        let text=JsFuture::from(response.text()
+            .map_err(|_|"No se pudo leer el error del motor")?).await
+            .map_err(|_|"No se pudo leer el error del motor")?;
+        let detail=text.as_string().and_then(|raw|
+            serde_json::from_str::<Value>(&raw).ok()
+        ).and_then(|value|value.get("error").and_then(Value::as_str)
+            .map(ToOwned::to_owned))
+        .unwrap_or_else(||format!("Render rechazado (HTTP {})",response.status()));
+        return Err(detail);
+    }
+    let blob=JsFuture::from(response.blob()
+        .map_err(|_|"No se pudo abrir el audio renderizado")?).await
+        .map_err(|_|"Error al recibir el audio renderizado")?;
+    let wav:Blob=blob.dyn_into()
+        .map_err(|_|"El motor no devolvió un WAV válido")?;
+    if wav.size()<44. || wav.size()>64.*1024.*1024. {
+        return Err("El WAV excede el tamaño de previsualización permitido".into());
+    }
+    Ok(wav)
+}
+pub fn preview_draft_mix(
+    assets:Vec<AudioAsset>,tracks:Vec<Track>,status:RwSignal<String>
+) {
+    status.set("Preparando regiones y fuentes para render Rust temporal…".into());
+    spawn_local(async move {
+        let result=async {
+            let document=compose_mix(&assets,&tracks).await?;
+            let wav=request_draft_wav(&document).await?;
+            let url=Url::create_object_url_with_blob(&wav)
+                .map_err(|_|"No se pudo reproducir el render temporal")?;
+            let player=media::player("mix-draft-engine-audio")
+                .ok_or("No se encuentra el reproductor del borrador")?;
+            player.pause().ok();
+            player.set_src(&url);
+            player.set_current_time(0.);
+            ENGINE_PREVIEWS.with(|previews| {
+                if let Some(previous)=previews.borrow_mut().insert("mix-draft-engine-audio",url) {
+                    Url::revoke_object_url(&previous).ok();
+                }
+            });
+            player.play().map_err(|_|"El navegador bloqueó la reproducción")?;
+            Ok::<(),String>(())
+        }.await;
+        status.set(match result {
+            Ok(())=>"VSMix: previsualización Rust actual, sin guardar proyecto.".into(),
+            Err(error)=>format!("No se pudo previsualizar VSMix: {error}"),
+        });
+    });
+}
