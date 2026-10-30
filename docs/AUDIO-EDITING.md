@@ -151,3 +151,28 @@ aunque las fuentes usadas se publican en el CAS local mediante acción
 explícita. El render de Rust usa su procesamiento habitual y verifica
 los SHA-256 antes de leer archivos. No hay soporte de OGG/Opus/MP3
 nativo en esta ruta por ahora.
+
+## FullCanvas VSMix: ondas locales y crossfades lineales (26.3)
+
+Las regiones conservan sus identificadores y sus campos en proyectos .vsaudio.
+El desplazamiento y los recortes editan únicamente la sesión local. La
+previsualización exacta continúa utilizando Motor (borrador) de Rust.
+
+- El botón Ondas analiza únicamente las fuentes actualmente utilizadas.
+  Decodifica con Web Audio en el navegador, sin subir audio para generar picos.
+  Conserva hasta 768 picos por fuente en memoria, con límite de 16 MiB por
+  archivo y 10 millones de cuadros decodificados por fuente. Audio muy largo
+  o códecs no compatibles pueden no tener gráfica.
+- El botón Crossfade aplica entradas y salidas lineales a pares de regiones
+  superpuestas en una misma pista. Omite superposiciones triples, anidadas
+  o cuyos fades no caben dentro de la duración disponible. Reutiliza las
+  propiedades fade_in y fade_out existentes del motor: no agrega nuevos
+  campos al proyecto ni impone un nuevo algoritmo de mezcla.
+- El editor de regiones lee los valores actuales de la sesión tras arrastres
+  y transiciones, evitando números obsoletos en los campos de control.
+- Las ondas son resúmenes para inspección visual, no la representación exacta
+  del proceso DSP. La vista previa definitiva es Motor (borrador).
+
+Queda pendiente la comprobación manual en navegador de los gestos pointer,
+la alineación visual de las ondas con sus recortes y la interacción entre
+regiones de distintas pistas. Los datapacks continúan fuera del alcance.
