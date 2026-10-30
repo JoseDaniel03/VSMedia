@@ -253,3 +253,12 @@
 @media(max-width:1200px){.vspack-workspace{grid-template-columns:225px minmax(0,1fr)}.vspack-output{grid-column:1/-1;border-left:0;border-top:1px solid #e4e7f1}.vspack-output dl{grid-template-columns:repeat(4,auto);gap:8px 12px;align-items:baseline}.vspack-output dd{text-align:left}.vspack-output .vspack-export{max-width:270px}}
 @media(max-width:850px){.vspack-head{padding:18px}.vspack-workspace{grid-template-columns:1fr}.vspack-sidebar{border-right:0;border-bottom:1px solid #e4e7f1}.vspack-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.vspack-files{max-height:350px}.vspack-root{overflow:visible}.vspack-head>span{display:none}}
 @media(max-width:550px){.vspack-filters{flex-direction:column}.vspack-file{grid-template-columns:70px minmax(0,1fr) 52px;gap:5px}.vspack-source-tools{justify-content:flex-start}.vspack-output dl{display:grid;grid-template-columns:1fr auto}}
+
+/* On-demand VSPack image inspection; only a single Blob URL is retained. */
+.vspack-file{grid-template-columns:86px minmax(0,1fr) 66px 42px}
+.vspack-view{background:#f2ecff;border:1px solid #dacff5;border-radius:5px;color:#7054a8;padding:5px 6px;font-size:10px;cursor:pointer}
+.vspack-view:hover{background:#e6daff}
+.vspack-texture-preview{display:flex;align-items:center;gap:10px;min-height:48px;max-height:220px;background:#faf9ff;border:1px dashed #d9d5eb;border-radius:9px;padding:10px;margin-top:9px;overflow:auto}
+.vspack-texture-preview img{max-width:160px;max-height:190px;object-fit:contain;image-rendering:pixelated;background:repeating-conic-gradient(#e9e7f4 0% 25%,#fff 0% 50%) 50% / 14px 14px;border-radius:5px}
+.vspack-texture-preview span,.vspack-texture-preview small{font-size:10px;color:#8a94ab;overflow-wrap:anywhere}
+@media(max-width:550px){.vspack-file{grid-template-columns:62px minmax(0,1fr) 50px 40px;gap:4px}.vspack-texture-preview{flex-direction:column;align-items:flex-start}}
