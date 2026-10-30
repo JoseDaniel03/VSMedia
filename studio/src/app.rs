@@ -21,12 +21,11 @@ pub fn App() -> impl IntoView {
     let current_version = RwSignal::new(String::new());
     let tracks = RwSignal::new(Vec::<Track>::new());
     let history=RwSignal::new(MixHistory::default());
-    history.update(|item|item.observe(Vec::new()));
+    history.update(|item|item.observe(&[]));
     // Each completed local state change is one reversible checkpoint. Pointer
     // operations commit only on release, so no per-frame history allocation.
     Effect::new(move |_| {
-        let snapshot=tracks.get();
-        history.update(|item|item.observe(snapshot));
+        tracks.with(|current|history.update(|item|item.observe(current)));
     });
     let playlists = RwSignal::new(Vec::<Playlist>::new());
     let recording = RwSignal::new(false);

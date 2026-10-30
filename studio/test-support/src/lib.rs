@@ -32,16 +32,16 @@ mod tests {
     fn undo_redo_and_branching_preserve_exact_sessions() {
         let mut history=mix_history::MixHistory::default();
         let mut tracks=vec![track("a",vec![region("r",1.0)])];
-        history.observe(tracks.clone());
+        history.observe(&tracks);
         tracks[0].regions[0].start=2.0;
-        history.observe(tracks.clone());
+        history.observe(&tracks);
         assert!(history.can_undo());
         assert_eq!(history.undo().unwrap()[0].regions[0].start,1.0);
         assert!(history.can_redo());
         assert_eq!(history.redo().unwrap()[0].regions[0].start,2.0);
         history.undo().unwrap();
         tracks[0].regions[0].start=3.0;
-        history.observe(tracks);
+        history.observe(&tracks);
         assert!(!history.can_redo());
         assert_eq!(history.size(),2);
     }
@@ -50,8 +50,8 @@ mod tests {
         let mut history=mix_history::MixHistory::default();
         for n in 0..100 {
             let t=vec![track("a",vec![region("r",n as f64)])];
-            history.observe(t.clone());
-            history.observe(t);
+            history.observe(&t);
+            history.observe(&t);
         }
         assert_eq!(history.size(),80);
         assert_eq!(history.undo().unwrap()[0].regions[0].start,98.0);

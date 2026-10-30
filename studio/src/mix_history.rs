@@ -19,7 +19,7 @@ pub struct MixHistory {
     pub oversized:bool,
 }
 impl MixHistory {
-    pub fn observe(&mut self,tracks:Vec<Track>) {
+    pub fn observe(&mut self,tracks:&[Track]) {
         let Ok(fingerprint)=serde_json::to_string(&tracks) else {return;};
         if fingerprint.len()>MAX_SNAPSHOT_BYTES {
             self.oversized=true;
@@ -34,13 +34,13 @@ impl MixHistory {
             return;
         }
         if self.states.is_empty() {
-            self.states.push(Snapshot{tracks,fingerprint});
+            self.states.push(Snapshot{tracks:tracks.to_vec(),fingerprint});
             self.cursor=0;
             self.oversized=false;
             return;
         }
         self.states.truncate(self.cursor+1);
-        self.states.push(Snapshot{tracks,fingerprint});
+        self.states.push(Snapshot{tracks:tracks.to_vec(),fingerprint});
         let mut bytes=self.states.iter().map(|state|state.fingerprint.len()).sum::<usize>();
         while self.states.len()>1 && (self.states.len()>MAX_STATES ||
                 bytes>MAX_HISTORY_BYTES) {
@@ -72,7 +72,7 @@ mod tests {
         let mut h=MixHistory::default();
         assert!(h.undo().is_none());
         assert!(h.redo().is_none());
-        h.observe(vec![]);
+        h.observe(&[]);
         assert!(!h.can_undo());
         assert!(!h.can_redo());
     }
