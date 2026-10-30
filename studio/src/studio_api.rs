@@ -127,7 +127,6 @@ async fn compose_audio(asset:AudioAsset,version:Version,duration:f64)->Result<Va
             "clip_edits":[{
                 "track_index":0,"clip_index":0,"source_in_ms":start,
                 "pan":version.pan,"fade_in_ms":fade_in,"fade_out_ms":fade_out,
-                "fade_curve":region.fade_curve.as_str(),
                 "reversed":version.reversed,"muted":false,
                 "gain_points":gain_points,"filters":filters
             }]
@@ -403,6 +402,7 @@ async fn compose_mix(assets:&[AudioAsset],tracks:&[Track])->Result<Value,String>
                 "track_index":index,"clip_index":clip_index,
                 "source_in_ms":source_in_ms,"pan":region.pan,
                 "fade_in_ms":fade_in,"fade_out_ms":fade_out,
+                "fade_curve":region.fade_curve.as_str(),
                 "reversed":false,"muted":false,"gain_points":[],"filters":[]
             }));
         }
