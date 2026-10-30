@@ -152,9 +152,11 @@ fn TimelineClip(
                     pointer_start(&event, pointer, left_track.clone(), left_region.clone(), EditMode::TrimStart);
                 }></span>
             <span class="mix-timeline-clip-name">{move || {
-                let region = tracks.get().iter().find(|t| t.id == label_track)
+                let track_snapshot = tracks.get();
+                let region = track_snapshot.iter().find(|t| t.id == label_track)
                     .and_then(|t| t.regions.iter().find(|r| r.id == label_region));
-                let name = region.and_then(|r| assets.get().iter()
+                let asset_snapshot = assets.get();
+                let name = region.and_then(|r| asset_snapshot.iter()
                     .find(|a| a.id == r.asset_id).map(|a| a.name.clone()));
                 name.unwrap_or_else(||"Clip sin fuente".into())
             }}</span>
