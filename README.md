@@ -18,7 +18,7 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 | IPC v1 | Loopback autenticado, carga/descarga por bloques hasta 64 MiB y verificación SHA-256 | Reanudación, staging a disco, integración E2E y hardening |
 | Java API + Bridge | Interfaces, socket asíncrono, parser de descriptor CDN y seguimiento de packs | Bootstrap y persistencia de configuración |
 | Folia Delivery Adapter | Java 25/Paper 26.3, scheduler de jugador, estados, base/overlay y retiro de capas propias | Bootstrap en servidor, CDN y pruebas con Minecraft real |
-| Panel web | FullCanvas Leptos, VSAudio/VSMix con proyectos CAS, controles EQ/paneo/automatización, render WAV Rust por HTTP y comandos transaccionales; VSRadio local | Regiones multipista avanzadas, autenticación, radio remota y conexión Folia |
+| Panel web | FullCanvas Leptos, VSAudio/VSMix con proyectos CAS, controles EQ/paneo/automatización, render WAV Rust por HTTP y comandos transaccionales; VSRadio local | Arrastre visual de regiones, reproducción en vivo, códecs comprimidos, autenticación y conexión Folia |
 | VSClient | No modificado | Voz y streaming, cliente Fabric |
 
 ## Pruebas sin empaquetar
@@ -65,8 +65,11 @@ En CachyOS instalar Rust, el objetivo `wasm32-unknown-unknown` y Trunk;
 arrancar con `cd studio && ./start.sh`. La web queda en el puerto 3060
 y el bridge local en el 3061. El bridge HTTP **no se debe exponer a Internet**.
 
-El mezclador sigue reproduciendo localmente; guardar su estado en el Core no
-implica emisión a Minecraft. Los endpoints remotos de streaming/voz siguen
+VSMix guarda y recupera múltiples regiones por pista; tanto VSMix como
+VSAudio pueden previsualizar borradores con Rust sin crear revisiones de
+proyecto. Las fuentes WAV utilizadas pueden subirse al CAS por acción
+explícita. El reproductor HTML5 sigue siendo una escucha local, no una
+emisión a Minecraft. Los endpoints remotos de streaming/voz siguen
 sin implementar.
 Ver [integración Studio](docs/STUDIO-INTEGRATION.md) y
 [manual técnico](studio/docs/INTEGRATION.md).

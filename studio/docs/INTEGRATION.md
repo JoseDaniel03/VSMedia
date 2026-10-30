@@ -39,7 +39,7 @@ Abrir `http://127.0.0.1:3060` en el mismo equipo que ejecuta VSMedia. La base SQ
 - Subidas individuales de hasta 16 MiB mediante HTTP y un límite de 2 MiB por proyecto nativo.
 - No se incluyen artefactos de producción, plugin Jar ni releases.
 - El bridge no emite radio ni sincroniza automáticamente todos los archivos/ediciones que permanecen en el navegador.
-- VSAudio guarda una versión por operación; VSMix guarda una sesión de pistas, con hasta un clip por pista. La edición de regiones múltiples, buses y efectos avanzados desde la UI sigue pendiente.
+- VSAudio guarda una versión por operación; VSMix guarda una sesión con múltiples regiones por pista, con controles independientes de volumen, fuente, paneo, posición y fades. Faltan el arrastre visual, buses y efectos avanzados adicionales.
 - **Abrir** recupera una copia de trabajo al navegador; **Guardar** crea otro proyecto, no actualiza silenciosamente el anterior.
 - Los archivos publicados anteriormente permanecen en CAS; aún falta eliminación/GC y sincronización persistente de la biblioteca y carpetas.
 
@@ -95,3 +95,15 @@ El editor de regiones trabaja con datos en memoria del navegador. La
 reproducción nativa está limitada a archivos WAV por ahora; las demás
 fuentes pueden conservarse en el catálogo y como proyectos nativos,
 pero no se simula render para códecs sin decodificador.
+
+## Render temporal desde VSAudio
+
+VSAudio también muestra **▶ Motor (borrador)** junto a su editor. La
+versión actual (recortes, fades, reversa, paneo, EQ y volumen automatizado)
+se procesa por Rust mediante el mismo endpoint temporal que VSMix.
+Esto evita guardar el proyecto solo para escucharlo. La subida de la fuente
+al CAS local ocurre exclusivamente cuando el usuario solicita el render.
+
+El backend evita crear revisiones nuevas de una fuente existente si el
+contenido recibido ya tiene el mismo SHA-256, reduciendo operaciones
+innecesarias durante las previsualizaciones sucesivas.

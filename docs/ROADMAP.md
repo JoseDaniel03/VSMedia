@@ -69,3 +69,13 @@ ni distribución todavía. `vspack` actualmente representa Resource Packs.
 - [ ] Integrar y habilitar el adaptador en un plugin VSMedia real; pruebas con jugadores.
 - [ ] Medir consumo de ancho de banda, caché real y latencia desde distintos clientes.
 - [ ] Configurar alojamiento HTTPS/CDN y descarga pública; no hay servicio HTTP abierto por defecto.
+
+
+### Studio: edición de regiones conectada
+
+- [x] VSMix con múltiples regiones por pista y guardado/recuperación nativa.
+- [x] Render Rust de borradores VSAudio y VSMix sin crear revisiones de proyecto.
+- [x] Mezcla de clips superpuestos, paneo y fades con verificación SHA-256.
+- [x] Reutilización de recursos idénticos durante previsualización local.
+- [ ] Arrastre de regiones, ajuste de bordes y formas de onda editables desde la web.
+- [ ] Decodificación MP3/FLAC/OGG/Opus, buses, efectos adicionales y audio en vivo.
