@@ -326,10 +326,36 @@ pub fn save_mix_project(
 }
 /// Compose a native timeline. This uploads only explicitly referenced audio
 /// to the Studio CAS; it does not create or replace any project revision.
+/// Preflight all automation before any explicit CAS upload begins; a typo
+/// on the last region must not publish partial sources from earlier regions.
+fn validate_mix_keyframes(tracks:&[Track])->Result<(),String> {
+    for track in tracks {
+        for region in &track.regions {
+            if region.gain_points.len()>256 {
+                return Err(format!("Demasiados puntos de automatización en {}",track.name));
+            }
+            let duration=millis(region.duration)?;
+            let mut last=None;
+            for point in &region.gain_points {
+                if !point.at.is_finite() || !point.gain.is_finite()
+                    || !(0.0..=2.0).contains(&point.gain) {
+                    return Err(format!("Automatización inválida en {}",track.name));
+                }
+                let current=millis(point.at)?;
+                if current>duration || last.is_some_and(|previous|current<=previous) {
+                    return Err(format!("Puntos fuera de orden o duración en {}",track.name));
+                }
+                last=Some(current);
+            }
+        }
+    }
+    Ok(())
+}
 async fn compose_mix(assets:&[AudioAsset],tracks:&[Track])->Result<Value,String> {
     if tracks.is_empty() || tracks.len()>256 {
         return Err("La mezcla debe tener entre 1 y 256 pistas".into());
     }
+    validate_mix_keyframes(tracks)?;
     let mut known=std::collections::HashMap::<String,String>::new();
     let mut sources=Vec::new();
     let mut timeline_tracks=Vec::new();
@@ -568,8 +594,8 @@ async fn load_mix(name:&str,assets:RwSignal<Vec<AudioAsset>>,
                             }
                             let gain_db=point.get("gain_db").and_then(Value::as_f64)
                                 .ok_or("Punto de automatización sin ganancia")?;
-                            if !gain_db.is_finite() || !(-120.0..=24.0).contains(&gain_db){
-                                return Err("Ganancia de automatización inválida".into());
+                            if !gain_db.is_finite() || !(-120.0..=6.0206).contains(&gain_db){
+                                return Err("La automatización supera el límite de VSMix (200%)".into());
                             }
                             previous=Some(at_ms);
                             points.push(media::MixGainPoint{
