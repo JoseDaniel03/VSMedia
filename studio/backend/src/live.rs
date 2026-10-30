@@ -1,4 +1,5 @@
-//! Ephemeral local-only WebRTC signaling for small VSRadio and VSStreams rooms.
+//! Ephemeral local-only WebRTC signaling for small VSRadio broadcast rooms.
+//! VSStreams voice is provided by the separate Plasmo Voice server/client mod.
 //! This server NEVER receives audio, SDP is not persisted, and only peers in
 //! the same validated room can exchange offer/answer/ICE messages.
 //! Production public deployment requires TLS, an authenticated proxy and TURN.
@@ -11,7 +12,6 @@ use crate::{authorize_origin,ApiError};
 
 const MAX_MESSAGE:usize=48*1024;
 const MAX_TOTAL_PEERS:usize=128;
-const MAX_VOICE_PEERS:usize=8;
 const MAX_RADIO_PEERS:usize=16;
 const MAX_QUEUE:usize=64;
 const HEARTBEAT_TIMEOUT:Duration=Duration::from_secs(100);
@@ -25,7 +25,6 @@ struct Rooms {
 }
 struct Member {
     room:String,
-    mode:String,
     role:String,
     tx:mpsc::Sender<String>,
 }
@@ -38,7 +37,7 @@ fn validate_room(room:&str)->Result<(),String>{
 }
 fn validate_join(mode:&str,role:&str)->Result<(),String> {
     match (mode,role){
-        ("radio","host")|("radio","listener")|("voice","speaker")=>Ok(()),
+        ("radio","host")|("radio","listener")=>Ok(()),
         _=>Err("Modo o rol no admitido".into())
     }
 }
@@ -57,27 +56,24 @@ impl LiveHub {
         // references before allocating a new member in the shared room map.
         let existing=state.members.iter()
             .filter(|(_,member)|member.room==room)
-            .map(|(id,member)|(*id,member.mode.clone(),member.role.clone(),member.tx.clone()))
+            .map(|(id,member)|(*id,member.role.clone(),member.tx.clone()))
             .collect::<Vec<_>>();
-        if existing.iter().any(|(_,peer_mode,_,_)|peer_mode!=mode){
-            return Err("Esa sala ya usa otro tipo de comunicación".into());
-        }
-        if mode=="radio" && role=="host" && existing.iter().any(|(_,_,role,_)|role=="host"){
+        if role=="host" && existing.iter().any(|(_,role,_)|role=="host"){
             return Err("Esta radio ya tiene un emisor".into());
         }
-        let limit=if mode=="radio"{MAX_RADIO_PEERS}else{MAX_VOICE_PEERS};
+        let limit=MAX_RADIO_PEERS;
         if existing.len()>=limit{return Err("La sala alcanzó su límite".into());}
-        let peers=existing.iter().map(|(id,_,role,_)|json!({"id":id,"role":role}))
+        let peers=existing.iter().map(|(id,role,_)|json!({"id":id,"role":role}))
             .collect::<Vec<_>>();
         state.next=state.next.checked_add(1).ok_or("No hay más identificadores")?;
         let id=state.next;
         emit(&tx,json!({"type":"joined","id":id,"room":room,
             "mode":mode,"role":role,"peers":peers,"limit":limit}));
-        for (_,_,_,sender) in existing{
+        for (_,_,sender) in existing{
             emit(&sender,json!({"type":"peer_joined","id":id,"role":role}));
         }
         state.members.insert(id,Member{
-            room:room.to_owned(),mode:mode.to_owned(),role:role.to_owned(),tx
+            room:room.to_owned(),role:role.to_owned(),tx
         });
         Ok(id)
     }
@@ -115,15 +111,13 @@ impl LiveHub {
         let state=self.0.lock().await;
         let sender=state.members.get(&from).ok_or("Emisor desconectado")?;
         let receiver=state.members.get(&to).ok_or("Destinatario desconectado")?;
-        if from==to || sender.room!=receiver.room || sender.mode!=receiver.mode {
+        if from==to || sender.room!=receiver.room {
             return Err("No se puede enviar a otra sala".into());
         }
-        if sender.mode=="radio" {
-            if (kind=="offer" && sender.role!="host")
-                ||(kind=="answer" && sender.role!="listener")
-                ||sender.role==receiver.role {
-                return Err("La radio sólo permite oferta del emisor y respuesta del oyente".into());
-            }
+        if (kind=="offer" && sender.role!="host")
+            ||(kind=="answer" && sender.role!="listener")
+            ||sender.role==receiver.role {
+            return Err("La radio sólo permite oferta del emisor y respuesta del oyente".into());
         }
         receiver.tx.try_send(payload).map_err(|_|"El destinatario está saturado".to_owned())
     }
@@ -131,8 +125,8 @@ impl LiveHub {
         let state=self.0.lock().await;
         json!({"transport":"webrtc_p2p","rooms":state.members.values()
             .map(|m|m.room.as_str()).collect::<std::collections::HashSet<_>>().len(),
-            "peers":state.members.len(),"max_voice":MAX_VOICE_PEERS,
-            "max_radio":MAX_RADIO_PEERS,"audio_recorded":false})
+            "peers":state.members.len(),"max_radio":MAX_RADIO_PEERS,
+            "voice_rooms":false,"audio_recorded":false})
     }
 }
 pub async fn status(
@@ -223,7 +217,7 @@ mod tests{
         let _=listener.recv().await;
         let _=host.recv().await;
         let (c,mut outsider)=channel();
-        let outsider_id=hub.join("other_12345","voice","speaker",c).await.unwrap();
+        let outsider_id=hub.join("other_12345","radio","listener",c).await.unwrap();
         let _=outsider.recv().await;
         assert!(hub.signal(listener_id,host_id,"offer",&json!({"sdp":"bad"})).await.is_err());
         assert!(hub.signal(host_id,outsider_id,"offer",&json!({"sdp":"bad"})).await.is_err());
@@ -235,13 +229,16 @@ mod tests{
         assert!(listener.recv().await.unwrap().contains("peer_left"));
     }
     #[tokio::test]
-    async fn voice_rooms_limit_members_and_dont_persist_history(){
+    async fn radio_rooms_limit_members_and_reject_voice_mode(){
         let hub=LiveHub::default();
-        for _ in 0..8{
-            hub.join("voice_12345","voice","speaker",channel().0).await.unwrap();
-        }
         assert!(hub.join("voice_12345","voice","speaker",channel().0).await.is_err());
+        assert!(hub.join("voice_12345","radio","speaker",channel().0).await.is_err());
+        for _ in 0..16{
+            hub.join("radio_abc123","radio","listener",channel().0).await.unwrap();
+        }
+        assert!(hub.join("radio_abc123","radio","listener",channel().0).await.is_err());
         assert_eq!(hub.stats().await["rooms"],1);
-        assert_eq!(hub.stats().await["peers"],8);
+        assert_eq!(hub.stats().await["peers"],16);
+        assert_eq!(hub.stats().await["voice_rooms"],false);
     }
 }
