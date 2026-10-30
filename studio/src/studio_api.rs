@@ -319,7 +319,9 @@ pub fn save_mix_project(
         });
     });
 }
-async fn save_mix(assets:&[AudioAsset],tracks:&[Track])->Result<String,String> {
+/// Compose a native timeline. This uploads only explicitly referenced audio
+/// to the Studio CAS; it does not create or replace any project revision.
+async fn compose_mix(assets:&[AudioAsset],tracks:&[Track])->Result<Value,String> {
     if tracks.is_empty() || tracks.len()>256 {
         return Err("La mezcla debe tener entre 1 y 256 pistas".into());
     }
@@ -328,36 +330,43 @@ async fn save_mix(assets:&[AudioAsset],tracks:&[Track])->Result<String,String> {
     let mut timeline_tracks=Vec::new();
     let mut clip_edits=Vec::new();
     let mut track_edits=Vec::new();
+    let mut total_clips=0usize;
     for (index,track) in tracks.iter().enumerate() {
-        if track.name.trim().is_empty() {
-            return Err("Todas las pistas deben tener nombre".into());
-        }
+        if track.name.trim().is_empty() {return Err("Todas las pistas necesitan nombre".into());}
         if !track.volume.is_finite() || !(0.0..=1.0).contains(&track.volume) {
-            return Err("Volumen de pista inválido".into());
+            return Err(format!("Volumen inválido en {}",track.name));
         }
-        let gain_db=if track.volume==0. {-120.0} else {
-            20.*track.volume.log10()
-        };
-        track_edits.push(json!({
-            "track_index":index,"gain_db":gain_db,"pan":0.0,
-            "muted":track.muted,"solo":track.solo
-        }));
-        let mut clips=Vec::new();
-        if !track.asset_id.is_empty() {
-            let asset=assets.iter().find(|item|item.id==track.asset_id)
-                .ok_or_else(||format!("Falta el audio para la pista {}",track.name))?;
-            let kind=codec(&asset.name)
-                .ok_or("VSMix admite WAV, MP3, FLAC, OGG, Opus y WebM")?;
+        let track_db=if track.volume==0. {-120.0} else{20.*track.volume.log10()};
+        track_edits.push(json!({"track_index":index,"gain_db":track_db,
+            "pan":0.0,"muted":track.muted,"solo":track.solo}));
+        // Older sessions retain their one-file track. Once regions exist,
+        // region editing is authoritative; never silently append the legacy file.
+        let regions=if track.regions.is_empty() && !track.asset_id.is_empty() {
             let duration=media::player(&format!("track-{}",track.id))
                 .map(|player|player.duration()).unwrap_or(0.);
-            let length=millis(duration)?;
-            if length==0 {
-                return Err(format!("Esperá a que cargue la duración de {}",track.name));
+            vec![media::MixRegion{id:format!("legacy-{}",track.id),
+                asset_id:track.asset_id.clone(),start:0.,duration,source_in:0.,
+                volume:1.,pan:0.,fade_in:track.fade_in,fade_out:track.fade_out}]
+        }else{track.regions.clone()};
+        total_clips=total_clips.saturating_add(regions.len());
+        if total_clips>256 {return Err("La mezcla supera el límite de 256 regiones".into());}
+        let mut clips=Vec::with_capacity(regions.len());
+        for (clip_index,region) in regions.iter().enumerate() {
+            let asset=assets.iter().find(|item|item.id==region.asset_id)
+                .ok_or_else(||format!("No se encuentra el audio de una región de {}",track.name))?;
+            let kind=codec(&asset.name)
+                .ok_or("VSMix admite WAV, MP3, FLAC, OGG, Opus y WebM")?;
+            let start_ms=millis(region.start)?;
+            let source_in_ms=millis(region.source_in)?;
+            let length=millis(region.duration)?;
+            let fade_in=millis(region.fade_in)?;
+            let fade_out=millis(region.fade_out)?;
+            if length==0 || fade_in.saturating_add(fade_out)>length {
+                return Err(format!("Una región de {} tiene duración o fades inválidos",track.name));
             }
-            let fade_in=millis(track.fade_in)?;
-            let fade_out=millis(track.fade_out)?;
-            if fade_in.saturating_add(fade_out)>length {
-                return Err(format!("Los fades de {} superan la duración del audio",track.name));
+            if !region.volume.is_finite() || !(0.0..=2.0).contains(&region.volume)
+                || !region.pan.is_finite() || !(-1.0..=1.0).contains(&region.pan) {
+                return Err(format!("Una región de {} tiene volumen o paneo inválido",track.name));
             }
             if !known.contains_key(&asset.id) {
                 let blob=media::get_blob(&asset.id)
@@ -371,38 +380,36 @@ async fn save_mix(assets:&[AudioAsset],tracks:&[Track])->Result<String,String> {
                 let uploaded=request(&format!("/assets/{}",asset.id),"POST",
                     Uint8Array::new(&array).into(),"application/octet-stream").await?;
                 let sha=uploaded.get("sha256").and_then(Value::as_str)
-                    .ok_or("No se recibió el hash SHA-256 del audio")?.to_owned();
+                    .ok_or("VSCore no devolvió el SHA-256 del audio")?.to_owned();
                 known.insert(asset.id.clone(),sha.clone());
                 sources.push(json!({
                     "key":{"namespace":"studio","name":format!("audio/{}",asset.id)},
                     "sha256":sha,"codec":kind
                 }));
             }
+            let gain_db=if region.volume==0. {-120.0} else{20.*region.volume.log10()};
             clips.push(json!({
                 "asset":{"namespace":"studio","name":format!("audio/{}",asset.id)},
-                "start_ms":0,"duration_ms":length,"gain_db":0.0
+                "start_ms":start_ms,"duration_ms":length,"gain_db":gain_db
             }));
             clip_edits.push(json!({
-                "track_index":index,"clip_index":0,"source_in_ms":0,
-                "pan":0.0,"fade_in_ms":fade_in,"fade_out_ms":fade_out,
-                "reversed":false,"muted":false,
-                "gain_points":[],"filters":[]
+                "track_index":index,"clip_index":clip_index,
+                "source_in_ms":source_in_ms,"pan":region.pan,
+                "fade_in_ms":fade_in,"fade_out_ms":fade_out,
+                "reversed":false,"muted":false,"gain_points":[],"filters":[]
             }));
         }
-        timeline_tracks.push(json!({
-            "name":track.name,"muted":false,"clips":clips
-        }));
+        timeline_tracks.push(json!({"name":track.name,"muted":false,"clips":clips}));
     }
-    let project_id=media::uid("mix");
-    let document=json!({
-        "magic":"VSMEDIA","version":1,
+    Ok(json!({"magic":"VSMEDIA","version":1,
         "payload":{"kind":"audio","data":{
-            "timeline":{"name":format!("Mezcla {project_id}"),
-                "tracks":timeline_tracks},
-            "sources":sources,"clip_edits":clip_edits,
-            "track_edits":track_edits
-        }}
-    });
+            "timeline":{"name":"VSMix FullCanvas","tracks":timeline_tracks},
+            "sources":sources,"clip_edits":clip_edits,"track_edits":track_edits
+        }}}))
+}
+async fn save_mix(assets:&[AudioAsset],tracks:&[Track])->Result<String,String> {
+    let document=compose_mix(assets,tracks).await?;
+    let project_id=media::uid("mix");
     let result=request(&format!("/audio/projects/{project_id}"),"POST",
         JsValue::from_str(&document.to_string()),"application/json").await?;
     let revision=result.get("revision").and_then(Value::as_u64).unwrap_or(0);
