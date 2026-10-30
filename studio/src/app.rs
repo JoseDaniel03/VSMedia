@@ -500,6 +500,17 @@ fn edit_mix_region(
         }
     });
 }
+/// Reactive field reads stay bound to the persistent region identity, not
+/// the original keyed-list snapshot. Pointer edits and automatic crossfades
+/// therefore update the numeric controls immediately.
+fn mix_region_value(
+    tracks:RwSignal<Vec<Track>>,track_id:&str,region_id:&str,
+    read:impl FnOnce(&MixRegion)->String
+)->String {
+    tracks.get().iter().find(|track|track.id==track_id)
+        .and_then(|track|track.regions.iter().find(|region|region.id==region_id))
+        .map(read).unwrap_or_default()
+}
 #[component]
 fn RegionEditor(
     track_id:String,region:MixRegion,
@@ -515,6 +526,22 @@ fn RegionEditor(
     let t_in=track_id.clone();let r_in=rid.clone();
     let t_out=track_id.clone();let r_out=rid.clone();
     let t_remove=track_id.clone();let r_remove=rid.clone();
+    let show_asset={let tid=track_id.clone();let rid=rid.clone();
+        move || mix_region_value(tracks,&tid,&rid,|r|r.asset_id.clone())};
+    let show_start={let tid=track_id.clone();let rid=rid.clone();
+        move || mix_region_value(tracks,&tid,&rid,|r|r.start.to_string())};
+    let show_duration={let tid=track_id.clone();let rid=rid.clone();
+        move || mix_region_value(tracks,&tid,&rid,|r|r.duration.to_string())};
+    let show_source={let tid=track_id.clone();let rid=rid.clone();
+        move || mix_region_value(tracks,&tid,&rid,|r|r.source_in.to_string())};
+    let show_gain={let tid=track_id.clone();let rid=rid.clone();
+        move || mix_region_value(tracks,&tid,&rid,|r|(r.volume*100.).round().to_string())};
+    let show_pan={let tid=track_id.clone();let rid=rid.clone();
+        move || mix_region_value(tracks,&tid,&rid,|r|(r.pan*100.).round().to_string())};
+    let show_in={let tid=track_id.clone();let rid=rid.clone();
+        move || mix_region_value(tracks,&tid,&rid,|r|r.fade_in.to_string())};
+    let show_out={let tid=track_id.clone();let rid=rid.clone();
+        move || mix_region_value(tracks,&tid,&rid,|r|r.fade_out.to_string())};
     view! {
         <div class="mix-region">
             <div class="mix-region-heading">
@@ -531,7 +558,7 @@ fn RegionEditor(
                     })>"×"</button>
             </div>
             <select aria-label="Audio de región"
-                prop:value=region.asset_id.clone()
+                prop:value=show_asset
                 on:change=move |ev|{
                     let id=event_target_value(&ev);
                     edit_mix_region(tracks,&t_asset,&r_asset,|r|r.asset_id=id);
@@ -543,37 +570,37 @@ fn RegionEditor(
             </select>
             <div class="region-fields">
                 <label>"Inicio en pista (s)"<input type="number" min="0" max="3600" step="0.1"
-                    prop:value=region.start.to_string()
+                    prop:value=show_start
                     on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_start,&r_start,|r|r.start=value.max(0.));}
                     } }/></label>
                 <label>"Duración (s)"<input type="number" min="0.1" max="3600" step="0.1"
-                    prop:value=region.duration.to_string()
+                    prop:value=show_duration
                     on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_length,&r_length,|r|r.duration=value.max(0.1));}
                     } }/></label>
                 <label>"Desde origen (s)"<input type="number" min="0" max="3600" step="0.1"
-                    prop:value=region.source_in.to_string()
+                    prop:value=show_source
                     on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_source,&r_source,|r|r.source_in=value.max(0.));}
                     } }/></label>
                 <label>"Volumen (%)"<input type="number" min="0" max="200" step="5"
-                    prop:value=(region.volume*100.).round().to_string()
+                    prop:value=show_gain
                     on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_gain,&r_gain,|r|r.volume=(value/100.).clamp(0.,2.));}
                     } }/></label>
                 <label>"Paneo (%)"<input type="number" min="-100" max="100" step="5"
-                    prop:value=(region.pan*100.).round().to_string()
+                    prop:value=show_pan
                     on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_pan,&r_pan,|r|r.pan=(value/100.).clamp(-1.,1.));}
                     } }/></label>
                 <label>"Fade in (s)"<input type="number" min="0" max="3600" step="0.1"
-                    prop:value=region.fade_in.to_string()
+                    prop:value=show_in
                     on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_in,&r_in,|r|r.fade_in=value.max(0.));}
                     } }/></label>
                 <label>"Fade out (s)"<input type="number" min="0" max="3600" step="0.1"
-                    prop:value=region.fade_out.to_string()
+                    prop:value=show_out
                     on:change=move |ev| { if let Ok(value)=event_target_value(&ev).parse::<f64>() {
                         if value.is_finite(){edit_mix_region(tracks,&t_out,&r_out,|r|r.fade_out=value.max(0.));}
                     } }/></label>
