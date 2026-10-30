@@ -29,6 +29,13 @@ Desde VSPack se puede:
    almacenar medios ya comprimidos (PNG/OGG/MP3/WebP) y DEFLATE
    para JSON y otros archivos. El manifiesto `pack.mcmeta` debe
    ser un JSON con objeto `pack`.
+9. **Exportar base + overlays** con hasta cinco reglas `id=prefijo/`,
+   reutilizando `vsmedia-pack::layers` para separar recursos de
+   cambio frecuente. La salida **no es un pack instalable**: es un
+   ZIP de transporte que contiene `manifest.json`, `packs/base.zip`
+   y `packs/overlay.zip`, cada ZIP interno compatible con
+   Resource Packs de Minecraft y con su hash SHA-1/SHA-256 y UUID
+   estable. No publica ni asigna automáticamente las capas a jugadores.
 
 **No admite datapacks**: la lista de entradas permitidas está
 limitada a rutas `assets/...`, `pack.mcmeta` y `pack.png`.
@@ -65,6 +72,7 @@ Prueba recomendada:
 | GET | `/api/v1/packs/preview` | Inventario, categorías, conflictos y capacidades de exportación |
 | GET | `/api/v1/packs/texture?path=...` | Ver una imagen PNG/JPEG/WebP validada, máximo 4 MiB |
 | GET | `/api/v1/packs/export` | Descargar ZIP final, `Content-Type: application/zip` |
+| POST | `/api/v1/packs/layers/export` | Crear bundle ZIP de subpacks base+overlays a partir de `base_id` y `rules` |
 
 **Protecciones:**
 
@@ -121,3 +129,27 @@ exista un módulo Rust.
 No se genera ningún JAR, ZIP final de release ni tag;
 el único ZIP que se descarga es el que solicita el usuario
 al presionar **Exportar Resource Pack** en la interfaz.
+
+### Exportación de capas para caché Minecraft
+
+En la columna de exportación, elegir el identificador del pack base
+(por ejemplo `virgoland`) y escribir reglas como:
+
+```text
+ui=assets/virgoland/textures/ui/
+sounds=assets/virgoland/sounds/
+```
+
+Al pulsar **Exportar capas separadas**, el backend genera un ZIP contenedor
+con `manifest.json` y ZIPs de Resource Pack ordenados (base primero).
+El manifiesto informa `logical_id`, `uuid`, `sha1`, `sha256`,
+`bytes`, `filename` y cantidad de recursos por capa. En futuras
+revisiones, una capa unchanged puede conservar su hash y URL, mientras
+otra se actualiza. La regla se valida y las rutas se separan conforme
+al prefijo más específico; no se mezclan ni duplican bytes de origen
+en varios overlays.
+
+**Este bundle no puede aplicarse directamente a Minecraft:** primero
+hay que publicar cada ZIP interno por HTTPS y usar el adaptador
+Paper/Folia con UUID, SHA-1 y orden correctos. Estas acciones no se
+automatizan desde la interfaz local.

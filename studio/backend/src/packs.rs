@@ -260,6 +260,9 @@ pub async fn export_layers(
     if input.rules.is_empty()||input.rules.len()>5{
         return Err(bad("Usá entre 1 y 5 reglas overlay"));
     }
+    if input.rules.iter().any(|r|r.prefixes.is_empty()||r.prefixes.len()>8){
+        return Err(bad("Cada overlay admite entre 1 y 8 prefijos"));
+    }
     let merged=composed(&hub).await?;
     let result=tokio::task::spawn_blocking(move||{
         use std::io::{Cursor,Write};

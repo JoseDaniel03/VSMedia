@@ -57,3 +57,16 @@ La vista previa de imágenes está disponible bajo `GET /api/v1/packs/texture?pa
 solo para PNG/JPEG/WebP con firma validada, hasta 4 MiB, con cabeceras
 `nosniff`. No sirve SVG/HTML ni lee rutas arbitrarias fuera de la
 composición de ZIPs importados.
+
+La exportación opcional de subpacks utiliza
+`POST /api/v1/packs/layers/export` con JSON:
+
+```json
+{"base_id":"virgoland","rules":[
+  {"logical_id":"ui","prefixes":["assets/virgoland/textures/ui/"]}
+]}
+```
+
+Devuelve un ZIP de transporte con `manifest.json` y los ZIPs separados
+del pack base y sus overlays. **No es un Resource Pack único instalable**.
+La ruta no publica archivos ni modifica el servidor de Minecraft.

@@ -98,8 +98,10 @@ ni distribución todavía. `vspack` actualmente representa Resource Packs.
 - [ ] Vistas previas 3D de modelos y reproductor de sonidos dentro del editor.
 - [ ] Distribución HTTPS/CDN, integración final con el adaptador
   Paper/Folia del servidor y benchmarks reales con clientes.
-- [ ] Instrumentación de overlays base/delta y controles administrativos
-  de publicación desde el Studio.
+- [x] Exportación manual de pack base + overlays separados con manifiesto
+  de SHA-1, SHA-256 y UUID estable, reutilizando el planificador Rust.
+- [ ] Publicación HTTPS/CDN y controles administrativos de entrega
+  base/delta desde el Studio y conexión a jugadores Folia.
 
 **Alcance:** el gestor local de ZIPs está desarrollado y probado
 automáticamente; la distribución de packs a Minecraft sigue pendiente

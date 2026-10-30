@@ -37,8 +37,9 @@ VSStreams requiere Plasmo Voice en Minecraft y una integración futura con VSEng
   por proximidad para Minecraft; sólo presenta estado real de integración
   y requisitos. La administración avanzada se implementará después.
 - **VSPack:** gestor de ZIPs de Resource Packs, importación validada,
-  capas por prioridad, conflictos, buscador de archivos y exportación ZIP
-  determinista mediante el mismo Rust Pack Engine.
+  capas por prioridad, conflictos, buscador de archivos, vista previa de
+  texturas y exportación ZIP determinista o bundle base+overlays mediante
+  el mismo Rust Pack Engine.
   No publica automáticamente en Minecraft ni incorpora datapacks.
 - **Guion:** lector automático de texto/doblaje.
 
