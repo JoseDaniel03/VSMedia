@@ -1,6 +1,8 @@
 //! Interactive, non-destructive VSMix timeline. All edits stay in the local
 //! Track/MixRegion model; the existing draft render and .vsaudio path are reused.
 use crate::media::{AudioAsset, MixRegion, Track};
+use crate::waveform::{self, Waveform};
+use std::collections::HashMap;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -82,6 +84,41 @@ fn apply_pointer_edit(
     }
     Ok(())
 }
+/// Use the existing native linear fades, preserving the .vsaudio format.
+fn apply_linear_crossfades(tracks:&mut [Track]) -> (usize,usize) {
+    let mut applied=0usize;
+    let mut skipped=0usize;
+    for track in tracks {
+        let mut order:Vec<usize>=(0..track.regions.len()).collect();
+        order.sort_by(|&left,&right|
+            track.regions[left].start.total_cmp(&track.regions[right].start));
+        for (position,pair) in order.windows(2).enumerate() {
+            let a=pair[0];
+            let b=pair[1];
+            let previous=&track.regions[a];
+            let next=&track.regions[b];
+            let first_end=previous.start+previous.duration;
+            let next_end=next.start+next.duration;
+            let overlap=first_end-next.start;
+            if !(overlap>0.) {continue;}
+            let has_third=(position>0 &&
+                track.regions[order[position-1]].start
+                    +track.regions[order[position-1]].duration>next.start)
+                || order.get(position+2).is_some_and(|&third|
+                    track.regions[third].start<first_end);
+            if next_end<first_end || has_third || !overlap.is_finite()
+                || previous.fade_in+overlap>previous.duration
+                || next.fade_out+overlap>next.duration {
+                skipped+=1;
+                continue;
+            }
+            track.regions[a].fade_out=overlap;
+            track.regions[b].fade_in=overlap;
+            applied+=1;
+        }
+    }
+    (applied,skipped)
+}
 fn pointer_start(
     event: &web_sys::PointerEvent,
     edit: RwSignal<Option<PointerEdit>>,
@@ -116,6 +153,7 @@ fn TimelineClip(
     track_id: String, region_id: String, tracks: RwSignal<Vec<Track>>,
     assets: RwSignal<Vec<AudioAsset>>, zoom: RwSignal<f64>,
     pointer: RwSignal<Option<PointerEdit>>,
+    waveforms: RwSignal<HashMap<String,Waveform>>,
 ) -> impl IntoView {
     let move_track = track_id.clone();
     let move_region = region_id.clone();
@@ -127,6 +165,12 @@ fn TimelineClip(
     let display_region = region_id.clone();
     let label_track = track_id.clone();
     let label_region = region_id.clone();
+    let wave_track=track_id.clone();
+    let wave_region=region_id.clone();
+    let fade_in_track=track_id.clone();
+    let fade_in_region=region_id.clone();
+    let fade_out_track=track_id.clone();
+    let fade_out_region=region_id.clone();
     view! {
         <div class="mix-timeline-clip"
             style=move || {
@@ -151,6 +195,31 @@ fn TimelineClip(
                     event.stop_propagation();
                     pointer_start(&event, pointer, left_track.clone(), left_region.clone(), EditMode::TrimStart);
                 }></span>
+            <svg class="mix-waveform" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true">
+                <path d=move || {
+                    let snapshot=tracks.get();
+                    let region=snapshot.iter().find(|t|t.id==wave_track)
+                        .and_then(|t|t.regions.iter().find(|r|r.id==wave_region));
+                    let cached=waveforms.get();
+                    region.and_then(|r|cached.get(&r.asset_id)
+                        .map(|wave|wave.path(r.source_in,r.duration)))
+                        .unwrap_or_default()
+                }/>
+            </svg>
+            <span class="mix-fade-shade mix-fade-enter" style=move ||{
+                let snapshot=tracks.get();
+                snapshot.iter().find(|t|t.id==fade_in_track)
+                    .and_then(|t|t.regions.iter().find(|r|r.id==fade_in_region))
+                    .map(|r|format!("width:{:.2}%",100.*r.fade_in/r.duration.max(0.1)))
+                    .unwrap_or_default()
+            }></span>
+            <span class="mix-fade-shade mix-fade-exit" style=move ||{
+                let snapshot=tracks.get();
+                snapshot.iter().find(|t|t.id==fade_out_track)
+                    .and_then(|t|t.regions.iter().find(|r|r.id==fade_out_region))
+                    .map(|r|format!("width:{:.2}%",100.*r.fade_out/r.duration.max(0.1)))
+                    .unwrap_or_default()
+            }></span>
             <span class="mix-timeline-clip-name">{move || {
                 let track_snapshot = tracks.get();
                 let region = track_snapshot.iter().find(|t| t.id == label_track)
@@ -176,6 +245,8 @@ pub fn MixTimeline(
 ) -> impl IntoView {
     let zoom = RwSignal::new(24.0f64);
     let pointer = RwSignal::new(None::<PointerEdit>);
+    let waveforms = RwSignal::new(HashMap::<String,Waveform>::new());
+    let waves_busy = RwSignal::new(false);
     let track_ids = move || tracks.get().into_iter().map(|track| track.id).collect::<Vec<String>>();
     let ruler_ticks = move || {
         let duration = ruler_width(tracks, zoom) / zoom.get();
@@ -185,7 +256,20 @@ pub fn MixTimeline(
         <section class="mix-timeline-shell" aria-label="Línea de tiempo interactiva">
             <div class="mix-timeline-toolbar">
                 <strong>"LÍNEA DE TIEMPO"</strong>
-                <small>"Arrastrá clips para moverlos o cambiarlos de pista · bordes para recortar"</small>
+                <small>"Movimiento, recorte y fades sin alterar el origen"</small>
+                <button type="button" class="mix-timeline-action"
+                    title="Analiza únicamente los audios utilizados, sin subir archivos"
+                    disabled=move || waves_busy.get()
+                    on:click=move |_| waveform::load_for_mix(assets,tracks,waveforms,status,waves_busy)>
+                    {move ||if waves_busy.get(){"Analizando…"}else{"▥ Ondas"}}
+                </button>
+                <button type="button" class="mix-timeline-action"
+                    title="Aplica fades lineales a pares superpuestos, reproducibles con el motor actual"
+                    on:click=move |_|{
+                        let mut changed=(0,0);
+                        tracks.update(|list|changed=apply_linear_crossfades(list));
+                        status.set(format!("Crossfades lineales aplicados: {}. Cruces incompatibles omitidos: {}. Escuchá con ▶ Motor (borrador).",changed.0,changed.1));
+                    }>"⇄ Crossfade"</button>
                 <button type="button" title="Alejar" on:click=move |_| zoom.update(|value| *value = (*value / 1.5).max(8.0))>"−"</button>
                 <span>{move || format!("{:.0} px/s", zoom.get())}</span>
                 <button type="button" title="Acercar" on:click=move |_| zoom.update(|value| *value = (*value * 1.5).min(72.0))>"＋"</button>
@@ -243,7 +327,7 @@ pub fn MixTimeline(
                                 <For each=region_ids key=|id| id.clone() children=move |region_id| {
                                     view! {<TimelineClip track_id=clip_track_id.clone()
                                         region_id=region_id tracks=tracks assets=assets
-                                        zoom=zoom pointer=pointer/>}
+                                        zoom=zoom pointer=pointer waveforms=waveforms/>}
                                 }/>
                             </div>
                         </div>
