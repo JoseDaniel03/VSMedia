@@ -3,6 +3,7 @@
 //! Strict in-memory quotas; no arbitrary filesystem writes or external URLs.
 //! All operations are local-only. Public CDN / Folia delivery comes later.
 use std::{collections::{BTreeMap,BTreeSet},sync::Arc};
+use sha2::{Digest,Sha256};
 use axum::{
     body::Bytes,extract::{Path,Query},Extension,http::{header,HeaderMap,StatusCode},
     response::{IntoResponse,Response},Json,
@@ -22,8 +23,9 @@ fn limits()->ArchiveLimits {
     ArchiveLimits {max_files:2048,max_total_bytes:32*1024*1024,
         max_single_file_bytes:8*1024*1024}
 }
+/// Source packs plus explicit per-resource choices. Both are ephemeral.
 #[derive(Clone,Default)]
-pub struct PackHub(Arc<Mutex<Vec<LoadedPack>>>);
+pub struct PackHub(Arc<Mutex<Vec<LoadedPack>>>,Arc<Mutex<BTreeMap<String,String>>>);
 #[derive(Clone)]
 struct LoadedPack {
     id:String,
@@ -134,17 +136,23 @@ pub async fn remove(
     if len==packs.len(){
         return Err(ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()));
     }
+    drop(packs);
+    hub.1.lock().await.retain(|_,source|source!=&id);
     Ok(Json(json!({"deleted":true,"id":id})))
 }
 /// Clone only small Arc handles under lock. CPU-heavy structured merge/ZIP
 /// compression runs on a bounded blocking thread, not a Folia/async worker.
 async fn composed(hub:&PackHub)->Result<MergeOutput,ApiError>{
     let current=hub.0.lock().await.clone();
+    let overrides=hub.1.lock().await.clone();
     if current.is_empty(){return Err(bad("Primero importá un Resource Pack ZIP"));}
     tokio::task::spawn_blocking(move || {
         let files=current.iter().flat_map(|p|
             p.files.iter().cloned().map(|mut file|{
-                file.priority=p.priority;file
+                file.priority=if overrides.get(&file.path)==Some(&p.id){
+                    1001 // higher than any user-assigned pack priority
+                }else{p.priority};
+                file
             })
         ).collect::<Vec<PackAsset>>();
         structured::merge_structured(&files)
@@ -189,6 +197,170 @@ pub async fn preview(Extension(hub):Extension<PackHub>)->Result<Json<Value>,ApiE
         "warning":if valid_manifest{""}
             else{"Falta un pack.mcmeta válido con el objeto pack. Añadí un pack base antes de exportar"}
     })))
+}
+
+
+const MAX_RESOURCES_PAGE:usize=200;
+const MAX_SOURCE_CHOICES:usize=256;
+fn interface_kind(path:&str)->Option<&'static str>{
+    let tail=path.strip_prefix("assets/")?.split_once('/')?.1;
+    if tail.starts_with("textures/gui/")||tail.starts_with("textures/ui/")
+        ||tail.starts_with("textures/hud/"){Some("gui_textures")}
+    else if tail.starts_with("font/")||tail.starts_with("textures/font/"){Some("fonts")}
+    else if tail.starts_with("atlases/"){Some("atlases")}
+    else if tail.starts_with("models/item/"){Some("item_models")}
+    else if tail.starts_with("lang/"){Some("translations")}
+    else if tail.starts_with("sounds/ui/"){Some("ui_sounds")}
+    else{None}
+}
+fn namespace(path:&str)->Option<&str>{
+    path.strip_prefix("assets/")?.split_once('/').map(|v|v.0)
+}
+#[derive(Deserialize,Default)]
+pub struct ResourceQuery {
+    #[serde(default)] limit:Option<usize>,
+    #[serde(default)] offset:Option<usize>,
+    #[serde(default)] scope:Option<String>,
+    #[serde(default)] namespace:Option<String>,
+    #[serde(default)] search:Option<String>,
+    #[serde(default)] conflicts_only:Option<bool>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverrideInput {path:String,source_id:String}
+fn check_resource_query(q:&ResourceQuery)->Result<(),ApiError>{
+    if q.limit.is_some_and(|n|n==0||n>MAX_RESOURCES_PAGE)||
+        q.offset.is_some_and(|n|n>16_384) {
+        return Err(bad("Paginación inválida: limit 1..200, offset <= 16384"));
+    }
+    if q.search.as_ref().is_some_and(|s|s.len()>128)||
+        q.namespace.as_ref().is_some_and(|s|
+            s.is_empty()||s.len()>64||
+            !s.bytes().all(|c|c.is_ascii_lowercase()||c.is_ascii_digit()||c==b'_')) {
+        return Err(bad("Búsqueda o namespace inválido"));
+    }
+    if q.scope.as_deref().is_some_and(|s|s!="all"&&s!="textures"&&s!="interfaces"){
+        return Err(bad("scope debe ser all, textures o interfaces"));
+    }
+    Ok(())
+}
+async fn resource_plan(hub:&PackHub,filter:ResourceQuery)->Result<Json<Value>,ApiError>{
+    check_resource_query(&filter)?;
+    let packs=hub.0.lock().await.clone();
+    let overrides=hub.1.lock().await.clone();
+    let page=tokio::task::spawn_blocking(move||{
+        let mut grouped=BTreeMap::<String,Vec<(String,String,i32,usize,String)>>::new();
+        for pack in &packs{
+            for asset in pack.files.iter(){
+                if let Some(ns)=filter.namespace.as_deref(){
+                    if namespace(&asset.path)!=Some(ns){continue;}
+                }
+                if let Some(term)=filter.search.as_deref(){
+                    if !asset.path.to_ascii_lowercase().contains(&term.to_ascii_lowercase()){
+                        continue;
+                    }
+                }
+                let kind=interface_kind(&asset.path);
+                if filter.scope.as_deref()==Some("textures") && category(&asset.path)!="textures"{
+                    continue;
+                }
+                if filter.scope.as_deref()==Some("interfaces")&&kind.is_none(){continue;}
+                grouped.entry(asset.path.clone()).or_default().push((
+                    pack.id.clone(),pack.name.clone(),pack.priority,
+                    asset.data.len(),format!("{:x}",Sha256::digest(&asset.data))
+                ));
+            }
+        }
+        let mut results=Vec::new();
+        let mut conflicts=0usize;
+        let mut blocked=0usize;
+        for (path,mut providers) in grouped{
+            providers.sort_by(|a,b|b.2.cmp(&a.2).then_with(||a.0.cmp(&b.0)));
+            let override_id=overrides.get(&path);
+            let chosen=override_id
+                .and_then(|id|providers.iter().find(|c|&c.0==id))
+                .unwrap_or(&providers[0]);
+            let hashes=providers.iter().map(|c|&c.4).collect::<BTreeSet<_>>();
+            let different=hashes.len()>1;
+            let tie=different&&override_id.is_none() &&
+                providers.iter().skip(1).any(|p|
+                    p.2==providers[0].2 && p.4!=providers[0].4);
+            if different {conflicts+=1;}
+            if tie{blocked+=1;}
+            if filter.conflicts_only==Some(true)&&!different{continue;}
+            results.push(json!({
+                "path":path,"namespace":namespace(&path),
+                "category":category(&path),"interface_kind":interface_kind(&path),
+                "chosen_source":if tie{Value::Null}else{json!(chosen.0)},
+                "chosen_priority":chosen.2,"chosen_sha256":chosen.4,
+                "bytes":chosen.3,"conflict":different,"blocked":tie,
+                "override_source":override_id,
+                "candidates":providers.iter().map(|p|
+                    json!({"source_id":p.0,"source_name":p.1,
+                        "priority":p.2,"bytes":p.3,"sha256":p.4})
+                ).collect::<Vec<_>>()
+            }));
+        }
+        let total=results.len();
+        let offset=filter.offset.unwrap_or(0);
+        let limit=filter.limit.unwrap_or(75);
+        let items=results.into_iter().skip(offset).take(limit).collect::<Vec<_>>();
+        json!({"schema":"vspack-resources-v1","scope":filter.scope.unwrap_or("all".into()),
+            "total":total,"offset":offset,"limit":limit,"items":items,
+            "conflicts":conflicts,"blocked":blocked,
+            "overrides":overrides.len(),"session_only":true})
+    }).await.map_err(|e|bad(format!("Análisis de recursos interrumpido: {e}")))?;
+    Ok(Json(page))
+}
+/// Stable, paginated API for the future Interface Manager. Does not depend on
+/// the current FullCanvas UI markup, so a separate frontend can reuse it.
+pub async fn resources(
+    Extension(hub):Extension<PackHub>,Query(q):Query<ResourceQuery>
+)->Result<Json<Value>,ApiError>{resource_plan(&hub,q).await}
+pub async fn interfaces(
+    Extension(hub):Extension<PackHub>,Query(mut q):Query<ResourceQuery>
+)->Result<Json<Value>,ApiError>{
+    q.scope=Some("interfaces".into());
+    resource_plan(&hub,q).await
+}
+pub async fn choose_resource(
+    Extension(hub):Extension<PackHub>,
+    headers:HeaderMap,
+    Json(choice):Json<OverrideInput>
+)->Result<Json<Value>,ApiError>{
+    authorize_origin(&headers)?;
+    vsmedia_pack::validate_path(&choice.path).map_err(friendly_error)?;
+    if !choice.path.starts_with("assets/"){
+        return Err(bad("La selección manual sólo se aplica a assets/"));
+    }
+    let exists=hub.0.lock().await.iter().any(|pack|pack.id==choice.source_id &&
+        pack.files.iter().any(|file|file.path==choice.path));
+    if !exists{
+        return Err(ApiError(StatusCode::NOT_FOUND,
+            "La fuente elegida no proporciona ese recurso".into()));
+    }
+    let mut choices=hub.1.lock().await;
+    if choices.len()>=MAX_SOURCE_CHOICES && !choices.contains_key(&choice.path){
+        return Err(bad("Máximo 256 selecciones manuales por sesión"));
+    }
+    choices.insert(choice.path.clone(),choice.source_id.clone());
+    Ok(Json(json!({"path":choice.path,"chosen_source":choice.source_id,
+        "override":true})))
+}
+pub async fn clear_resource_choice(
+    Extension(hub):Extension<PackHub>,
+    headers:HeaderMap,Query(q):Query<TextureQuery>
+)->Result<Json<Value>,ApiError>{
+    authorize_origin(&headers)?;
+    vsmedia_pack::validate_path(&q.path).map_err(friendly_error)?;
+    let removed=hub.1.lock().await.remove(&q.path).is_some();
+    Ok(Json(json!({"path":q.path,"removed":removed})))
+}
+pub async fn resource_choices(
+    Extension(hub):Extension<PackHub>
+)->Json<Value>{
+    let items=hub.1.lock().await.clone();
+    Json(json!({"schema":"vspack-resources-v1","overrides":items}))
 }
 
 #[derive(Deserialize)]
