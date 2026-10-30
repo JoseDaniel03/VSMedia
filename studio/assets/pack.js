@@ -46,6 +46,7 @@ function install(root){
       '<option value="languages">Idiomas</option><option value="shaders">Shaders</option>'+
       '<option value="metadata">Manifiesto</option><option value="other">Otros</option></select></div>'+
       '<div class="vspack-files" data-field="files"></div>'+
+      '<div class="vspack-texture-preview" data-field="texture"><small>Seleccioná una textura PNG, JPG o WebP para verla sin cargar todas las imágenes.</small></div>'+
       '<div class="vspack-pagination"><span data-field="pagination">Sin recursos</span>'+
       '<button data-action="prev" type="button">Anterior</button><button data-action="next" type="button">Siguiente</button></div>'+
       '</section>'+
@@ -62,7 +63,8 @@ function install(root){
     '</div><div role="status" aria-live="polite" class="vspack-status" data-field="status">Importá ZIPs para empezar.</div>';
   const f=name=>root.querySelector('[data-field="'+name+'"]');
   const button=name=>root.querySelector('[data-action="'+name+'"]');
-  const state={packs:[],preview:null,page:0,busy:false,disposed:false,controller:new AbortController()};
+  const state={packs:[],preview:null,page:0,busy:false,disposed:false,
+    textureURL:null,controller:new AbortController()};
   function status(message,failed=false){
     f("status").textContent=message;f("status").classList.toggle("error",failed);
   }
@@ -72,7 +74,13 @@ function install(root){
     try{await action();}catch(e){status(e.message||String(e),true);}
     finally{state.busy=false;root.classList.remove("busy");if(!state.disposed)render();}
   }
+  function clearTexture(){
+    if(state.textureURL){URL.revokeObjectURL(state.textureURL);state.textureURL=null;}
+    f("texture").replaceChildren(el("small","",
+      "Seleccioná una textura PNG, JPG o WebP para verla sin cargar todas las imágenes."));
+  }
   async function load(){
+    clearTexture();
     const info=await (await request("",{signal:state.controller.signal})).json();
     state.packs=info.packs||[];
     state.preview=null;
@@ -152,6 +160,26 @@ function install(root){
       const row=el("div","vspack-file");
       row.append(el("span","vspack-category",item.category),
         el("code","vspack-path",item.path),el("span","vspack-size",size(item.bytes)));
+      if(item.category==="textures" && /.(png|jpe?g|webp)$/i.test(item.path)){
+        const view=el("button","vspack-view","Ver");
+        view.type="button";view.title="Vista previa de "+item.path;
+        view.onclick=()=>guard(async()=>{
+          const response=await request("/texture?path="+encodeURIComponent(item.path),
+            {signal:state.controller.signal});
+          const blob=await response.blob();
+          if(blob.size>4*1024*1024)throw Error("Vista previa demasiado grande");
+          clearTexture();
+          state.textureURL=URL.createObjectURL(blob);
+          const image=el("img");
+          image.alt=item.path;
+          image.loading="lazy";
+          image.src=state.textureURL;
+          const caption=el("span","",item.path+" · "+size(blob.size));
+          f("texture").replaceChildren(image,caption);
+          status("Textura de origen validado por Rust. Clic en otra textura para reemplazar.");
+        });
+        row.append(view);
+      }
       f("files").append(row);
     }
     if(!all.length)f("files").append(el("div","vspack-empty","No hay recursos para ese filtro."));
@@ -201,7 +229,10 @@ function install(root){
     setTimeout(()=>URL.revokeObjectURL(url),5000);
     status("ZIP exportado ("+size(blob.size)+"). Todavía no publicado en Minecraft.");
   });
-  state.dispose=()=>{state.disposed=true;state.controller.abort();};
+  state.dispose=()=>{
+    state.disposed=true;state.controller.abort();
+    if(state.textureURL)URL.revokeObjectURL(state.textureURL);
+  };
   mounted.set(root,state);
   guard(load);
 }
