@@ -227,6 +227,7 @@ pub fn MixTimeline(
                 <For each=track_ids key=|id| id.clone() children=move |track_id| {
                     let name_id=track_id.clone();
                     let list_id=track_id.clone();
+                    let clip_track_id=track_id.clone();
                     let region_ids = move || tracks.get().iter().find(|t|t.id == list_id)
                         .map(|t|t.regions.iter().map(|r|r.id.clone()).collect::<Vec<String>>())
                         .unwrap_or_default();
@@ -240,7 +241,7 @@ pub fn MixTimeline(
                             <div class="mix-timeline-canvas" style=move ||
                                 format!("background-size:{:.1}px 100%", zoom.get()*5.0)>
                                 <For each=region_ids key=|id| id.clone() children=move |region_id| {
-                                    view! {<TimelineClip track_id=track_id.clone()
+                                    view! {<TimelineClip track_id=clip_track_id.clone()
                                         region_id=region_id tracks=tracks assets=assets
                                         zoom=zoom pointer=pointer/>}
                                 }/>
