@@ -3,6 +3,7 @@
 //! Only listens on loopback. No plugin broadcasting or radio transmitters.
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 mod live;
+mod packs;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
 use sha2::{Digest,Sha256};
 use axum::{
@@ -66,6 +67,9 @@ async fn capabilities() -> Json<Value> {
         "vsstreams_provider":"plasmo_voice","vsstreams_connected":false,
         "vsstreams_moderation":false,
         "asset_storage":true,"audio_projects":true,
+        "vspack_editor":true,"vspack_merge":"structured_priority",
+        "vspack_zip_export":true,"vspack_session_only":true,
+        "vspack_minecraft_delivery":false,
         "accepted_formats":["wav","flac","mp3","ogg","webm","opus"]}))
 }
 /// Real read-only integration state. This backend deliberately does not
@@ -303,12 +307,13 @@ async fn unsupported() -> impl IntoResponse {
 
 fn router(store:Store)->Router {
     let hub=live::LiveHub::default();
+    let pack_hub=packs::PackHub::default();
     let cors=CorsLayer::new()
         .allow_origin(AllowOrigin::list([
             HeaderValue::from_static("http://127.0.0.1:3060"),
             HeaderValue::from_static("http://localhost:3060"),
         ]))
-        .allow_methods([Method::GET,Method::POST])
+        .allow_methods([Method::GET,Method::POST,Method::DELETE])
         .allow_headers([header::CONTENT_TYPE]);
     Router::new()
         .route("/api/v1/health",get(health))
@@ -316,6 +321,12 @@ fn router(store:Store)->Router {
         .route("/api/v1/live/ws",get(live::socket))
         .route("/api/v1/live/status",get(live::status))
         .route("/api/v1/streams/integration",get(streams_integration))
+        .route("/api/v1/packs",get(packs::list))
+        .route("/api/v1/packs/preview",get(packs::preview))
+        .route("/api/v1/packs/export",get(packs::export))
+        .route("/api/v1/packs/{id}",post(packs::import).delete(packs::remove)
+            .layer(DefaultBodyLimit::max(12*1024*1024)))
+        .route("/api/v1/packs/{id}/priority",post(packs::priority))
         .route("/api/v1/assets/{name}/metadata",get(get_asset_metadata))
         .route("/api/v1/assets/{name}",post(put_asset).get(get_asset))
         .route("/api/v1/audio/projects",get(list_audio_projects))
@@ -329,6 +340,7 @@ fn router(store:Store)->Router {
         .layer(DefaultBodyLimit::max(MAX_UPLOAD))
         .layer(cors)
         .layer(axum::Extension(hub))
+        .layer(axum::Extension(pack_hub))
         .with_state(store)
 }
 #[tokio::main]

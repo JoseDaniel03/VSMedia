@@ -4,7 +4,7 @@
 //! All operations are local-only. Public CDN / Folia delivery comes later.
 use std::{collections::{BTreeMap,BTreeSet},sync::Arc};
 use axum::{
-    body::Bytes,extract::{Path,State},http::{header,HeaderMap,StatusCode},
+    body::Bytes,extract::Path,Extension,http::{header,HeaderMap,StatusCode},
     response::{IntoResponse,Response},Json,
 };
 use serde::{Deserialize,Serialize};
@@ -49,7 +49,7 @@ fn valid_id(id:&str)->bool{
 fn friendly_error(err:impl std::fmt::Display)->ApiError{
     bad(format!("Resource Pack inválido: {err}"))
 }
-pub async fn list(State(hub):State<PackHub>)->Json<Value>{
+pub async fn list(Extension(hub):Extension<PackHub>)->Json<Value>{
     let packs=hub.0.lock().await;
     Json(json!({"packs":packs.iter().map(PackInfo::from).collect::<Vec<_>>(),
         "total_bytes":packs.iter().map(|pack|pack.bytes).sum::<usize>(),
@@ -58,7 +58,7 @@ pub async fn list(State(hub):State<PackHub>)->Json<Value>{
         "minecraft_delivery":false}))
 }
 pub async fn import(
-    State(hub):State<PackHub>,Path(id):Path<String>,
+    Extension(hub):Extension<PackHub>,Path(id):Path<String>,
     headers:HeaderMap,bytes:Bytes
 )->Result<Json<PackInfo>,ApiError>{
     authorize_origin(&headers)?;
@@ -108,7 +108,7 @@ pub async fn import(
 #[serde(deny_unknown_fields)]
 pub struct PriorityInput {priority:i32}
 pub async fn priority(
-    State(hub):State<PackHub>,Path(id):Path<String>,
+    Extension(hub):Extension<PackHub>,Path(id):Path<String>,
     headers:HeaderMap,Json(change):Json<PriorityInput>
 )->Result<Json<PackInfo>,ApiError>{
     authorize_origin(&headers)?;
@@ -122,7 +122,7 @@ pub async fn priority(
     Ok(Json(PackInfo::from(&*item)))
 }
 pub async fn remove(
-    State(hub):State<PackHub>,Path(id):Path<String>,headers:HeaderMap
+    Extension(hub):Extension<PackHub>,Path(id):Path<String>,headers:HeaderMap
 )->Result<Json<Value>,ApiError>{
     authorize_origin(&headers)?;
     let mut packs=hub.0.lock().await;
@@ -158,7 +158,7 @@ fn category(path:&str)->&'static str{
     else if path.contains("/shaders/"){"shaders"}
     else{"other"}
 }
-pub async fn preview(State(hub):State<PackHub>)->Result<Json<Value>,ApiError>{
+pub async fn preview(Extension(hub):Extension<PackHub>)->Result<Json<Value>,ApiError>{
     let merged=composed(&hub).await?;
     let counts=merged.files.keys().fold(BTreeMap::<&str,usize>::new(),|mut acc,path|{
         *acc.entry(category(path)).or_default()+=1;acc
@@ -184,7 +184,7 @@ pub async fn preview(State(hub):State<PackHub>)->Result<Json<Value>,ApiError>{
             else{"Falta pack.mcmeta: añadí un pack base con su manifiesto antes de exportar"}
     })))
 }
-pub async fn export(State(hub):State<PackHub>)->Result<Response,ApiError>{
+pub async fn export(Extension(hub):Extension<PackHub>)->Result<Response,ApiError>{
     let merged=composed(&hub).await?;
     let bytes=tokio::task::spawn_blocking(move||archive::export_zip(&merged,limits()))
         .await.map_err(|e|bad(format!("Exportación interrumpida: {e}")))?

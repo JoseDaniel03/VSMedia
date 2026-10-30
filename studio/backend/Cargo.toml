@@ -17,6 +17,7 @@ vsmedia-api = { path = "../../crates/vsmedia-api" }
 vsmedia-core = { path = "../../crates/vsmedia-core" }
 vsmedia-formats = { path = "../../crates/vsmedia-formats" }
 vsmedia-audio = { path = "../../crates/vsmedia-audio" }
+vsmedia-pack = { path = "../../crates/vsmedia-pack" }
 sha2 = "0.10"
 
 [dev-dependencies]
