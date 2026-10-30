@@ -10,6 +10,25 @@ pub const MAX_EDIT_POINTS:usize=256;
 pub const MAX_CLIP_FILTERS:usize=16;
 pub const MAX_CLIP_EDITS:usize=256;
 
+/// Shape of the fade envelope. Deserializing older .vsaudio files defaults
+/// to the original linear response without changing their audible output.
+#[derive(Clone,Copy,Debug,Default,Serialize,Deserialize,PartialEq,Eq)]
+#[serde(rename_all="snake_case")]
+pub enum FadeCurve {
+    #[default]
+    Linear,
+    EqualPower,
+}
+impl FadeCurve {
+    fn amplitude(self,progress:f32)->f32 {
+        let progress=progress.clamp(0.0,1.0);
+        match self {
+            Self::Linear=>progress,
+            Self::EqualPower=>(progress*std::f32::consts::FRAC_PI_2).sin(),
+        }
+    }
+}
+
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct GainPoint {
@@ -30,6 +49,8 @@ pub struct ClipEdit {
     pub pan:f32,
     pub fade_in_ms:u64,
     pub fade_out_ms:u64,
+    /// Apply the same curve to both independent fades. Default preserves v1.
+    pub fade_curve:FadeCurve,
     pub reversed:bool,
     pub muted:bool,
     /// Editable gain automation with monotonic local timestamps.
@@ -41,7 +62,7 @@ impl Default for ClipEdit {
     fn default()->Self {
         Self {
             track_index:0,clip_index:0,source_in_ms:0,pan:0.0,
-            fade_in_ms:0,fade_out_ms:0,reversed:false,muted:false,
+            fade_in_ms:0,fade_out_ms:0,fade_curve:FadeCurve::Linear,reversed:false,muted:false,
             gain_points:Vec::new(),filters:Vec::new(),
         }
     }
@@ -216,7 +237,8 @@ pub fn process_clip_frames(
         let out_gain=if fade_out>0 && remaining<=fade_out {
             (remaining-1) as f32/fade_out as f32
         } else {1.0};
-        let scale=volume*in_gain*out_gain;
+        let scale=volume*edit.fade_curve.amplitude(in_gain)
+            *edit.fade_curve.amplitude(out_gain);
         for channel in frame { *channel *= scale; }
     }
     if !edit.filters.is_empty() {
@@ -335,6 +357,43 @@ mod tests {
         let command=serde_json::from_str::<AudioEditCommand>(&json).unwrap();
         apply_edit_command(&project,&mut clips,&mut tracks,command).unwrap();
         assert!(tracks.is_empty());
+    }
+    #[test]
+    fn legacy_clip_edit_defaults_to_linear_fades() {
+        let old=r#"{"track_index":0,"clip_index":0,"fade_in_ms":500}"#;
+        let parsed:ClipEdit=serde_json::from_str(old).unwrap();
+        assert_eq!(parsed.fade_curve,FadeCurve::Linear);
+        assert_eq!(parsed.fade_in_ms,500);
+        let encoded=serde_json::to_string(&parsed).unwrap();
+        assert!(encoded.contains(r#""fade_curve":"linear""#));
+    }
+    #[test]
+    fn equal_power_fade_is_constant_sum_of_squared_gains() {
+        let original=vec![[1.0,1.0];8_000];
+        let incoming=ClipEdit{
+            fade_in_ms:1_000,fade_curve:FadeCurve::EqualPower,
+            ..ClipEdit::default()
+        };
+        let outgoing=ClipEdit{
+            fade_out_ms:1_000,fade_curve:FadeCurve::EqualPower,
+            ..ClipEdit::default()
+        };
+        let mut inside=original.clone();
+        let mut outside=original.clone();
+        process_clip_frames(&mut inside,8_000,&incoming).unwrap();
+        process_clip_frames(&mut outside,8_000,&outgoing).unwrap();
+        for index in [0,1000,2000,4000,6000,7999] {
+            let power=inside[index][0].powi(2)+outside[index][0].powi(2);
+            assert!((power-1.0).abs()<0.002, "frame {index} power {power}");
+        }
+        assert_eq!(original[4000],[1.0,1.0]);
+        // Linear remains audibly and numerically unchanged for old documents.
+        let mut linear=original;
+        process_clip_frames(&mut linear,8_000,&ClipEdit{
+            fade_in_ms:1_000,..ClipEdit::default()
+        }).unwrap();
+        assert!((linear[4000][0]-0.5).abs()<0.0001);
+        assert!(inside[4000][0]>linear[4000][0]);
     }
     #[test]
     fn reverse_and_fades_never_change_original_source() {
