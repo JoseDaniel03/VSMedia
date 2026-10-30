@@ -87,11 +87,20 @@ pub fn add_point(region:&mut MixRegion)->bool {
     true
 }
 pub fn trim_start(region:&mut MixRegion,change:f64) {
-    if change>=0.0 {
-        region.gain_points.retain(|point|point.at+1e-9>=change);
-    }
-    for point in &mut region.gain_points {
-        point.at=round_ms((point.at-change).clamp(0.0,region.duration));
+    if region.gain_points.is_empty() || change.abs()<STEP/2.0 {return;}
+    if change>0.0 {
+        // Preserve the exact envelope at the NEW clip start. Dropping points
+        // without interpolation would change the sound during a source trim.
+        let start_gain=sample(&region.gain_points,change);
+        region.gain_points.retain(|point|point.at>change+STEP/2.0);
+        for point in &mut region.gain_points {
+            point.at=round_ms((point.at-change).clamp(0.0,region.duration));
+        }
+        region.gain_points.insert(0,MixGainPoint{at:0.0,gain:start_gain});
+    } else {
+        for point in &mut region.gain_points {
+            point.at=round_ms((point.at-change).clamp(0.0,region.duration));
+        }
     }
 }
 pub fn trim_end(region:&mut MixRegion) {
