@@ -245,3 +245,58 @@ sincronización de campos numéricos.
 
 Seguimos sin generar JAR, ZIP finales ni releases. Los datapacks quedan
 fuera de esta fase.
+
+## VSMix FullCanvas — Historia y edición múltiple (26.3)
+
+La línea de tiempo añade selección con clic simple y Mayús/Ctrl/Cmd + clic.
+Un clic sobre un clip ya seleccionado permite arrastrar todas las regiones
+de la selección. El movimiento preserva las posiciones relativas; si
+se suelta sobre otra pista, se trasladan las regiones elegidas sin cambiar
+su archivo origen, recorte, curva de automatización, fade, volumen ni paneo.
+Se valida que ninguna pista supere 32 regiones ni la mezcla 256.
+
+**Acciones en lote:** seleccionar todo, limpiar selección, desplazamiento
+preciso de 0,1 segundos, duplicar con desplazamiento de 250 ms y borrar.
+Las copias reciben nuevos IDs de región, pero reutilizan la misma fuente
+de audio: duplicar no vuelve a subir ni copia los bytes. Una operación que
+superaría el límite de pista o de tiempo se rechaza por completo.
+
+**Atajos, con el foco en la línea de tiempo:**
+- Mayús/Ctrl/Cmd + clic: agregar o quitar de la selección.
+- Ctrl/Cmd + A: seleccionar todas las regiones.
+- Ctrl/Cmd + D: duplicar la selección.
+- Supr/Retroceso: eliminar la selección.
+- Flechas izquierda y derecha: desplazar 0,1 s; con Mayús, 1 s.
+- Esc: limpiar selección.
+- Ctrl/Cmd + Z: deshacer; Ctrl/Cmd + Y o Ctrl/Cmd + Mayús + Z: rehacer.
+Los atajos de edición de la línea de tiempo no interfieren con un campo
+de texto, selector o entrada numérica que esté recibiendo escritura.
+
+**Historial local completo:** guarda instantáneas de pistas, regiones,
+automaciones y opciones de mezcla (sin PCM, archivos ni URLs de blobs).
+Registra cambios confirmados, no cada movimiento de un puntero. Se
+descartan las ramas de rehacer cuando se modifica un estado restaurado.
+Se limita a 80 estados, con techo de 12 MiB de huellas serializadas y
+2 MiB por instantánea; si una sesión supera este último límite, el
+historial se pausa para no retener estados demasiado grandes.
+No genera revisiones de proyecto y desaparece al recargar la página.
+
+**Rendimiento:** los movimientos menores a un píxel en un evento de
+puntero no obligan a repintar la línea de tiempo; la deduplicación
+evita clonar estados idénticos para el historial. La barra de acciones
+desplaza horizontalmente sus controles en pantallas angostas, sin reducir
+el espacio utilizable para el audio.
+
+**Pruebas:** GitHub Actions compila Leptos para wasm32 y ejecuta las
+pruebas del motor Rust, Axum y Java. Un harness Rust nativo adicional
+compila directamente los mismos módulos `mix_history.rs` y
+`mix_batch.rs` para probar undo/redo, bifurcaciones, memoria
+acotada, duplicación, límites y cambios de pista atómicos.
+
+**Pendiente de comprobación manual:** la experiencia táctil y con mouse
+en navegador real, especialmente la captura de punteros, selección
+modificada, scroll horizontal y movimiento visual entre pistas. Las
+pruebas nativas no simulan DOM ni eventos reales de navegador.
+
+Se mantiene la rama `main`, el formato `.vsaudio` original y
+la decisión de no generar JAR, ZIP finales ni releases; datapacks al final.
