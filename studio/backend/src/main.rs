@@ -390,6 +390,68 @@ mod tests {
             .body(Body::from(body)).unwrap()
     }
     #[tokio::test]
+    async fn vspack_http_contract_is_accessible_for_future_interface_manager(){
+        use std::collections::BTreeMap;
+        use vsmedia_pack::{MergeOutput,archive::{export_zip,ArchiveLimits}};
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let filename="assets/virgo/textures/gui/button.png";
+        let zipped=export_zip(&MergeOutput{
+            files:BTreeMap::from([
+                ("pack.mcmeta".to_owned(),
+                    br#"{"pack":{"pack_format":1,"description":"Demo"}}"#.to_vec()),
+                (filename.to_owned(),b"image1".to_vec()),
+            ]),conflicts:vec![],
+        },ArchiveLimits::default()).unwrap();
+        let imported=app.clone().oneshot(request(Method::POST,
+            "/api/v1/packs/panel",zipped)).await.unwrap();
+        assert_eq!(imported.status(),StatusCode::OK);
+        let index=app.clone().oneshot(request(Method::GET,
+            "/api/v1/packs/interfaces?namespace=virgo",vec![])).await.unwrap();
+        assert_eq!(index.status(),StatusCode::OK);
+        let value:Value=serde_json::from_slice(&to_bytes(index.into_body(),65_536)
+            .await.unwrap()).unwrap();
+        assert_eq!(value["schema"],"vspack-resources-v1");
+        assert_eq!(value["total"],1);
+        assert_eq!(value["items"][0]["path"],filename);
+        assert_eq!(value["items"][0]["interface_kind"],"gui_textures");
+
+        let chosen=app.clone().oneshot(request(Method::POST,
+            "/api/v1/packs/merge/overrides",
+            serde_json::to_vec(&json!({
+                "path":filename,"source_id":"panel"
+            })).unwrap())).await.unwrap();
+        assert_eq!(chosen.status(),StatusCode::OK);
+        let preview=app.clone().oneshot(request(Method::GET,
+            "/api/v1/packs/resources?scope=interfaces",vec![])).await.unwrap();
+        let preview:Value=serde_json::from_slice(&to_bytes(preview.into_body(),65_536)
+            .await.unwrap()).unwrap();
+        assert_eq!(preview["items"][0]["chosen_source"],"panel");
+        assert_eq!(preview["items"][0]["override_source"],"panel");
+
+        let file=app.clone().oneshot(request(Method::GET,
+            "/api/v1/packs/resources/file?path=assets%2Fvirgo%2Ftextures%2Fgui%2Fbutton.png",
+            vec![])).await.unwrap();
+        assert_eq!(file.status(),StatusCode::OK);
+        assert_eq!(file.headers()[header::X_CONTENT_TYPE_OPTIONS],"nosniff");
+        assert_eq!(to_bytes(file.into_body(),4096).await.unwrap().as_ref(),b"image1");
+
+        let source=app.clone().oneshot(request(Method::GET,
+            "/api/v1/packs/panel/download",vec![])).await.unwrap();
+        assert_eq!(source.status(),StatusCode::OK);
+        assert_eq!(source.headers()[header::CONTENT_TYPE],"application/zip");
+
+        let mut denied=request(Method::POST,
+            "/api/v1/packs/merge/overrides",
+            serde_json::to_vec(&json!({"path":filename,"source_id":"panel"})).unwrap());
+        denied.headers_mut().insert(header::ORIGIN,
+            header::HeaderValue::from_static("https://malicious.test"));
+        let denied=app.clone().oneshot(denied).await.unwrap();
+        assert_eq!(denied.status(),StatusCode::FORBIDDEN);
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn live_room_status_and_capabilities_are_aggregated_without_room_secrets(){
         let (db,dir)=store();
         let app=router(db.clone());
