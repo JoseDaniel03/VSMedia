@@ -22,15 +22,29 @@ function getRadioSource(player, microphone) {
     radioSources.set(player,graph);
   }
   const dest = graph.ctx.createMediaStreamDestination();
-  graph.source.connect(dest);
+  const musicGain = graph.ctx.createGain();
+  musicGain.gain.value = 1.0;
+  graph.source.connect(musicGain);
+  musicGain.connect(dest);
   const micNode = microphone ? graph.ctx.createMediaStreamSource(microphone) : null;
-  if (micNode) micNode.connect(dest);
+  const micGain = microphone ? graph.ctx.createGain() : null;
+  if (micNode && micGain) {
+    micNode.connect(micGain);
+    micGain.connect(dest);
+  }
   graph.ctx.resume();
-  return {stream:dest.stream,dispose:()=>{
-    try {graph.source.disconnect(dest);}catch(_){}
-    if (micNode) try {micNode.disconnect();}catch(_){}
-    dest.stream.getTracks().forEach(track=>track.stop());
-  }};
+  return {
+    stream:dest.stream,
+    setMusicGain(gain){musicGain.gain.setTargetAtTime(gain,graph.ctx.currentTime,0.03);},
+    setMicGain(gain){if(micGain)micGain.gain.setTargetAtTime(gain,graph.ctx.currentTime,0.03);},
+    dispose(){
+      try{graph.source.disconnect(musicGain);}catch(_){}
+      try{musicGain.disconnect();}catch(_){}
+      if(micNode)try{micNode.disconnect();}catch(_){}
+      if(micGain)try{micGain.disconnect();}catch(_){}
+      dest.stream.getTracks().forEach(track=>track.stop());
+    }
+  };
 }
 function mount(root) {
   if (root.dataset.liveReady) return;
@@ -44,7 +58,11 @@ function mount(root) {
     '<button type="button" data-action="generate">Crear código</button>'+
     (radio?'<label>Mi función <select data-field="role"><option value="listener">Oyente</option><option value="host">Emisor</option></select></label>'+
     '<label>Fuente <select data-field="source"><option value="mic">Micrófono</option><option value="player">Playlist</option><option value="both">Playlist + micrófono</option></select></label>':"")+
-    '</div><div class="vs-live-actions">'+
+    '</div>'+(radio?'<div class="vs-live-mixer">'+
+      '<label>Volumen playlist <input type="range" data-field="musicLevel" min="0" max="150" value="100" step="5"></label>'+
+      '<label>Volumen micrófono <input type="range" data-field="micLevel" min="0" max="150" value="100" step="5"></label>'+
+      '<small>Mezcla sin grabación · el micrófono no se monitoriza localmente</small></div>':"")+
+    '<div class="vs-live-actions">'+
     '<button class="action-primary" type="button" data-action="join">Conectar</button>'+
     '<button type="button" data-action="leave" disabled>Salir</button>'+
     '<button type="button" data-action="mute" disabled>Silenciar micrófono</button></div>'+
@@ -55,7 +73,7 @@ function mount(root) {
   const field = name=>root.querySelector('[data-field="'+name+'"]');
   const button = name=>root.querySelector('[data-action="'+name+'"]');
   const state={ws:null,id:null,role:"",stream:null,mic:null,cleanup:null,
-    peers:new Map(),closed:false,muted:false,heartbeat:null};
+    peers:new Map(),closed:false,muted:false,heartbeat:null,mix:null};
   function status(value,error=false){
     field("status").textContent=value;
     field("status").classList.toggle("error",error);
@@ -137,6 +155,7 @@ function mount(root) {
       state.ws=null;
     }
     if(state.cleanup){state.cleanup();state.cleanup=null;}
+    state.mix=null;
     if(state.mic){state.mic.getTracks().forEach(t=>t.stop());state.mic=null;}
     state.stream=null;state.id=null;state.muted=false;
     button("join").disabled=false;button("leave").disabled=true;
@@ -168,6 +187,9 @@ function mount(root) {
         const result=getRadioSource(document.getElementById("radio-player"),
           source==="both"?state.mic:null);
         state.stream=result.stream;state.cleanup=result.dispose;
+        state.mix=result;
+        state.mix.setMusicGain(Number(field("musicLevel").value)/100);
+        state.mix.setMicGain(Number(field("micLevel").value)/100);
       }else if(output)state.stream=state.mic;
       if(state.closed)throw Error("Conexión cancelada");
       const ws=new WebSocket(URL);
@@ -210,6 +232,22 @@ function mount(root) {
     }catch(error){
       await stop();status(error.message||"No se pudo conectar",true);
     }
+  }
+  if(radio){
+    const updateSliders=()=>{
+      const role=field("role").value,source=field("source").value;
+      field("musicLevel").disabled=role!=="host"||source==="mic";
+      field("micLevel").disabled=role!=="host"||source!=="both";
+    };
+    field("source").onchange=updateSliders;
+    field("role").onchange=updateSliders;
+    field("musicLevel").oninput=()=>{
+      state.mix?.setMusicGain(Number(field("musicLevel").value)/100);
+    };
+    field("micLevel").oninput=()=>{
+      state.mix?.setMicGain(Number(field("micLevel").value)/100);
+    };
+    updateSliders();
   }
   button("generate").onclick=()=>field("room").value=roomCode(radio?"radio":"voice");
   button("join").onclick=()=>join();
