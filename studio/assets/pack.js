@@ -57,6 +57,12 @@ function install(root){
       '<dt>Datos</dt><dd data-field="totalbytes">0 B</dd>'+
       '<dt>Namespaces</dt><dd data-field="namespaces">—</dd></dl>'+
       '<button data-action="export" id="vspack-export" type="button" class="vspack-export" disabled>↓ Exportar Resource Pack</button>'+
+      '<section class="vspack-layer-builder"><strong>PACK BASE + OVERLAYS</strong>'+
+      '<p>Exportá subpacks por rutas para conservar la caché del pack base cuando cambian recursos.</p>'+
+      '<label>ID del pack base<input type="text" data-field="baseid" maxlength="64" value="virgoland"></label>'+
+      '<label>Reglas de capas (id = prefijo de recursos)<textarea data-field="rules" rows="4" placeholder="ui=assets/virgoland/textures/ui/"></textarea></label>'+
+      '<button data-action="layers" type="button" disabled>↓ Exportar capas separadas</button>'+
+      '<small>Devuelve un ZIP de transporte con manifest.json y los ZIPs de Minecraft base/overlays. No es un pack único instalable directamente.</small></section>'+
       '<button data-action="reload" type="button" class="vspack-reload">↻ Analizar de nuevo</button>'+
       '<p class="vspack-note">La exportación descarga un ZIP local; todavía no lo publica en VSEngine ni en una CDN.</p>'+
       '</aside>'+
@@ -129,7 +135,8 @@ function install(root){
       f("totalbytes").textContent="0 B";f("namespaces").textContent="—";
       f("conflictcount").textContent="0";f("filecount").textContent="0";
       f("pagination").textContent="Sin recursos";
-      button("prev").disabled=true;button("next").disabled=true;button("export").disabled=true;
+      button("prev").disabled=true;button("next").disabled=true;
+      button("export").disabled=true;button("layers").disabled=true;
       return;
     }
     for(const [label,value] of [["ARCHIVOS",data.file_count],["CAPAS",state.packs.length],
@@ -187,12 +194,13 @@ function install(root){
     f("pagination").textContent="Página "+(state.page+1)+" / "+pages;
     button("prev").disabled=state.page===0;button("next").disabled=state.page===pages-1;
     button("export").disabled=!data.ready||state.busy;
+    button("layers").disabled=!data.ready||state.busy;
   }
   function render(){
     sources();preview();
     f("upload").disabled=state.busy||state.packs.length>=6;
     button("reload").disabled=state.busy;
-    if(state.busy)button("export").disabled=true;
+    if(state.busy){button("export").disabled=true;button("layers").disabled=true;}
   }
   f("upload").onchange=e=>guard(async()=>{
     const files=Array.from(e.target.files||[]);e.target.value="";
@@ -218,6 +226,35 @@ function install(root){
   button("prev").onclick=()=>{state.page--;preview();};
   button("next").onclick=()=>{state.page++;preview();};
   button("reload").onclick=()=>guard(load);
+  button("layers").onclick=()=>guard(async()=>{
+    if(!state.preview?.ready)throw Error("Necesitás pack.mcmeta válido.");
+    const base_id=f("baseid").value.trim();
+    const lines=f("rules").value.split(/?
+/).map(line=>line.trim()).filter(Boolean);
+    if(!/^[a-z0-9_-]{1,64}$/.test(base_id))throw Error("ID de base inválido.");
+    if(!lines.length||lines.length>5)throw Error("Ingresá de 1 a 5 overlays (id=assets/namespace/ruta/).");
+    const rules=lines.map(line=>{
+      const equals=line.indexOf("=");
+      if(equals<1)throw Error("Cada regla debe tener id=prefijo.");
+      const logical_id=line.slice(0,equals).trim(),prefix=line.slice(equals+1).trim();
+      if(!/^[a-z0-9_-]{1,64}$/.test(logical_id))throw Error("ID overlay inválido: "+logical_id);
+      if(!prefix.startsWith("assets/")||!prefix.endsWith("/")){
+        throw Error("El prefijo debe comenzar con assets/ y terminar con /");
+      }
+      return {logical_id,prefixes:[prefix]};
+    });
+    status("Compilando base y overlays en Rust…");
+    const response=await request("/layers/export",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({base_id,rules}),signal:state.controller.signal
+    });
+    const blob=await response.blob();
+    const url=URL.createObjectURL(blob);
+    const a=el("a");a.href=url;a.download="vsmedia-layer-bundle.zip";
+    document.body.append(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+    status("Capas exportadas ("+size(blob.size)+"). Revisá manifest.json; falta publicación HTTPS.");
+  });
   button("export").onclick=()=>guard(async()=>{
     if(!state.preview?.ready)throw Error("Falta pack.mcmeta.");
     status("Compilando ZIP determinista en Rust…");
