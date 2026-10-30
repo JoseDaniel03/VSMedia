@@ -55,7 +55,7 @@ function mount(root) {
   const field = name=>root.querySelector('[data-field="'+name+'"]');
   const button = name=>root.querySelector('[data-action="'+name+'"]');
   const state={ws:null,id:null,role:"",stream:null,mic:null,cleanup:null,
-    peers:new Map(),closed:false,muted:false};
+    peers:new Map(),closed:false,muted:false,heartbeat:null};
   function status(value,error=false){
     field("status").textContent=value;
     field("status").classList.toggle("error",error);
@@ -130,6 +130,7 @@ function mount(root) {
     for(const value of state.peers.values())value.pc.close();
     state.peers.clear();
     field("remote").replaceChildren();
+    if(state.heartbeat){clearInterval(state.heartbeat);state.heartbeat=null;}
     if(state.ws){
       if(state.ws.readyState===WebSocket.OPEN)send({type:"leave"});
       if(state.ws.readyState<=WebSocket.OPEN)state.ws.close();
@@ -171,7 +172,10 @@ function mount(root) {
       if(state.closed)throw Error("Conexión cancelada");
       const ws=new WebSocket(URL);
       state.ws=ws;status("Conectando…");
-      ws.onopen=()=>send({type:"join",room:code,mode:radio?"radio":"voice",role:state.role});
+      ws.onopen=()=>{
+        send({type:"join",room:code,mode:radio?"radio":"voice",role:state.role});
+        state.heartbeat=setInterval(()=>send({type:"ping"}),30000);
+      };
       ws.onmessage=async event=>{
         if(!root.isConnected || typeof event.data!=="string" || event.data.length>48000)return;
         try{
@@ -184,11 +188,13 @@ function mount(root) {
             button("leave").disabled=false;button("mute").disabled=!state.mic;
             status(radio?(state.role==="host"?"Transmitiendo":"Escuchando"):"Voz conectada");
             for(const p of msg.peers||[]){
+              if(radio && p.role===state.role)continue;
               if(offerNeeded(p.role,true))await makeOffer(p.id,p.role);
               else peer(p.id,p.role);
             }
             peersDisplay();
           }else if(msg.type==="peer_joined"){
+            if(radio && msg.role===state.role)return;
             if(offerNeeded(msg.role,false))await makeOffer(msg.id,msg.role);
             else peer(msg.id,msg.role);
           }else if(msg.type==="peer_left"){

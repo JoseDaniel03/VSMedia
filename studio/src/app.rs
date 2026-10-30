@@ -972,7 +972,7 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
         <div class="studio-toolbar">
             <EditorMenu page status />
             <strong>"VSRadio"</strong><span class="toolbar-separator"></span><span class="toolbar-caption">"CONSOLA LOCAL"</span>
-            <span class="connection-badge">"● Emisión P2P local disponible"</span>
+            <span class="connection-badge">"● Emisión P2P · conectar para activar"</span>
             <button id="radio-play" type="button" class="toolbar-button" on:click=move |_|{
                 play_index.set(0);
                 play_radio(assets,playlists,active_playlist,play_index,status);
