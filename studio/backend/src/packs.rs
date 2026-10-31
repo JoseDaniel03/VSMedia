@@ -97,18 +97,22 @@ pub async fn import(
     if label.is_empty()||label.chars().count()>80||label.chars().any(char::is_control) {
         return Err(bad("Nombre de pack inválido (máximo 80 caracteres)"));
     }
-    // Reject duplicate IDs and excessive packs BEFORE decompression.
+    // A portable recipe keys sources by their original ZIP SHA-256. Do not
+    // load identical archives twice under different ephemeral source IDs.
+    let fingerprint=format!("{:x}",Sha256::digest(&bytes));
+    // Reject duplicate IDs, bytes and excessive packs BEFORE decompression.
     {
         let saved=hub.0.lock().await;
+        if saved.iter().any(|p|p.fingerprint==fingerprint) {
+            return Err(ApiError(StatusCode::CONFLICT,
+                "Este ZIP ya está importado en la sesión".into()));
+        }
         if saved.iter().any(|p|p.id==id) {
             return Err(ApiError(StatusCode::CONFLICT,
                 "Ese pack ya se encuentra en la sesión".into()));
         }
         if saved.len()>=MAX_PACKS {return Err(bad("Máximo 24 packs por sesión"));}
     }
-    // The original ZIP hash remains stable when a saved recipe is reloaded
-    // with the exact same archive, even when the UI generates another source ID.
-    let fingerprint=format!("{:x}",Sha256::digest(&bytes));
     let source_id=id.clone();
     let permit=hub.2.clone().acquire_owned().await
         .map_err(|_|bad("Motor ZIP cerrado"))?;
@@ -120,9 +124,9 @@ pub async fn import(
     if imported.is_empty(){return Err(bad("ZIP sin archivos de Resource Pack"));}
     let used=imported.iter().map(|p|p.data.len()).sum::<usize>();
     let mut saved=hub.0.lock().await;
-    if saved.iter().any(|p|p.id==id) {
+    if saved.iter().any(|p|p.id==id || p.fingerprint==fingerprint) {
         return Err(ApiError(StatusCode::CONFLICT,
-            "Ese pack ya se encuentra en la sesión".into()));
+            "Ese pack o archivo ZIP ya se encuentra en la sesión".into()));
     }
     if saved.len()>=MAX_PACKS ||
         saved.iter().map(|p|p.bytes).sum::<usize>().saturating_add(used)>MAX_RAM_BYTES {
@@ -683,6 +687,17 @@ mod tests{
         let mut h=HeaderMap::new();
         h.insert(header::ORIGIN,header::HeaderValue::from_static("http://127.0.0.1:3060"));
         h
+    }
+    #[tokio::test]
+    async fn duplicate_source_zips_cannot_break_portable_recipe_identity(){
+        let hub=PackHub::default();
+        let zip=fixture(&[("assets/virgo/textures/gui/icon.png",b"icon")]);
+        import(Extension(hub.clone()),Path("first".into()),headers(),
+            Bytes::from(zip.clone())).await.unwrap();
+        let repeated=import(Extension(hub.clone()),Path("second".into()),headers(),
+            Bytes::from(zip)).await;
+        assert_eq!(repeated.unwrap_err().0,StatusCode::CONFLICT);
+        assert_eq!(hub.0.lock().await.len(),1);
     }
     #[tokio::test]
     async fn zip_import_priority_preview_export_round_trip(){
