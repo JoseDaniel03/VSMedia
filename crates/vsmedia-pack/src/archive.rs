@@ -179,6 +179,23 @@ mod tests {
             CompressionMethod::Deflated);
     }
     #[test]
+    fn retains_safe_root_license_and_mod_metadata_files() {
+        let output=MergeOutput{
+            files:BTreeMap::from([
+                ("pack.mcmeta".into(),br#"{"pack":{"description":"Demo"}}"#.to_vec()),
+                ("assets/demo/textures/gui/tooltip.png".into(),b"png".to_vec()),
+                ("Read Me.txt".into(),b"credits".to_vec()),
+                ("LICENSE_of_FluentEmoji.txt".into(),b"license".to_vec()),
+                ("respackopts.json5".into(),b"{/*options*/}".to_vec())
+            ]),conflicts:vec![]
+        };
+        let bytes=export_zip(&output,ArchiveLimits::default()).unwrap();
+        let reloaded=import_zip(&bytes,"test",0,ArchiveLimits::default()).unwrap();
+        assert!(reloaded.iter().any(|f|f.path=="Read Me.txt"));
+        assert!(reloaded.iter().any(|f|f.path=="respackopts.json5"));
+        assert!(reloaded.iter().any(|f|f.path=="LICENSE_of_FluentEmoji.txt"));
+    }
+    #[test]
     fn rejects_unsafe_pack_paths() {
         let mut map = BTreeMap::new();
         map.insert("../escape".into(), b"no".to_vec());

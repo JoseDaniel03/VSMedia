@@ -7,7 +7,8 @@ use super::{merge, validate_path, MergeOutput, PackAsset, PackConflict};
 
 const MAX_JSON_BYTES:usize=2*1024*1024;
 const MAX_SOUND_ENTRIES:usize=16_384;
-const MAX_INPUTS:usize=16_384;
+// Bounded by Studio's 384-MiB decoded resource quota; enough for many GUI packs.
+const MAX_INPUTS:usize=65_536;
 
 /// Merge all producer contributions deterministically.
 /// sounds.json is merged by individual sound event name; binary files follow
