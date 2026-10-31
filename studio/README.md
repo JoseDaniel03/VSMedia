@@ -84,3 +84,19 @@ independiente de las clases CSS del editor, y está documentada en
 
 La nueva web de gestión de interfaces no está construida ni conectada
 en esta fase. Se integrará cuando se proporcione su código.
+
+## Preparación del nuevo gestor de recursos
+
+El backend VSPack Studio ya dispone de una API independiente del diseño
+de la futura página: importar hasta 24 Resource Packs, combinar texturas
+por prioridad, elegir el ganador de cada ruta, guardar recetas JSON
+portables, previsualizar la composición y exportar un único ZIP o separar
+por categorías (GUI/HUD, ítems, bloques, audio, partículas, entidades,
+idiomas y otros). Se preservan sidecars PNG.mcmeta.
+
+[Contrato API del gestor](docs/VSPACK-MANAGER-API.md) ·
+[API de recursos e interfaces](docs/VSPACK-INTERFACES-API.md).
+
+La persistencia de fuentes en CAS, el proxy autenticado y la instalación
+automática en VSClient se conectarán posteriormente. No se ha integrado
+una página nueva ni se ha publicado un Resource Pack a Minecraft.

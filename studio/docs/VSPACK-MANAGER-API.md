@@ -107,3 +107,22 @@ de publicación HTTPS y autorización. Antes de redistribuir packs
 de terceros deben revisarse sus licencias.
 
 La interfaz web nueva queda para cuando llegue su código.
+
+## Fusión semántica de traducciones
+
+Los documentos assets/<namespace>/lang/*.json se fusionan por
+clave de traducción: el valor de mayor prioridad prevalece, pero se
+conservan las claves diferentes de todos los packs. El importador
+normaliza comentarios // y /* ... */ en esos archivos, incluidos
+los comentarios de CozyUI, sin eliminar secuencias // dentro de strings.
+Los empates de máxima prioridad que discrepan se rechazan como conflicto.
+Esto NO implica modificar archivos JSON de estructuras desconocidas.
+
+## Aviso sobre fuentes y licencias
+
+Los proveedores de fonts/default.json no se concatenan automáticamente
+sin revisar colisiones de glifos. La web dispondrá de elección de
+fuente ganadora por archivo y de las rutas/candidatos para facilitar
+una estrategia específica de fusión de fuentes cuando se integre.
+Las licencias de terceros deben respetarse antes de redistribuir
+packs fusionados desde el servidor.

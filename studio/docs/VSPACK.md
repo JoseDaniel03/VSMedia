@@ -173,3 +173,22 @@ Ver la especificación: VSPACK-INTERFACES-API.md.
 almacenamiento persistente de packs, repositorio remoto ni distribución
 Minecraft automática. El adaptador VSEngine, autenticación y HTTPS
 se implementarán cuando se integre la nueva interfaz.
+
+## Backend preparado para la próxima web de gestión
+
+El límite de fuentes se amplió de 6 a 24 packs, hasta 96 MiB por ZIP,
+con presupuesto total de 384 MiB descomprimidos y protección de ZIP-bombs.
+Se aceptan metadatos raíz seguros como README, LICENSE y respackopts.json5,
+en lugar de rechazar packs que tengan archivos de autoría/licencia.
+
+Además del selector por archivo, el nuevo gestor usará recetas versionadas
+para activar/desactivar packs, cambiar prioridades y excluir rutas sin
+alterar las fuentes. La exportación por categoría mantiene cada textura
+con su archivo PNG.mcmeta acompañante. La composición de lang/*.json
+fusiona claves y normaliza comentarios JSONC (sin modificar strings);
+sounds.json sigue fusionándose por evento. Otros JSON desconocidos,
+incluidos atlas y fuentes, no se combinan a ciegas.
+
+Documentación: VSPACK-MANAGER-API.md.
+La división por categoría requiere pruebas visuales de referencias
+entre packs, y no conecta con la entrega de VSClient/VSEngine todavía.
