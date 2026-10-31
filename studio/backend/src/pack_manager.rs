@@ -55,7 +55,8 @@ pub struct PackRecipe {
 fn is_hash(s:&str)->bool{
     s.len()==64 && s.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b))
 }
-fn validate(recipe:&PackRecipe,loaded:&[LoadedPack])->Result<(),ApiError>{
+/// Validate a saved recipe even when its source ZIPs are not loaded yet.
+pub(crate) fn validate_recipe_structure(recipe:&PackRecipe)->Result<(),ApiError>{
     if recipe.schema!=SCHEMA{return Err(bad("Schema de receta no compatible"));}
     if recipe.name.trim().is_empty()||recipe.name.chars().count()>80
         ||recipe.name.chars().any(char::is_control){
@@ -71,11 +72,6 @@ fn validate(recipe:&PackRecipe,loaded:&[LoadedPack])->Result<(),ApiError>{
         }
         if !(-1000..=1000).contains(&source.priority){
             return Err(bad("Prioridad fuera de -1000..1000"));
-        }
-        if !loaded.iter().any(|p|p.fingerprint==source.fingerprint){
-            return Err(bad(format!(
-                "Falta volver a importar el pack SHA-256 {}",
-                &source.fingerprint[..12])));
         }
     }
     if !recipe.sources.iter().any(|p|p.enabled){
@@ -104,6 +100,19 @@ fn validate(recipe:&PackRecipe,loaded:&[LoadedPack])->Result<(),ApiError>{
         if exclude.contains(path) {
             return Err(bad("No se puede elegir un recurso excluido"));
         }
+    }
+    Ok(())
+}
+fn validate(recipe:&PackRecipe,loaded:&[LoadedPack])->Result<(),ApiError>{
+    validate_recipe_structure(recipe)?;
+    for source in &recipe.sources {
+        if !loaded.iter().any(|p|p.fingerprint==source.fingerprint){
+            return Err(bad(format!(
+                "Falta volver a importar el pack SHA-256 {}",
+                &source.fingerprint[..12])));
+        }
+    }
+    for (path,fingerprint) in &recipe.choices {
         if !loaded.iter().any(|p|p.fingerprint==*fingerprint
             && p.files.iter().any(|file|&file.path==path)){
             return Err(bad("La elección no pertenece a la fuente seleccionada"));
