@@ -102,3 +102,15 @@ automática en VSClient se conectarán posteriormente. No se ha integrado
 una página nueva ni se ha publicado un Resource Pack a Minecraft.
 
 VSPack también prepara un inspector de referencias y la selección conjunta de PNG/.png.mcmeta para tooltips y animaciones. Véase docs/VSPACK-MANAGER-API.md.
+
+## Guardar proyectos de VSPack
+
+Las recetas de fusión se guardan ahora en
+\`VSMEDIA_DATA_DIR/vspack-projects/\` (por defecto,
+\`./.vsmedia-data/vspack-projects/\`). Es un almacenamiento local
+duradero que permite recuperar los perfiles al reiniciar el backend,
+con revisión para evitar sobrescrituras accidentales. Las fuentes ZIP
+siguen siendo efímeras y hay que reimportarlas al recuperar una receta.
+La exportación del gestor incluye SHA-1, SHA-256 y ETag para
+comprobar la integridad. Más detalles:
+[VSPACK-MANAGER-API.md](docs/VSPACK-MANAGER-API.md).

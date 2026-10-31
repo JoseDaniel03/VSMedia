@@ -97,8 +97,8 @@ cada ZIP interno es un Resource Pack independiente.
 
 **Persistencia:** una receta JSON puede guardarse y volver a cargar,
 pero el servidor NO conserva automáticamente los ZIP al reiniciar.
-La nueva web podrá gestionar recetas sin tocar el motor; para un
-catálogo persistente compartido hacen falta CAS, autenticación y
+El servidor guarda proyectos de recetas localmente, pero para un
+catálogo persistente de ZIP compartidos hacen falta CAS, autenticación y
 almacenamiento seguro.
 
 **Minecraft:** este backend NO instala automáticamente paquetes en
@@ -190,3 +190,65 @@ romper íconos.
 El GET de diagnóstico es de solo lectura y no modifica ni exporta
 Resource Packs. La futura web podrá usar estos resultados para ofrecer
 opciones de resolución de glifos.
+
+## Proyectos de fusión guardados en disco
+
+El backend local conserva ahora **las recetas JSON**, incluso después de
+reiniciar el bridge, con un máximo de 32 proyectos. Los archivos ZIP
+originales **no se guardan todavía**: es necesario reimportarlos después
+de reiniciar, y la recuperación muestra las huellas SHA-256 que faltan.
+
+La ubicación predeterminada es:
+\`./.vsmedia-data/vspack-projects/\`
+
+Si se define la variable \`VSMEDIA_DATA_DIR\`, se usa:
+\`$VSMEDIA_DATA_DIR/vspack-projects/\`
+
+No se aceptan IDs con rutas, barras ni puntos; sólo letras minúsculas,
+números, guiones y guiones bajos (máximo 48 caracteres).
+Las escrituras usan un archivo temporal sincronizado y una sustitución
+por renombrado para evitar truncar el proyecto existente. Se rechazan
+enlaces simbólicos y los documentos guardados se validan al volver a leer.
+
+| Método | Endpoint | Función |
+|---|---|---|
+| GET | \`/api/v1/packs/manager/projects\` | Lista proyectos guardados con fecha y revisión |
+| GET | \`/api/v1/packs/manager/projects/{id}\` | Receta, revisión y \`missing_sources\` |
+| POST | \`/api/v1/packs/manager/projects/{id}\` | Crear o modificar un proyecto |
+| DELETE | \`/api/v1/packs/manager/projects/{id}?revision=...\` | Eliminar si la revisión coincide |
+
+Crear un proyecto:
+
+\`\`\`http
+POST /api/v1/packs/manager/projects/virgoland-ui
+Content-Type: application/json
+
+{"recipe":{"schema":"vspack-recipe-v1","name":"Virgoland UI",
+"sources":[{"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+"enabled":true,"priority":20}],"choices":{},"exclude":[]}}
+\`\`\`
+
+Al crear, \`expected_revision\` debe omitirse o ser \`null\`.
+La respuesta devuelve un \`revision\` SHA-256. Para actualizar se envía
+el mismo JSON con \`expected_revision\` igual a la revisión leída; si
+otra pestaña cambió el proyecto, el servidor devuelve HTTP **409**
+en lugar de sobrescribirlo. El borrado también requiere la revisión
+en el parámetro \`revision\`.
+
+Guardar o recuperar un proyecto no ejecuta automáticamente una fusión
+ni modifica packs importados. La web futura deberá mostrar la lista de
+fuentes faltantes y permitir reimportarlas.
+
+### Hashes de los ZIP compilados
+
+Las exportaciones del manager (\`/manager/export\` y
+\`/manager/split/export\`) incluyen \`ETag\`, \`X-VSPack-SHA1\` y
+\`X-VSPack-SHA256\`. Son hashes de los **bytes del ZIP exportado**,
+no de los ZIP originales utilizados por la receta. Se exponen mediante
+CORS al Studio local para facilitar comprobaciones de integridad y
+futuras políticas de caché, aunque no se está publicando contenido en
+una CDN ni enviándolo a VSClient.
+
+Esta persistencia es **monousuario y local**, sin autenticación remota
+ni almacenamiento de fuentes CAS: no se debe exponer el bridge a
+Internet hasta implementar una capa autenticada y permisos.

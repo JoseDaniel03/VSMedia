@@ -122,3 +122,18 @@ no forman parte de esta fase.
 - [ ] Integrar la próxima web de gestor de interfaces al recibirla.
 - [ ] Persistencia de fuentes/decisiones, autenticación HTTPS y
   publicación final a la infraestructura VSEngine/CANVASMC.
+
+## VSPack — persistencia local de recetas
+
+- [x] Guardado, listado, recuperación y borrado de hasta 32 recetas
+  por ID validado en VSMEDIA_DATA_DIR/vspack-projects.
+- [x] Actualizaciones condicionadas por revisión SHA-256 para evitar
+  perder cambios al editar desde más de una pestaña.
+- [x] Sustitución mediante archivo temporal y rename, comprobaciones
+  de tamaño y rechazo de enlaces simbólicos.
+- [x] Respuesta de fuentes faltantes tras reinicio: el backend conserva
+  la configuración, no los ZIP originales.
+- [x] Hash SHA-1/SHA-256 y ETag accesibles para la web en exportaciones
+  del gestor de packs.
+- [ ] Almacenamiento CAS duradero de todos los ZIPs y fuentes, permisos
+  de acceso y publicación a jugadores; aún no implementado.
