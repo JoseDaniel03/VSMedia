@@ -9,7 +9,7 @@ use std::{
 };
 use axum::{
     body::Bytes, Extension,Json,
-    http::{header,HeaderMap,StatusCode},
+    http::{header,HeaderMap,HeaderValue,StatusCode},
     response::{IntoResponse,Response},
 };
 use serde::{Deserialize,Serialize};
@@ -260,12 +260,24 @@ pub async fn export(Extension(hub):Extension<PackHub>,
     Ok(zip_response(bytes,"vsmedia-recipe-merged.zip"))
 }
 fn zip_response(bytes:Vec<u8>,name:&str)->Response {
-    ([
+    // Stable hashes let future VSClient adapters verify an artifact before
+    // uploading, without confusing recipe fingerprints with compiled ZIPs.
+    let sha1=format!("{:x}",sha1::Sha1::digest(&bytes));
+    let sha256=format!("{:x}",Sha256::digest(&bytes));
+    let mut response=([
         (header::CONTENT_TYPE,"application/zip".to_owned()),
         (header::CONTENT_DISPOSITION,format!("attachment; filename=\"{name}\"")),
         (header::CACHE_CONTROL,"no-store".to_owned()),
         (header::X_CONTENT_TYPE_OPTIONS,"nosniff".to_owned())
-    ],bytes).into_response()
+    ],bytes).into_response();
+    response.headers_mut().insert(header::ETAG,
+        HeaderValue::from_str(&format!("\"{sha256}\""))
+            .expect("hex digest is a valid HTTP ETag"));
+    response.headers_mut().insert(header::HeaderName::from_static("x-vspack-sha1"),
+        HeaderValue::from_str(&sha1).expect("SHA-1 hex is a valid header"));
+    response.headers_mut().insert(header::HeaderName::from_static("x-vspack-sha256"),
+        HeaderValue::from_str(&sha256).expect("SHA-256 hex is a valid header"));
+    response
 }
 pub async fn split_plan(Extension(hub):Extension<PackHub>,
     headers:HeaderMap,body:Bytes)->Result<Json<Value>,ApiError>
@@ -408,7 +420,13 @@ mod tests {
         recipe.choices.insert(icon.into(),first_fingerprint);
         let rendered=export(Extension(hub.clone()),headers(),
             Bytes::from(serde_json::to_vec(&recipe).unwrap())).await.unwrap();
+        let tag=rendered.headers()[header::ETAG].to_str().unwrap().to_owned();
+        let sha1=rendered.headers()["x-vspack-sha1"].to_str().unwrap().to_owned();
+        let sha256=rendered.headers()["x-vspack-sha256"].to_str().unwrap().to_owned();
         let bytes=to_bytes(rendered.into_body(),32*1024*1024).await.unwrap();
+        assert_eq!(sha1,format!("{:x}",sha1::Sha1::digest(&bytes)));
+        assert_eq!(sha256,format!("{:x}",Sha256::digest(&bytes)));
+        assert_eq!(tag,format!("\"{sha256}\""));
         let entries=import_zip(&bytes,"merged",0,limits()).unwrap();
         assert_eq!(entries.iter().find(|p|p.path==icon).unwrap().data,b"old");
         assert!(entries.iter().any(|p|p.path==animation));

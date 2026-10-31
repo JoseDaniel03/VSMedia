@@ -333,7 +333,10 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         ]))
         .allow_methods([Method::GET,Method::POST,Method::DELETE])
         .allow_headers([header::CONTENT_TYPE,
-            header::HeaderName::from_static("x-vspack-label")]);
+            header::HeaderName::from_static("x-vspack-label")])
+        .expose_headers([header::CONTENT_DISPOSITION,header::ETAG,
+            header::HeaderName::from_static("x-vspack-sha1"),
+            header::HeaderName::from_static("x-vspack-sha256")]);
     Router::new()
         .route("/api/v1/health",get(health))
         .route("/api/v1/capabilities",get(capabilities))
