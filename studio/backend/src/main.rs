@@ -404,6 +404,32 @@ mod tests {
             .body(Body::from(body)).unwrap()
     }
     #[tokio::test]
+    async fn vspack_accepts_zip_over_16mib_using_route_specific_import_limit(){
+        use std::collections::BTreeMap;
+        use vsmedia_pack::{MergeOutput,archive::{export_zip,ArchiveLimits}};
+        let (db,dir)=store();
+        let app=router(db.clone());
+        // Already-compressed PNGs are STORED by the pack engine. This tests
+        // the route's 96-MiB upload cap rather than an easily compressed blob.
+        let data=vec![0xAAu8;17*1024*1024];
+        let source=export_zip(&MergeOutput{
+            files:BTreeMap::from([
+                ("pack.mcmeta".into(),
+                    br#"{"pack":{"pack_format":97,"description":"Large UI"}}"#.to_vec()),
+                ("assets/demo/textures/gui/large.png".into(),data)
+            ]),conflicts:vec![]
+        },ArchiveLimits{
+            max_files:12000,max_total_bytes:192*1024*1024,
+            max_single_file_bytes:32*1024*1024
+        }).unwrap();
+        assert!(source.len()>16*1024*1024);
+        let response=app.clone().oneshot(request(Method::POST,
+            "/api/v1/packs/largeui",source)).await.unwrap();
+        assert_eq!(response.status(),StatusCode::OK,
+            "96-MiB route limit must override generic 16-MiB media limit");
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+    #[tokio::test]
     async fn vspack_http_contract_is_accessible_for_future_interface_manager(){
         use std::collections::BTreeMap;
         use vsmedia_pack::{MergeOutput,archive::{export_zip,ArchiveLimits}};
