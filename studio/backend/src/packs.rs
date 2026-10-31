@@ -15,13 +15,14 @@ use vsmedia_pack::{archive::{self,ArchiveLimits},structured,PackAsset,MergeOutpu
 
 use crate::{ApiError,authorize_origin,bad};
 
-const MAX_ZIP_BYTES:usize=12*1024*1024;
-const MAX_RAM_BYTES:usize=64*1024*1024;
-const MAX_PACKS:usize=6;
+// Account for multiple large GUI/audio packs without removing ZIP-bomb protections.
+const MAX_ZIP_BYTES:usize=96*1024*1024;
+const MAX_RAM_BYTES:usize=384*1024*1024;
+const MAX_PACKS:usize=24;
 const MAX_PREVIEW_CONFLICTS:usize=200;
 fn limits()->ArchiveLimits {
-    ArchiveLimits {max_files:2048,max_total_bytes:32*1024*1024,
-        max_single_file_bytes:8*1024*1024}
+    ArchiveLimits {max_files:12000,max_total_bytes:192*1024*1024,
+        max_single_file_bytes:32*1024*1024}
 }
 /// Source packs plus explicit per-resource choices. Both are ephemeral.
 #[derive(Clone,Default)]
@@ -71,7 +72,7 @@ pub async fn import(
     if !valid_id(&id){return Err(bad("ID de pack inválido"));}
     if bytes.is_empty()||bytes.len()>MAX_ZIP_BYTES {
         return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,
-            "ZIP debe ocupar entre 1 byte y 12 MiB".into()));
+            "ZIP debe ocupar entre 1 byte y 96 MiB".into()));
     }
     let label=headers.get("x-vspack-label").and_then(|h|h.to_str().ok())
         .map(|raw|percent_encoding::percent_decode_str(raw).decode_utf8()
@@ -88,7 +89,7 @@ pub async fn import(
             return Err(ApiError(StatusCode::CONFLICT,
                 "Ese pack ya se encuentra en la sesión".into()));
         }
-        if saved.len()>=MAX_PACKS {return Err(bad("Máximo 6 packs por sesión"));}
+        if saved.len()>=MAX_PACKS {return Err(bad("Máximo 24 packs por sesión"));}
     }
     let source_id=id.clone();
     let imported=tokio::task::spawn_blocking(move||
@@ -105,7 +106,7 @@ pub async fn import(
     if saved.len()>=MAX_PACKS ||
         saved.iter().map(|p|p.bytes).sum::<usize>().saturating_add(used)>MAX_RAM_BYTES {
         return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,
-            "El límite de 6 packs / 64 MiB de datos descomprimidos fue alcanzado".into()));
+            "El límite de 24 packs / 384 MiB de datos descomprimidos fue alcanzado".into()));
     }
     let next_priority=(saved.len() as i32)*10;
     let pack=LoadedPack{id,name:label,priority:next_priority,files:Arc::new(imported),bytes:used};

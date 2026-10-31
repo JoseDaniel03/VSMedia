@@ -338,7 +338,7 @@ fn router(store:Store)->Router {
         .route("/api/v1/packs/{id}/download",get(packs::download_source))
         .route("/api/v1/packs/{id}",get(packs::source_info)
             .post(packs::import).delete(packs::remove)
-            .layer(DefaultBodyLimit::max(12*1024*1024)))
+            .layer(DefaultBodyLimit::max(96*1024*1024)))
         .route("/api/v1/packs/{id}/priority",post(packs::priority))
         .route("/api/v1/assets/{name}/metadata",get(get_asset_metadata))
         .route("/api/v1/assets/{name}",post(put_asset).get(get_asset))
