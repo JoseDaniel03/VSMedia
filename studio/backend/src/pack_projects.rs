@@ -49,7 +49,7 @@ struct SaveRequest {
     expected_revision:Option<String>,
 }
 #[derive(Deserialize)]
-struct DeleteQuery {revision:String}
+pub struct DeleteQuery {revision:String}
 
 fn valid_id(id:&str)->bool{
     (1..=48).contains(&id.len()) && id.bytes().all(|c|
