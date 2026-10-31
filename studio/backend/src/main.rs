@@ -480,6 +480,20 @@ mod tests {
         assert_eq!(file.headers()[header::X_CONTENT_TYPE_OPTIONS],"nosniff");
         assert_eq!(to_bytes(file.into_body(),4096).await.unwrap().as_ref(),b"image1");
 
+        let bundled=app.clone().oneshot(request(Method::POST,
+            "/api/v1/packs/merge/texture-bundle",
+            serde_json::to_vec(&json!({"path":filename,"source_id":"panel"}))
+                .unwrap())).await.unwrap();
+        assert_eq!(bundled.status(),StatusCode::OK);
+        let selected:Value=serde_json::from_slice(&to_bytes(bundled.into_body(),65_536)
+            .await.unwrap()).unwrap();
+        assert_eq!(selected["needs_metadata_review"],true);
+        let inspection=app.clone().oneshot(request(Method::GET,
+            "/api/v1/packs/diagnostics",vec![])).await.unwrap();
+        assert_eq!(inspection.status(),StatusCode::OK);
+        let report:Value=serde_json::from_slice(&to_bytes(inspection.into_body(),65_536)
+            .await.unwrap()).unwrap();
+        assert_eq!(report["schema"],"vspack-inspection-v1");
         let source=app.clone().oneshot(request(Method::GET,
             "/api/v1/packs/panel/download",vec![])).await.unwrap();
         assert_eq!(source.status(),StatusCode::OK);
