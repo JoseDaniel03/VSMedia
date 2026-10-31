@@ -409,6 +409,52 @@ pub async fn choose_resource(
     Ok(Json(json!({"path":choice.path,"chosen_source":choice.source_id,
         "override":true})))
 }
+/// Select a PNG and its animation metadata together, if both are present in
+/// the same source. This prevents a stale explicit override for the sidecar
+/// from silently pointing at a different texture pack.
+pub async fn choose_texture_bundle(
+    Extension(hub):Extension<PackHub>,
+    headers:HeaderMap,
+    Json(choice):Json<OverrideInput>
+)->Result<Json<Value>,ApiError>{
+    authorize_origin(&headers)?;
+    vsmedia_pack::validate_path(&choice.path).map_err(friendly_error)?;
+    if !choice.path.starts_with("assets/") || !choice.path.ends_with(".png"){
+        return Err(bad("La selección conjunta necesita un PNG dentro de assets/"));
+    }
+    let companion=format!("{}.mcmeta",choice.path);
+    let packs=hub.0.lock().await;
+    let source=packs.iter().find(|pack|pack.id==choice.source_id)
+        .ok_or_else(||ApiError(StatusCode::NOT_FOUND,"Fuente no encontrada".into()))?;
+    if !source.files.iter().any(|file|file.path==choice.path){
+        return Err(ApiError(StatusCode::NOT_FOUND,
+            "El pack no contiene la textura indicada".into()));
+    }
+    let has_companion=source.files.iter().any(|file|file.path==companion);
+    drop(packs);
+    let mut overrides=hub.1.lock().await;
+    let new_entries=usize::from(!overrides.contains_key(&choice.path))
+        +usize::from(has_companion&&!overrides.contains_key(&companion));
+    if overrides.len().saturating_add(new_entries)>MAX_SOURCE_CHOICES{
+        return Err(bad("Límite de selecciones manuales alcanzado"));
+    }
+    overrides.insert(choice.path.clone(),choice.source_id.clone());
+    if has_companion{
+        overrides.insert(companion.clone(),choice.source_id.clone());
+    }else{
+        // Never leave an older, conflicting explicit choice for .png.mcmeta.
+        overrides.remove(&companion);
+    }
+    Ok(Json(json!({
+        "schema":"vspack-texture-selection-v1",
+        "path":choice.path,
+        "chosen_source":choice.source_id,
+        "animation_metadata_path":companion,
+        "animation_metadata_selected":has_companion,
+        "needs_metadata_review":!has_companion
+    })))
+}
+
 pub async fn clear_resource_choice(
     Extension(hub):Extension<PackHub>,
     headers:HeaderMap,Query(q):Query<TextureQuery>
@@ -772,6 +818,37 @@ mod tests{
         assert!(export_layers(Extension(hub),headers(),Json(invalid)).await.is_err());
     }
 
+    #[tokio::test]
+    async fn texture_bundle_selection_updates_png_and_animation_metadata_atomically(){
+        let hub=PackHub::default();
+        let texture="assets/demo/textures/gui/tooltip.png";
+        let companion="assets/demo/textures/gui/tooltip.png.mcmeta";
+        let left=fixture(&[(texture,b"A"),(companion,b"animation-a")]);
+        let right=fixture(&[(texture,b"B")]);
+        import(Extension(hub.clone()),Path("mandala".into()),headers(),
+            Bytes::from(left)).await.unwrap();
+        import(Extension(hub.clone()),Path("cozy".into()),headers(),
+            Bytes::from(right)).await.unwrap();
+        let response=choose_texture_bundle(Extension(hub.clone()),headers(),
+            Json(OverrideInput{path:texture.into(),source_id:"mandala".into()}))
+            .await.unwrap().0;
+        assert_eq!(response["animation_metadata_selected"],true);
+        assert_eq!(hub.1.lock().await.len(),2);
+        let result=composed(&hub).await.unwrap();
+        assert_eq!(result.files[texture],b"A");
+        assert_eq!(result.files[companion],b"animation-a");
+        let response=choose_texture_bundle(Extension(hub.clone()),headers(),
+            Json(OverrideInput{path:texture.into(),source_id:"cozy".into()}))
+            .await.unwrap().0;
+        assert_eq!(response["needs_metadata_review"],true);
+        let choices=hub.1.lock().await;
+        assert_eq!(choices.get(texture).map(String::as_str),Some("cozy"));
+        assert!(!choices.contains_key(companion));
+        drop(choices);
+        assert!(choose_texture_bundle(Extension(hub.clone()),headers(),
+            Json(OverrideInput{path:"pack.mcmeta".into(),source_id:"cozy".into()}))
+            .await.is_err());
+    }
     #[tokio::test]
     async fn manually_selects_texture_winner_and_resolves_equal_priority_conflict(){
         let hub=PackHub::default();
