@@ -163,8 +163,12 @@ async fn from_recipe(hub:PackHub,recipe:PackRecipe)
     ->Result<MergeOutput,ApiError>
 {
     let loaded=hub.0.lock().await.clone();
-    tokio::task::spawn_blocking(move ||merge_recipe(recipe,loaded))
-        .await.map_err(|e|bad(format!("No se completó la fusión: {e}")))?
+    let permit=hub.2.clone().acquire_owned().await
+        .map_err(|_|bad("Motor de fusión cerrado"))?;
+    tokio::task::spawn_blocking(move ||{
+        let _permit=permit;
+        merge_recipe(recipe,loaded)
+    }).await.map_err(|e|bad(format!("No se completó la fusión: {e}")))?
 }
 
 pub async fn capabilities()->Json<Value>{
@@ -233,8 +237,12 @@ pub async fn export(Extension(hub):Extension<PackHub>,
     authorize_origin(&headers)?;
     let recipe=decode(&body)?;
     let merged=from_recipe(hub,recipe).await?;
-    let bytes=tokio::task::spawn_blocking(move||archive::export_zip(&merged,limits()))
-        .await.map_err(|e|bad(format!("Exportación interrumpida: {e}")))?
+    let permit=hub.2.clone().acquire_owned().await
+        .map_err(|_|bad("Motor ZIP cerrado"))?;
+    let bytes=tokio::task::spawn_blocking(move||{
+        let _permit=permit;
+        archive::export_zip(&merged,limits())
+    }).await.map_err(|e|bad(format!("Exportación interrumpida: {e}")))?
         .map_err(bad)?;
     Ok(zip_response(bytes,"vsmedia-recipe-merged.zip"))
 }

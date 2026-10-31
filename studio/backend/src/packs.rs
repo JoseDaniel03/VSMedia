@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::{Deserialize,Serialize};
 use serde_json::{json,Value};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex,Semaphore};
 use vsmedia_pack::{archive::{self,ArchiveLimits},structured,PackAsset,MergeOutput};
 
 use crate::{ApiError,authorize_origin,bad};
@@ -25,8 +25,20 @@ pub(crate) fn limits()->ArchiveLimits {
         max_single_file_bytes:32*1024*1024}
 }
 /// Source packs plus explicit per-resource choices. Both are ephemeral.
-#[derive(Clone,Default)]
-pub struct PackHub(pub(crate) Arc<Mutex<Vec<LoadedPack>>>,pub(crate) Arc<Mutex<BTreeMap<String,String>>>);
+#[derive(Clone)]
+pub struct PackHub(
+    pub(crate) Arc<Mutex<Vec<LoadedPack>>>,
+    pub(crate) Arc<Mutex<BTreeMap<String,String>>>,
+    // Shared CPU budget across imports, merges and manager previews.
+    pub(crate) Arc<Semaphore>
+);
+impl Default for PackHub {
+    fn default()->Self{
+        Self(Arc::new(Mutex::new(Vec::new())),
+            Arc::new(Mutex::new(BTreeMap::new())),
+            Arc::new(Semaphore::new(2)))
+    }
+}
 #[derive(Clone)]
 pub(crate) struct LoadedPack {
     pub(crate) id:String,
@@ -98,9 +110,12 @@ pub async fn import(
     // with the exact same archive, even when the UI generates another source ID.
     let fingerprint=format!("{:x}",Sha256::digest(&bytes));
     let source_id=id.clone();
-    let imported=tokio::task::spawn_blocking(move||
+    let permit=hub.2.clone().acquire_owned().await
+        .map_err(|_|bad("Motor ZIP cerrado"))?;
+    let imported=tokio::task::spawn_blocking(move||{
+        let _permit=permit;
         archive::import_zip(&bytes,&source_id,0,limits())
-    ).await.map_err(|e|bad(format!("Importación interrumpida: {e}")))?
+    }).await.map_err(|e|bad(format!("Importación interrumpida: {e}")))?
         .map_err(friendly_error)?;
     if imported.is_empty(){return Err(bad("ZIP sin archivos de Resource Pack"));}
     let used=imported.iter().map(|p|p.data.len()).sum::<usize>();
@@ -189,7 +204,10 @@ pub(crate) async fn composed(hub:&PackHub)->Result<MergeOutput,ApiError>{
     let current=hub.0.lock().await.clone();
     let overrides=hub.1.lock().await.clone();
     if current.is_empty(){return Err(bad("Primero importá un Resource Pack ZIP"));}
+    let permit=hub.2.clone().acquire_owned().await
+        .map_err(|_|bad("Motor de fusión cerrado"))?;
     tokio::task::spawn_blocking(move || {
+        let _permit=permit;
         let files=current.iter().flat_map(|p|
             p.files.iter().cloned().map(|mut file|{
                 file.priority=if overrides.get(&file.path)==Some(&p.id){
@@ -472,8 +490,12 @@ pub async fn diagnostics(Extension(hub):Extension<PackHub>)
 
 pub async fn export(Extension(hub):Extension<PackHub>)->Result<Response,ApiError>{
     let merged=composed(&hub).await?;
-    let bytes=tokio::task::spawn_blocking(move||archive::export_zip(&merged,limits()))
-        .await.map_err(|e|bad(format!("Exportación interrumpida: {e}")))?
+    let permit=hub.2.clone().acquire_owned().await
+        .map_err(|_|bad("Motor ZIP cerrado"))?;
+    let bytes=tokio::task::spawn_blocking(move||{
+        let _permit=permit;
+        archive::export_zip(&merged,limits())
+    }).await.map_err(|e|bad(format!("Exportación interrumpida: {e}")))?
         .map_err(friendly_error)?;
     Ok(([
         (header::CONTENT_TYPE,"application/zip"),
