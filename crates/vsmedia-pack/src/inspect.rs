@@ -45,7 +45,8 @@ fn asset_path(namespace:&str,location:&str,folder:&str,suffix:&str)->Option<Stri
     if ns.is_empty()||resource.is_empty()||resource.starts_with('/')
         ||resource.contains("..")||resource.contains('\\')
         ||resource.chars().any(|ch|ch.is_control()) {return None;}
-    Some(format!("assets/{ns}/{folder}/{resource}{suffix}"))
+    let ext=if resource.ends_with(suffix){""}else{suffix};
+    Some(format!("assets/{ns}/{folder}/{resource}{ext}"))
 }
 fn ns_of(path:&str)->Option<&str>{
     let rest=path.strip_prefix("assets/")?;
@@ -204,6 +205,18 @@ mod tests{
         assert_eq!(report.known_references,2);
         assert_eq!(report.missing_references,2);
         assert!(report.issues.iter().all(|x|x.severity=="info"));
+    }
+    #[test]
+    fn cross_category_dependencies_are_visible_before_exporting_subpacks(){
+        let output=pack(&[
+            ("assets/demo/models/item/sword.json",
+                br#"{"textures":{"layer0":"demo:block/iron_block"}}"#),
+            ("assets/demo/textures/block/iron_block.png",b"PNG"),
+        ]);
+        let result=inspect(&output);
+        assert_eq!(result.cross_category_references,1);
+        assert_eq!(result.cross_category_examples[0].source_category,"items");
+        assert_eq!(result.cross_category_examples[0].target_category,"blocks");
     }
     #[test]
     fn ignores_strings_that_could_be_unsafe_file_references(){
