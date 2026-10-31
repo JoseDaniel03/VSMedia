@@ -213,11 +213,13 @@ pub async fn plan(Extension(hub):Extension<PackHub>,
     authorize_origin(&headers)?;
     let recipe=decode(&body)?;
     let merged=from_recipe(hub,recipe).await?;
-    let summary=stats(&merged);
+    let mut summary=stats(&merged);
     let report=tokio::task::spawn_blocking(move||inspect::inspect(&merged))
         .await.map_err(|e|bad(format!("Diagnóstico interrumpido: {e}")))?;
-    Ok(Json(json!({"summary":summary,"inspection":report,
-        "schema":"vspack-manager-review-v1"})))
+    if let Value::Object(ref mut fields)=summary {
+        fields.insert("inspection".into(),serde_json::to_value(report).map_err(bad)?);
+    }
+    Ok(Json(summary))
 }
 fn decode(bytes:&Bytes)->Result<PackRecipe,ApiError>{
     if bytes.len()>MAX_RECIPE_BYTES {
