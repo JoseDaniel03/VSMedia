@@ -28,10 +28,10 @@ function install(root){
     '<h2>Gestor de Resource Packs</h2><p>Combiná recursos, controlá conflictos y exportá ZIPs reproducibles.</p></div>'+
     '<span>Sin datapacks · Sesión local</span></div>'+
     '<div class="vspack-workspace">'+
-      '<aside class="vspack-sidebar"><div class="vspack-heading"><strong>PAQUETES</strong><span data-field="count">0 / 6</span></div>'+
+      '<aside class="vspack-sidebar"><div class="vspack-heading"><strong>PAQUETES</strong><span data-field="count">0 / 24</span></div>'+
       '<label class="vspack-upload">＋ Importar ZIP <input data-field="upload" id="vspack-upload" type="file" accept=".zip,application/zip" multiple></label>'+
       '<div class="vspack-sources" data-field="packs"></div>'+
-      '<div class="vspack-usage"><span data-field="usage">0 / 64 MiB</span><progress data-field="memory" max="67108864" value="0"></progress></div>'+
+      '<div class="vspack-usage"><span data-field="usage">0 / 384 MiB</span><progress data-field="memory" max="402653184" value="0"></progress></div>'+
       '<p class="vspack-note">La prioridad más alta gana. Los eventos de sounds.json se fusionan por clave. Las colisiones con igual prioridad se rechazan.</p>'+
       '</aside>'+
       '<section class="vspack-inspector">'+
@@ -104,9 +104,9 @@ function install(root){
   }
   function sources(){
     f("packs").replaceChildren();
-    f("count").textContent=state.packs.length+" / 6";
+    f("count").textContent=state.packs.length+" / 24";
     const memory=state.packs.reduce((n,p)=>n+p.bytes,0);
-    f("usage").textContent=size(memory)+" / 64 MiB";
+    f("usage").textContent=size(memory)+" / 384 MiB";
     f("memory").value=memory;
     for(const p of [...state.packs].sort((a,b)=>b.priority-a.priority)){
       const card=el("div","vspack-source"),heading=el("div","vspack-source-head");
@@ -250,16 +250,16 @@ function install(root){
   }
   function render(){
     sources();preview();
-    f("upload").disabled=state.busy||state.packs.length>=6;
+    f("upload").disabled=state.busy||state.packs.length>=24;
     button("reload").disabled=state.busy;
     if(state.busy){button("export").disabled=true;button("layers").disabled=true;}
   }
   f("upload").onchange=e=>guard(async()=>{
     const files=Array.from(e.target.files||[]);e.target.value="";
-    if(files.length+state.packs.length>6)throw Error("Máximo 6 packs.");
+    if(files.length+state.packs.length>24)throw Error("Máximo 24 packs.");
     for(const file of files){
       if(!file.name.toLowerCase().endsWith(".zip"))throw Error("Sólo ZIP de Resource Packs.");
-      if(file.size>12*1024*1024)throw Error(file.name+": límite 12 MiB por ZIP.");
+      if(file.size>96*1024*1024)throw Error(file.name+": límite 96 MiB por ZIP.");
     }
     for(const file of files){
       const id="pack_"+Array.from(crypto.getRandomValues(new Uint8Array(8)),
