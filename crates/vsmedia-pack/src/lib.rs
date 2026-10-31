@@ -28,12 +28,29 @@ pub struct MergeOutput {
     pub conflicts: Vec<PackConflict>,
 }
 
+/// Restricted top-level documentation/mod metadata common in real resource
+/// packs (licenses, README, optional RespackOpts JSON5, preview thumbnails).
+/// Never accept HTML, scripts or traversal just because a file is at root.
+fn safe_root_companion(path:&str)->bool {
+    if path.contains('/') || path.len()>128 || path.starts_with('.') {
+        return false;
+    }
+    if !path.bytes().all(|b|b.is_ascii_alphanumeric()
+        ||matches!(b,b'_'|b'-'|b'.'|b' ')) {
+        return false;
+    }
+    let suffix=path.rsplit_once('.').map(|(_,ext)|ext.to_ascii_lowercase());
+    matches!(suffix.as_deref(),Some("txt"|"md"|"json5"|"png"))
+}
+
 pub fn validate_path(path: &str) -> MediaResult<()> {
-    if path.is_empty() || path.len() > 512
-        || path.starts_with('/') || path.contains('\\')
-        || path.split('/').any(|part| part.is_empty() || part == "." || part == "..")
-        || !path.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'_' | b'-' | b'.'))
-        || !(path.starts_with("assets/") || path == "pack.mcmeta" || path == "pack.png")
+    let normal=path=="pack.mcmeta"||path=="pack.png"
+        ||path.starts_with("assets/")&&path.bytes().all(|b|
+            b.is_ascii_alphanumeric()||matches!(b,b'/'|b'_'|b'-'|b'.'))
+        ||safe_root_companion(path);
+    if !normal || path.is_empty() || path.len()>512
+        ||path.starts_with('/') || path.contains('\\')
+        ||path.split('/').any(|part|part.is_empty()||part=="."||part=="..")
     {
         return Err(MediaError::InvalidInput(format!("unsafe pack path: {path}")));
     }
@@ -122,6 +139,17 @@ mod tests {
         assert_eq!(result.files["assets/demo/sounds/a.ogg"],b"top");
         assert_eq!(result.conflicts.len(),2);
         assert!(result.conflicts.iter().all(|c|c.winner=="top"));
+    }
+    #[test]
+    fn permits_root_licenses_and_mod_options_without_scripts(){
+        for p in ["LICENSE.txt","Read Me.txt","README.md","INFO.txt",
+            "LICENSE_of_FluentEmoji.txt","respackopts.json5","Cat.png",
+            "pack.mcmeta","pack.png","assets/minecraft/textures/gui/tooltip.png"]
+        {assert!(validate_path(p).is_ok(),"{p}");}
+        for p in ["../../LICENSE.txt","assets/demo/../evil.txt",
+            "do-it.sh","script.html","config.js",".secrets.txt",
+            "nested/README.md","readme.txt/../evil"]
+        {assert!(validate_path(p).is_err(),"{p}");}
     }
     #[test]
     fn rejects_traversal() {
