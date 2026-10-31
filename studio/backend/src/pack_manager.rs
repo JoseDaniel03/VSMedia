@@ -25,7 +25,7 @@ use zip::{ZipWriter,CompressionMethod,write::SimpleFileOptions};
 use crate::{ApiError,bad,authorize_origin,packs::{PackHub,LoadedPack,limits}};
 
 const SCHEMA:&str="vspack-recipe-v1";
-const MAX_RECIPE_BYTES:usize=64*1024;
+const MAX_RECIPE_BYTES:usize=1024*1024;
 const MAX_SOURCES:usize=24;
 const MAX_CHOICES:usize=512;
 const MAX_EXCLUSIONS:usize=8192;
@@ -217,7 +217,7 @@ pub async fn plan(Extension(hub):Extension<PackHub>,
 }
 fn decode(bytes:&Bytes)->Result<PackRecipe,ApiError>{
     if bytes.len()>MAX_RECIPE_BYTES {
-        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,"Receta JSON supera 64 KiB".into()));
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,"Receta JSON supera 1 MiB".into()));
     }
     serde_json::from_slice(bytes).map_err(|e|bad(format!("Receta inválida: {e}")))
 }

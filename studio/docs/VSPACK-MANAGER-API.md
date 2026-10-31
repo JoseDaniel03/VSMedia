@@ -86,7 +86,7 @@ cada ZIP interno es un Resource Pack independiente.
 - Hasta 12.000 entradas y 192 MiB descomprimidos por ZIP importado.
 - 32 MiB por recurso y 384 MiB de fuentes descomprimidas en memoria.
 - Hasta 65.536 contribuciones al merge estructurado.
-- Recetas de máximo 64 KiB, hasta 512 elecciones y 8.192 exclusiones.
+- Recetas de máximo 1 MiB, hasta 512 elecciones y 8.192 exclusiones.
 - ZIP con protección de path traversal, duplicados, enlaces simbólicos
   y tamaño descomprimido. Se admiten archivos README/License,
   RespackOpts JSON5 y miniaturas de raíz con extensiones limitadas.
