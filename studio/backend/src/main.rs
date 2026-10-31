@@ -76,6 +76,7 @@ async fn capabilities() -> Json<Value> {
         "vspack_minecraft_delivery":false,
         "vspack_manager_recipes":"vspack-recipe-v1",
         "vspack_dependency_diagnostics":true,
+        "vspack_font_glyph_diagnostics":"vspack-font-review-v1",
         "vspack_category_splitting":true,
         "vspack_profiles_portable_json":true,
         "accepted_formats":["wav","flac","mp3","ogg","webm","opus"]}))
@@ -343,6 +344,7 @@ fn router(store:Store)->Router {
             .layer(DefaultBodyLimit::max(1024*1024)))
         .route("/api/v1/packs/preview",get(packs::preview))
         .route("/api/v1/packs/diagnostics",get(packs::diagnostics))
+        .route("/api/v1/packs/fonts/diagnostics",get(packs::font_review))
         .route("/api/v1/packs/resources",get(packs::resources))
         .route("/api/v1/packs/interfaces",get(packs::interfaces))
         .route("/api/v1/packs/merge/plan",get(packs::resources))

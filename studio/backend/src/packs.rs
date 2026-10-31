@@ -525,6 +525,22 @@ pub async fn texture(
     ],data.clone()).into_response())
 }
 
+/// Identify overlaps in font providers before selecting the winning JSON.
+pub async fn font_review(Extension(hub):Extension<PackHub>)
+    ->Result<Json<vsmedia_pack::fonts::FontReview>,ApiError>{
+    let loaded=hub.0.lock().await.clone();
+    let permit=hub.2.clone().acquire_owned().await
+        .map_err(|_|bad("Motor de fuentes cerrado"))?;
+    let review=tokio::task::spawn_blocking(move||{
+        let _permit=permit;
+        let sources=loaded.iter().flat_map(|p|p.files.iter()
+            .filter(|f|f.path.contains("/font/")&&f.path.ends_with(".json"))
+            .cloned()).collect::<Vec<_>>();
+        vsmedia_pack::fonts::review(&sources)
+    }).await.map_err(|e|bad(format!("Análisis de fuentes interrumpido: {e}")))?;
+    Ok(Json(review))
+}
+
 /// Read-only, bounded diagnostics of the active Studio pack composition.
 pub async fn diagnostics(Extension(hub):Extension<PackHub>)
     ->Result<Json<vsmedia_pack::inspect::Inspection>,ApiError>{

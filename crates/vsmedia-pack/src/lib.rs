@@ -5,6 +5,7 @@ pub mod layers;
 pub mod structured;
 pub mod split;
 pub mod inspect;
+pub mod fonts;
 use std::collections::BTreeMap;
 use vsmedia_api::{MediaError, MediaResult};
 
