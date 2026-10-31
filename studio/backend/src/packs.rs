@@ -185,7 +185,7 @@ pub async fn remove(
 }
 /// Clone only small Arc handles under lock. CPU-heavy structured merge/ZIP
 /// compression runs on a bounded blocking thread, not a Folia/async worker.
-async fn composed(hub:&PackHub)->Result<MergeOutput,ApiError>{
+pub(crate) async fn composed(hub:&PackHub)->Result<MergeOutput,ApiError>{
     let current=hub.0.lock().await.clone();
     let overrides=hub.1.lock().await.clone();
     if current.is_empty(){return Err(bad("Primero importá un Resource Pack ZIP"));}
@@ -459,6 +459,15 @@ pub async fn texture(
         (header::CACHE_CONTROL,"no-store"),
         (header::X_CONTENT_TYPE_OPTIONS,"nosniff")
     ],data.clone()).into_response())
+}
+
+/// Read-only, bounded diagnostics of the active Studio pack composition.
+pub async fn diagnostics(Extension(hub):Extension<PackHub>)
+    ->Result<Json<vsmedia_pack::inspect::Inspection>,ApiError>{
+    let merged=composed(&hub).await?;
+    let inspection=tokio::task::spawn_blocking(move||vsmedia_pack::inspect::inspect(&merged))
+        .await.map_err(|e|bad(format!("Diagnóstico interrumpido: {e}")))?;
+    Ok(Json(inspection))
 }
 
 pub async fn export(Extension(hub):Extension<PackHub>)->Result<Response,ApiError>{

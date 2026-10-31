@@ -4,6 +4,7 @@ pub mod delivery;
 pub mod layers;
 pub mod structured;
 pub mod split;
+pub mod inspect;
 use std::collections::BTreeMap;
 use vsmedia_api::{MediaError, MediaResult};
 

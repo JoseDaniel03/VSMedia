@@ -18,7 +18,7 @@ use sha1::Digest as _;
 use sha2::Sha256;
 use uuid::Uuid;
 use vsmedia_pack::{
-    archive,structured,split,
+    archive,structured,split,inspect,
     PackAsset,MergeOutput,validate_path,
 };
 use zip::{ZipWriter,CompressionMethod,write::SimpleFileOptions};
@@ -213,7 +213,11 @@ pub async fn plan(Extension(hub):Extension<PackHub>,
     authorize_origin(&headers)?;
     let recipe=decode(&body)?;
     let merged=from_recipe(hub,recipe).await?;
-    Ok(Json(stats(&merged)))
+    let summary=stats(&merged);
+    let report=tokio::task::spawn_blocking(move||inspect::inspect(&merged))
+        .await.map_err(|e|bad(format!("Diagnóstico interrumpido: {e}")))?;
+    Ok(Json(json!({"summary":summary,"inspection":report,
+        "schema":"vspack-manager-review-v1"})))
 }
 fn decode(bytes:&Bytes)->Result<PackRecipe,ApiError>{
     if bytes.len()>MAX_RECIPE_BYTES {
@@ -246,6 +250,7 @@ pub async fn split_plan(Extension(hub):Extension<PackHub>,
     authorize_origin(&headers)?;
     let recipe=decode(&body)?;
     let merged=from_recipe(hub,recipe).await?;
+    let report=inspect::inspect(&merged);
     let category=split::split_categories(&merged).map_err(bad)?;
     let groups=category.iter().map(|(name,group)|json!({
         "id":name,"files":group.files.len(),"bytes":group.files.values()
@@ -254,6 +259,7 @@ pub async fn split_plan(Extension(hub):Extension<PackHub>,
     Ok(Json(json!({
         "schema":"vspack-split-plan-v1","groups":groups,
         "original_files":merged.files.len(),
+        "dependencies":report,
         "order":"dependency_review_required",
         "warning":"Los JSON pueden referenciar recursos de otras categorías; probá los subpacks juntos antes de distribuirlos.",
         "source_archives_untouched":true
