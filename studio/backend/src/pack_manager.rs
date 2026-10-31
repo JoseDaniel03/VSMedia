@@ -181,6 +181,7 @@ pub async fn capabilities()->Json<Value>{
         "split_groups":split::GROUPS,
         "resource_priority":true,
         "resource_choices":true,
+        "font_glyph_analysis":"vspack-font-review-v1",
         "excluded_paths":true,
         "split_preserves_png_mcmeta":true,
         "split_may_have_cross_category_references":true,

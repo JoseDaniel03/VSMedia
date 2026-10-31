@@ -496,6 +496,12 @@ mod tests {
         let report:Value=serde_json::from_slice(&to_bytes(inspection.into_body(),65_536)
             .await.unwrap()).unwrap();
         assert_eq!(report["schema"],"vspack-inspection-v1");
+        let font_report=app.clone().oneshot(request(Method::GET,
+            "/api/v1/packs/fonts/diagnostics",vec![])).await.unwrap();
+        assert_eq!(font_report.status(),StatusCode::OK);
+        let font_report:Value=serde_json::from_slice(
+            &to_bytes(font_report.into_body(),65_536).await.unwrap()).unwrap();
+        assert_eq!(font_report["schema"],"vspack-font-review-v1");
         let source=app.clone().oneshot(request(Method::GET,
             "/api/v1/packs/panel/download",vec![])).await.unwrap();
         assert_eq!(source.status(),StatusCode::OK);

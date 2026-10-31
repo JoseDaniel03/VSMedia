@@ -167,3 +167,26 @@ importación y fusión activos simultáneamente. No se aumenta la
 cuota de fuentes descomprimidas ni se exponen endpoints públicos.
 La publicación en VSEngine y almacenamiento persistente todavía
 requieren sus adaptadores y seguridad propios.
+
+## Análisis preventivo de fuentes
+
+GET /api/v1/packs/fonts/diagnostics devuelve un reporte
+"vspack-font-review-v1" con:
+- total_providers: proveedores declarados en fuentes de todos los packs.
+- shared_codepoints: caracteres Unicode explícitos definidos en más de
+  una fuente del mismo path en packs distintos.
+- sample: hasta 300 ejemplos de Unicode (como U+E000), font y source IDs.
+- opaque_providers: proveedores TTF, unihex, referencias u otros tipos
+  cuyo inventario de glifos no puede determinarse sólo leyendo JSON.
+- warnings/truncated: problemas y límites del diagnóstico.
+
+El detector analiza proveedores bitmap y space con caracteres explícitos.
+No asume que esos glifos causen un error real en Minecraft: identifica
+conflictos potenciales antes de unir CozyUI, Enchant Icons y Redstone Tweaks.
+El motor aún NO concatena automáticamente fuentes con proveedores TTF o
+referencia; se conserva la resolución por prioridad de archivo para evitar
+romper íconos.
+
+El GET de diagnóstico es de solo lectura y no modifica ni exporta
+Resource Packs. La futura web podrá usar estos resultados para ofrecer
+opciones de resolución de glifos.
