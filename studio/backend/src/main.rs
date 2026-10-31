@@ -4,6 +4,7 @@
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 mod live;
 mod packs;
+mod pack_manager;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
 use sha2::{Digest,Sha256};
 use axum::{
@@ -72,6 +73,9 @@ async fn capabilities() -> Json<Value> {
         "vspack_resource_catalog":"vspack-resources-v1",
         "vspack_ui_catalog":true,"vspack_path_overrides":true,
         "vspack_minecraft_delivery":false,
+        "vspack_manager_recipes":"vspack-recipe-v1",
+        "vspack_category_splitting":true,
+        "vspack_profiles_portable_json":true,
         "accepted_formats":["wav","flac","mp3","ogg","webm","opus"]}))
 }
 /// Real read-only integration state. This backend deliberately does not
@@ -325,6 +329,16 @@ fn router(store:Store)->Router {
         .route("/api/v1/live/status",get(live::status))
         .route("/api/v1/streams/integration",get(streams_integration))
         .route("/api/v1/packs",get(packs::list))
+        .route("/api/v1/packs/manager/capabilities",get(pack_manager::capabilities))
+        .route("/api/v1/packs/manager/recipe",get(pack_manager::draft))
+        .route("/api/v1/packs/manager/plan",post(pack_manager::plan)
+            .layer(DefaultBodyLimit::max(64*1024)))
+        .route("/api/v1/packs/manager/export",post(pack_manager::export)
+            .layer(DefaultBodyLimit::max(64*1024)))
+        .route("/api/v1/packs/manager/split/plan",post(pack_manager::split_plan)
+            .layer(DefaultBodyLimit::max(64*1024)))
+        .route("/api/v1/packs/manager/split/export",post(pack_manager::split_export)
+            .layer(DefaultBodyLimit::max(64*1024)))
         .route("/api/v1/packs/preview",get(packs::preview))
         .route("/api/v1/packs/resources",get(packs::resources))
         .route("/api/v1/packs/interfaces",get(packs::interfaces))
