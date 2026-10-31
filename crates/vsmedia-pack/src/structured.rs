@@ -26,6 +26,8 @@ pub fn merge_structured(inputs:&[PackAsset]) -> MediaResult<MergeOutput> {
     for (path, group) in groups {
         let output=if is_sounds(path) && group.len()>1 {
             merge_sounds(path,&group)?
+        } else if is_language(path) {
+            merge_languages(path,&group)?
         } else {
             merge(&group)?
         };
@@ -45,6 +47,111 @@ fn is_sounds(path:&str)->bool {
         && components.next()==Some("sounds.json")
         && components.next().is_none()
 }
+/// Localization files (assets/<namespace>/lang/<locale>.json) are merged by
+/// translation KEY, just as Minecraft combines keys from stacked packs.
+/// Unlike arbitrary JSON, this format has a flat, well-known schema.
+fn is_language(path:&str)->bool{
+    let parts=path.split('/').collect::<Vec<_>>();
+    parts.len()==4 && parts[0]=="assets" && !parts[1].is_empty()
+        && parts[2]=="lang" && parts[3].ends_with(".json")
+}
+/// Normalize JSONC line/block comments without ever stripping URL characters
+/// or // sequences inside quoted strings. Used only for Minecraft lang JSON
+/// files; arbitrary JSON and manifests remain strict JSON.
+fn strip_json_comments(data:&[u8])->MediaResult<Vec<u8>>{
+    let mut out=Vec::with_capacity(data.len());
+    let mut pos=0usize;
+    let mut string=false;
+    let mut escaped=false;
+    while pos<data.len(){
+        let ch=data[pos];
+        if string {
+            out.push(ch);
+            if escaped{escaped=false;}
+            else if ch==b'\\'{escaped=true;}
+            else if ch==b'"'{string=false;}
+            pos+=1;continue;
+        }
+        if ch==b'"'{string=true;out.push(ch);pos+=1;continue;}
+        if ch==b'/'&&pos+1<data.len()&&data[pos+1]==b'/'{
+            pos+=2;
+            while pos<data.len()&&data[pos]!=b'\n'&&data[pos]!=b'\r'{pos+=1;}
+            continue;
+        }
+        if ch==b'/'&&pos+1<data.len()&&data[pos+1]==b'*'{
+            pos+=2;let mut closed=false;
+            while pos+1<data.len(){
+                if data[pos]==b'*'&&data[pos+1]==b'/'{
+                    pos+=2;closed=true;break;
+                }
+                if data[pos]==b'\n'||data[pos]==b'\r'{out.push(data[pos]);}
+                pos+=1;
+            }
+            if !closed{
+                return Err(MediaError::InvalidInput("unterminated lang JSON comment".into()));
+            }
+            out.push(b' ');
+            continue;
+        }
+        out.push(ch);pos+=1;
+    }
+    Ok(out)
+}
+fn merge_languages(path:&str,group:&[PackAsset])->MediaResult<MergeOutput>{
+    let mut entries:BTreeMap<String,Vec<(i32,String,String)>>=BTreeMap::new();
+    for source in group {
+        if source.data.len()>MAX_JSON_BYTES{
+            return Err(MediaError::InvalidInput(format!("language JSON exceeds 2 MiB: {path}")));
+        }
+        let sanitized=strip_json_comments(&source.data)?;
+        let value:Value=serde_json::from_slice(&sanitized)
+            .map_err(|e|MediaError::InvalidInput(format!("invalid lang JSON at {path}: {e}")))?;
+        let root=value.as_object().ok_or_else(||
+            MediaError::InvalidInput(format!("language must be JSON object: {path}")))?;
+        if root.len()>65_536{
+            return Err(MediaError::InvalidInput("too many translation keys".into()));
+        }
+        for (key,value) in root {
+            let translated=value.as_str().ok_or_else(||
+                MediaError::InvalidInput("translations must contain strings".into()))?;
+            if key.is_empty()||key.len()>512{
+                return Err(MediaError::InvalidInput("invalid translation key".into()));
+            }
+            entries.entry(key.clone()).or_default()
+                .push((source.priority,source.source.clone(),translated.into()));
+        }
+        if entries.len()>65_536{
+            return Err(MediaError::InvalidInput("too many merged translation keys".into()));
+        }
+    }
+    let mut document=Map::new();
+    let mut conflicts=Vec::new();
+    for (key,mut candidates) in entries {
+        candidates.sort_by(|a,b|b.0.cmp(&a.0).then_with(||a.1.cmp(&b.1)));
+        let winner=&candidates[0];
+        for other in candidates.iter().skip(1) {
+            if winner.2==other.2{continue;}
+            if winner.0==other.0{
+                return Err(MediaError::Conflict(format!(
+                    "equal-priority translation collision in {path}: {key} ({} vs {})",
+                    winner.1,other.1
+                )));
+            }
+            conflicts.push(PackConflict{
+                path:format!("{path}#{key}"),
+                winner:winner.1.clone(),loser:other.1.clone()
+            });
+        }
+        document.insert(key,Value::String(winner.2.clone()));
+    }
+    let bytes=serde_json::to_vec(&Value::Object(document))
+        .map_err(|e|MediaError::Io(e.to_string()))?;
+    if bytes.len()>MAX_JSON_BYTES{
+        return Err(MediaError::InvalidInput("merged language exceeds size quota".into()));
+    }
+    Ok(MergeOutput {files:BTreeMap::from([(path.into(),bytes)]),conflicts})
+}
+
 fn merge_sounds(path:&str,group:&[PackAsset])->MediaResult<MergeOutput> {
     // Select the best contribution for each event before considering
     // conflicts. Shadowed, lower-priority ties must not break the pack.
@@ -152,6 +259,48 @@ mod tests {
         assert_eq!(one.conflicts,two.conflicts);
         assert_eq!(one.conflicts.len(),2);
         assert!(one.conflicts.iter().all(|c|c.winner=="latest"));
+    }
+    #[test]
+    fn merges_language_keys_and_sanitizes_comments_without_damaging_strings(){
+        let path="assets/demo/lang/en_us.json";
+        let base=PackAsset{source:"cozy".into(),path:path.into(),priority:40,
+            data:br#"{
+              // tooltip and icon text
+              "container.chest":"Chest",
+              "website":"https://example.org/docs//safe",
+              "tooltip":"Click"
+            }"#.to_vec()};
+        let icons=PackAsset{source:"enchant".into(),path:path.into(),priority:50,
+            data:br#"{"enchantment.level.1":"I","container.chest":"Fancy Chest"}"#.to_vec()};
+        let one=merge_structured(&[base.clone(),icons.clone()]).unwrap();
+        let two=merge_structured(&[icons,base]).unwrap();
+        assert_eq!(one.files,two.files);
+        assert_eq!(one.conflicts,two.conflicts);
+        let doc:Value=serde_json::from_slice(&one.files[path]).unwrap();
+        assert_eq!(doc["container.chest"],"Fancy Chest");
+        assert_eq!(doc["website"],"https://example.org/docs//safe");
+        assert_eq!(doc["enchantment.level.1"],"I");
+        assert_eq!(doc["tooltip"],"Click");
+        assert_eq!(one.conflicts.len(),1);
+        assert_eq!(one.conflicts[0].path,format!("{path}#container.chest"));
+    }
+    #[test]
+    fn language_comment_and_priority_safety(){
+        let path="assets/demo/lang/en_us.json";
+        let source=|name:&str,priority:i32,json:&str|PackAsset{
+            source:name.into(),path:path.into(),priority,data:json.as_bytes().to_vec()
+        };
+        let old=source("old",1,r#"{"title":"first"}"#);
+        let middle=source("middle",1,r#"{"title":"other"}"#);
+        let newer=source("new",10,r#"{"title":"latest"}"#);
+        let final_pack=merge_structured(&[old,middle,newer]).unwrap();
+        assert_eq!(final_pack.conflicts.len(),2);
+        assert!(merge_structured(&[
+            source("a",2,r#"{"title":"a"}"#),
+            source("b",2,r#"{"title":"b"}"#)
+        ]).is_err());
+        assert!(merge_structured(&[source("bad",1,"{/*not closed")]).is_err());
+        assert!(merge_structured(&[source("bad",1,r#"{"key":42}"#)]).is_err());
     }
     #[test]
     fn never_deep_merges_unknown_json_paths() {
