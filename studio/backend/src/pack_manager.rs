@@ -260,29 +260,38 @@ pub async fn split_plan(Extension(hub):Extension<PackHub>,
 {
     authorize_origin(&headers)?;
     let recipe=decode(&body)?;
-    let merged=from_recipe(hub,recipe).await?;
-    let report=inspect::inspect(&merged);
-    let category=split::split_categories(&merged).map_err(bad)?;
-    let groups=category.iter().map(|(name,group)|json!({
-        "id":name,"files":group.files.len(),"bytes":group.files.values()
-            .map(Vec::len).sum::<usize>()
-    })).collect::<Vec<_>>();
-    Ok(Json(json!({
-        "schema":"vspack-split-plan-v1","groups":groups,
-        "original_files":merged.files.len(),
-        "dependencies":report,
-        "order":"dependency_review_required",
-        "warning":"Los JSON pueden referenciar recursos de otras categorías; probá los subpacks juntos antes de distribuirlos.",
-        "source_archives_untouched":true
-    })))
+    let merged=from_recipe(hub.clone(),recipe).await?;
+    let permit=hub.2.clone().acquire_owned().await
+        .map_err(|_|bad("Motor de separación cerrado"))?;
+    let value=tokio::task::spawn_blocking(move||{
+        let _permit=permit;
+        let report=inspect::inspect(&merged);
+        let category=split::split_categories(&merged).map_err(bad)?;
+        let groups=category.iter().map(|(name,group)|json!({
+            "id":name,"files":group.files.len(),"bytes":group.files.values()
+                .map(Vec::len).sum::<usize>()
+        })).collect::<Vec<_>>();
+        Ok::<_,ApiError>(json!({
+            "schema":"vspack-split-plan-v1","groups":groups,
+            "original_files":merged.files.len(),
+            "dependencies":report,
+            "order":"dependency_review_required",
+            "warning":"Las referencias entre categorías pueden requerir activar varios subpacks juntos.",
+            "source_archives_untouched":true
+        }))
+    }).await.map_err(|e|bad(format!("Separación interrumpida: {e}")))??;
+    Ok(Json(value))
 }
 pub async fn split_export(Extension(hub):Extension<PackHub>,
     headers:HeaderMap,body:Bytes)->Result<Response,ApiError>
 {
     authorize_origin(&headers)?;
     let recipe=decode(&body)?;
-    let merged=from_recipe(hub,recipe).await?;
+    let merged=from_recipe(hub.clone(),recipe).await?;
+    let permit=hub.2.clone().acquire_owned().await
+        .map_err(|_|bad("Motor ZIP cerrado"))?;
     let bytes=tokio::task::spawn_blocking(move||{
+        let _permit=permit;
         let groups=split::split_categories(&merged).map_err(bad)?;
         let mut zipped=Vec::new();
         let mut manifest=Vec::<Value>::new();

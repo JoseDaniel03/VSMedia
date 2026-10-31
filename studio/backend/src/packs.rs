@@ -148,7 +148,10 @@ pub async fn download_source(
 )->Result<Response,ApiError>{
     let pack=hub.0.lock().await.iter().find(|p|p.id==id).cloned()
         .ok_or_else(||ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()))?;
+    let permit=hub.2.clone().acquire_owned().await
+        .map_err(|_|bad("Motor ZIP cerrado"))?;
     let zipped=tokio::task::spawn_blocking(move||{
+        let _permit=permit;
         let files=pack.files.iter().map(|file|
             (file.path.clone(),file.data.clone())
         ).collect::<BTreeMap<String,Vec<u8>>>();
@@ -598,7 +601,10 @@ pub async fn export_layers(
         return Err(bad("Cada overlay admite entre 1 y 8 prefijos"));
     }
     let merged=composed(&hub).await?;
+    let permit=hub.2.clone().acquire_owned().await
+        .map_err(|_|bad("Motor ZIP cerrado"))?;
     let result=tokio::task::spawn_blocking(move||{
+        let _permit=permit;
         use std::io::{Cursor,Write};
         use sha1::Digest;
         use zip::{ZipWriter,write::SimpleFileOptions,CompressionMethod};
