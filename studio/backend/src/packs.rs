@@ -20,29 +20,32 @@ const MAX_ZIP_BYTES:usize=96*1024*1024;
 const MAX_RAM_BYTES:usize=384*1024*1024;
 const MAX_PACKS:usize=24;
 const MAX_PREVIEW_CONFLICTS:usize=200;
-fn limits()->ArchiveLimits {
+pub(crate) fn limits()->ArchiveLimits {
     ArchiveLimits {max_files:12000,max_total_bytes:192*1024*1024,
         max_single_file_bytes:32*1024*1024}
 }
 /// Source packs plus explicit per-resource choices. Both are ephemeral.
 #[derive(Clone,Default)]
-pub struct PackHub(Arc<Mutex<Vec<LoadedPack>>>,Arc<Mutex<BTreeMap<String,String>>>);
+pub struct PackHub(pub(crate) Arc<Mutex<Vec<LoadedPack>>>,pub(crate) Arc<Mutex<BTreeMap<String,String>>>);
 #[derive(Clone)]
-struct LoadedPack {
-    id:String,
+pub(crate) struct LoadedPack {
+    pub(crate) id:String,
     name:String,
-    priority:i32,
-    files:Arc<Vec<PackAsset>>,
+    pub(crate) priority:i32,
+    pub(crate) files:Arc<Vec<PackAsset>>,
     bytes:usize,
+    pub(crate) fingerprint:String,
 }
 #[derive(Serialize,Debug)]
 pub struct PackInfo {
-    id:String,name:String,priority:i32,files:usize,bytes:usize
+    id:String,name:String,priority:i32,files:usize,bytes:usize,
+    fingerprint:String
 }
 impl From<&LoadedPack> for PackInfo {
     fn from(pack:&LoadedPack)->Self{
         Self {id:pack.id.clone(),name:pack.name.clone(),
-            priority:pack.priority,files:pack.files.len(),bytes:pack.bytes}
+            priority:pack.priority,files:pack.files.len(),bytes:pack.bytes,
+            fingerprint:pack.fingerprint.clone()}
     }
 }
 fn valid_id(id:&str)->bool{
@@ -91,6 +94,9 @@ pub async fn import(
         }
         if saved.len()>=MAX_PACKS {return Err(bad("Máximo 24 packs por sesión"));}
     }
+    // The original ZIP hash remains stable when a saved recipe is reloaded
+    // with the exact same archive, even when the UI generates another source ID.
+    let fingerprint=format!("{:x}",Sha256::digest(&bytes));
     let source_id=id.clone();
     let imported=tokio::task::spawn_blocking(move||
         archive::import_zip(&bytes,&source_id,0,limits())
@@ -109,7 +115,8 @@ pub async fn import(
             "El límite de 24 packs / 384 MiB de datos descomprimidos fue alcanzado".into()));
     }
     let next_priority=(saved.len() as i32)*10;
-    let pack=LoadedPack{id,name:label,priority:next_priority,files:Arc::new(imported),bytes:used};
+    let pack=LoadedPack{id,name:label,priority:next_priority,files:Arc::new(imported),
+        bytes:used,fingerprint};
     let out=PackInfo::from(&pack);
     saved.push(pack);
     Ok(Json(out))
