@@ -126,3 +126,44 @@ fuente ganadora por archivo y de las rutas/candidatos para facilitar
 una estrategia específica de fusión de fuentes cuando se integre.
 Las licencias de terceros deben respetarse antes de redistribuir
 packs fusionados desde el servidor.
+
+## Diagnósticos de dependencias del pack unificado
+
+La API local GET /api/v1/packs/diagnostics devuelve un informe
+versionado "vspack-inspection-v1" con referencias conocidas en
+modelos y proveedores bitmap de fuentes, archivos .png.mcmeta
+sin textura, y referencias cruzadas entre grupos del separador.
+
+POST /api/v1/packs/manager/plan incluye un campo inspection
+sin cambiar los campos anteriores de la respuesta. El endpoint
+POST /api/v1/packs/manager/split/plan incluye dependencies y sus
+ejemplos de enlaces entre categorías que podrían requerir activar
+varios subpacks juntos. Los informes están acotados a 300 avisos y
+40.000 referencias; "truncated" identifica límites alcanzados.
+
+Las referencias ausentes son avisos informativos, NO errores de
+compilación: una textura/modelo puede ser suministrado por Minecraft
+Vanilla u otro mod que no figure en el ZIP.
+
+## Selección conjunta para tooltip y animaciones
+
+POST /api/v1/packs/merge/texture-bundle
+Content-Type: application/json
+
+{"path":"assets/minecraft/textures/gui/sprites/tooltip/background.png",
+ "source_id":"mandala"}
+
+La operación elige simultáneamente una textura PNG y su fichero
+PNG.mcmeta de la misma fuente, cuando existe. Si el pack no aporta
+metadata de animación, se revoca la elección manual previa de ese
+fichero y se informa needs_metadata_review=true. Esto evita que
+un selector visual deje una animación elegida de otro pack.
+La operación NO combina píxeles automáticamente.
+
+## Control de tareas intensivas
+
+Un Semaphore compartido limita a dos los trabajos de CPU de
+importación y fusión activos simultáneamente. No se aumenta la
+cuota de fuentes descomprimidas ni se exponen endpoints públicos.
+La publicación en VSEngine y almacenamiento persistente todavía
+requieren sus adaptadores y seguridad propios.

@@ -143,3 +143,5 @@ y preservación de eventos distintos de sounds.json.
 La futura web puede conectarse a esta API mediante un bridge autenticado
 cuando se implemente. Hasta recibir ese frontend, el gestor actual de
 FullCanvas permite resolver conflictos con selectores de fuente.
+
+La nueva ruta POST /api/v1/packs/merge/texture-bundle selecciona un PNG y, si está presente, su .png.mcmeta del mismo source_id. GET /api/v1/packs/diagnostics informa dependencias y metadata huérfana.

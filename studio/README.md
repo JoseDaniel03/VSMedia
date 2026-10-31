@@ -100,3 +100,5 @@ idiomas y otros). Se preservan sidecars PNG.mcmeta.
 La persistencia de fuentes en CAS, el proxy autenticado y la instalación
 automática en VSClient se conectarán posteriormente. No se ha integrado
 una página nueva ni se ha publicado un Resource Pack a Minecraft.
+
+VSPack también prepara un inspector de referencias y la selección conjunta de PNG/.png.mcmeta para tooltips y animaciones. Véase docs/VSPACK-MANAGER-API.md.
