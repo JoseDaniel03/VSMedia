@@ -424,6 +424,76 @@ mod tests {
             .body(Body::from(body)).unwrap()
     }
     #[tokio::test]
+    async fn vspack_saved_project_roundtrip_survives_restart_and_checks_revisions(){
+        let (db,dir)=store();
+        let project_dir=dir.join("vspack-projects");
+        let app=router_with_projects(db.clone(),project_dir.clone());
+        let recipe=json!({
+            "schema":"vspack-recipe-v1",
+            "name":"Virgoland Tooltips",
+            "sources":[{"fingerprint":"a".repeat(64),"enabled":true,"priority":30}],
+            "choices":{},"exclude":[]
+        });
+        let uri="/api/v1/packs/manager/projects/virgoland-ui";
+        let saved=app.clone().oneshot(request(Method::POST,uri,
+            serde_json::to_vec(&json!({"recipe":recipe})).unwrap()))
+            .await.unwrap();
+        assert_eq!(saved.status(),StatusCode::OK);
+        let saved:Value=serde_json::from_slice(
+            &to_bytes(saved.into_body(),1024*1024).await.unwrap()).unwrap();
+        let original_revision=saved["revision"].as_str().unwrap().to_owned();
+        assert_eq!(original_revision.len(),64);
+        let listed=app.clone().oneshot(request(Method::GET,
+            "/api/v1/packs/manager/projects",vec![])).await.unwrap();
+        let listed:Value=serde_json::from_slice(
+            &to_bytes(listed.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(listed["projects"].as_array().unwrap().len(),1);
+        drop(app);
+        // Rebuild the service with a fresh ProjectHub pointing to the same dir.
+        let restarted=router_with_projects(db.clone(),project_dir);
+        let loaded=restarted.clone().oneshot(request(Method::GET,uri,vec![]))
+            .await.unwrap();
+        assert_eq!(loaded.status(),StatusCode::OK);
+        let loaded:Value=serde_json::from_slice(
+            &to_bytes(loaded.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(loaded["recipe"]["name"],"Virgoland Tooltips");
+        assert_eq!(loaded["missing_sources"].as_array().unwrap().len(),1);
+        assert_eq!(loaded["source_zips_persisted"],false);
+        let stale=restarted.clone().oneshot(request(Method::POST,uri,
+            serde_json::to_vec(&json!({"recipe":recipe})).unwrap()))
+            .await.unwrap();
+        assert_eq!(stale.status(),StatusCode::CONFLICT);
+        let mut modified=recipe.clone();
+        modified["name"]=json!("Virgoland Cozy + Mandala");
+        let update=restarted.clone().oneshot(request(Method::POST,uri,
+            serde_json::to_vec(&json!({"recipe":modified,
+                "expected_revision":original_revision})).unwrap()))
+            .await.unwrap();
+        assert_eq!(update.status(),StatusCode::OK);
+        let updated:Value=serde_json::from_slice(
+            &to_bytes(update.into_body(),1024*1024).await.unwrap()).unwrap();
+        let new_revision=updated["revision"].as_str().unwrap();
+        assert_ne!(new_revision,original_revision);
+        let stale_delete=restarted.clone().oneshot(request(Method::DELETE,
+            &format!("{uri}?revision={original_revision}"),vec![]))
+            .await.unwrap();
+        assert_eq!(stale_delete.status(),StatusCode::CONFLICT);
+        let deleted=restarted.clone().oneshot(request(Method::DELETE,
+            &format!("{uri}?revision={new_revision}"),vec![]))
+            .await.unwrap();
+        assert_eq!(deleted.status(),StatusCode::OK);
+        let missing=restarted.clone().oneshot(request(Method::GET,uri,vec![]))
+            .await.unwrap();
+        assert_eq!(missing.status(),StatusCode::NOT_FOUND);
+        let caps=restarted.clone().oneshot(request(Method::GET,
+            "/api/v1/packs/manager/capabilities",vec![])).await.unwrap();
+        let caps:Value=serde_json::from_slice(
+            &to_bytes(caps.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(caps["profiles_persisted_on_server"],true);
+        drop(restarted);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn vspack_accepts_zip_over_16mib_using_route_specific_import_limit(){
         use std::collections::BTreeMap;
         use vsmedia_pack::{MergeOutput,archive::{export_zip,ArchiveLimits}};
