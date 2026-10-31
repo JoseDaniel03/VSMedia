@@ -318,6 +318,125 @@ pub async fn split_export(Extension(hub):Extension<PackHub>,
 mod tests {
     use super::*;
     use crate::packs;
+    use axum::{extract::Path,body::to_bytes,http::{HeaderValue,header}};
+    use vsmedia_pack::archive::{export_zip,import_zip};
+    use std::io::Read;
+
+    fn fixture(files:&[(&str,&[u8])])->Vec<u8>{
+        let mut entries=BTreeMap::from([(
+            "pack.mcmeta".to_string(),
+            br#"{"pack":{"description":"Virgoland","pack_format":97}}"#.to_vec()
+        )]);
+        for (name,data) in files{entries.insert((*name).into(),data.to_vec());}
+        export_zip(&MergeOutput{files:entries,conflicts:vec![]},limits()).unwrap()
+    }
+    fn headers()->HeaderMap{
+        let mut headers=HeaderMap::new();
+        headers.insert(header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:3060"));
+        headers
+    }
+    #[tokio::test]
+    async fn recipe_roundtrip_resolves_priority_and_preserves_source_packs(){
+        let hub=PackHub::default();
+        let icon="assets/virgoland/textures/gui/tooltip.png";
+        let animation="assets/virgoland/textures/gui/tooltip.png.mcmeta";
+        let first=fixture(&[
+            (icon,b"old"),(animation,b"metadata"),
+            ("assets/virgoland/textures/item/sword.png",b"sword")
+        ]);
+        let second=fixture(&[(icon,b"new")]);
+        packs::import(Extension(hub.clone()),Path("first".into()),
+            headers(),Bytes::from(first)).await.unwrap();
+        packs::import(Extension(hub.clone()),Path("second".into()),
+            headers(),Bytes::from(second)).await.unwrap();
+
+        let mut recipe:PackRecipe=serde_json::from_value(
+            draft(Extension(hub.clone())).await.0).unwrap();
+        assert_eq!(recipe.sources.len(),2);
+        assert_eq!(recipe.schema,SCHEMA);
+        assert!(recipe.sources.iter().all(|p|is_hash(&p.fingerprint)));
+        let preview=plan(Extension(hub.clone()),headers(),
+            Bytes::from(serde_json::to_vec(&recipe).unwrap())).await.unwrap().0;
+        assert_eq!(preview["files"],4);
+        assert_eq!(preview["groups"]["interface"],2);
+        assert_eq!(preview["groups"]["items"],1);
+
+        let second_fingerprint=hub.0.lock().await.iter()
+            .find(|p|p.id=="second").unwrap().fingerprint.clone();
+        // Explicitly choose the lower priority source for a *single* texture.
+        let first_fingerprint=hub.0.lock().await.iter()
+            .find(|p|p.id=="first").unwrap().fingerprint.clone();
+        recipe.choices.insert(icon.into(),first_fingerprint);
+        let rendered=export(Extension(hub.clone()),headers(),
+            Bytes::from(serde_json::to_vec(&recipe).unwrap())).await.unwrap();
+        let bytes=to_bytes(rendered.into_body(),32*1024*1024).await.unwrap();
+        let entries=import_zip(&bytes,"merged",0,limits()).unwrap();
+        assert_eq!(entries.iter().find(|p|p.path==icon).unwrap().data,b"old");
+        assert!(entries.iter().any(|p|p.path==animation));
+        assert_eq!(hub.0.lock().await.len(),2);
+
+        // One portable recipe can be used even when the UI re-imports with
+        // different ephemeral IDs; exact source ZIP SHA-256 is stable.
+        let index=recipe.sources.iter().position(|p|
+            p.fingerprint==second_fingerprint).unwrap();
+        recipe.sources[index].enabled=false;
+        recipe.choices.clear();
+        let before=plan(Extension(hub.clone()),headers(),
+            Bytes::from(serde_json::to_vec(&recipe).unwrap())).await.unwrap().0;
+        assert_eq!(before["conflicts"],0);
+
+        recipe.exclude.push(animation.into());
+        let selection=plan(Extension(hub.clone()),headers(),
+            Bytes::from(serde_json::to_vec(&recipe).unwrap())).await.unwrap().0;
+        assert_eq!(selection["files"],3);
+        recipe.exclude=vec!["pack.mcmeta".into()];
+        assert!(plan(Extension(hub.clone()),headers(),
+            Bytes::from(serde_json::to_vec(&recipe).unwrap())).await.is_err());
+        recipe.exclude.clear();
+        recipe.schema="future-recipe-v2".into();
+        assert!(plan(Extension(hub.clone()),headers(),
+            Bytes::from(serde_json::to_vec(&recipe).unwrap())).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn category_split_exports_individual_packs_and_manifest(){
+        let hub=PackHub::default();
+        let source=fixture(&[
+            ("assets/virgoland/textures/gui/tooltip.png",b"png"),
+            ("assets/virgoland/textures/gui/tooltip.png.mcmeta",b"sidecar"),
+            ("assets/virgoland/font/default.json",br#"{"providers":[]}"#),
+            ("assets/virgoland/sounds/click.ogg",b"sound"),
+            ("assets/virgoland/textures/item/sword.png",b"item")
+        ]);
+        packs::import(Extension(hub.clone()),Path("source".into()),
+            headers(),Bytes::from(source)).await.unwrap();
+        let recipe=draft(Extension(hub.clone())).await.0;
+        let body=Bytes::from(serde_json::to_vec(&recipe).unwrap());
+        let report=split_plan(Extension(hub.clone()),headers(),body.clone())
+            .await.unwrap().0;
+        assert_eq!(report["groups"].as_array().unwrap().len(),3);
+        let bundle=split_export(Extension(hub.clone()),headers(),body)
+            .await.unwrap();
+        let bytes=to_bytes(bundle.into_body(),32*1024*1024).await.unwrap();
+        let mut outer=zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        assert_eq!(outer.len(),4);
+        let mut data=Vec::new();
+        outer.by_name("packs/interface.zip").unwrap()
+            .read_to_end(&mut data).unwrap();
+        let entries=import_zip(&data,"ui",0,limits()).unwrap();
+        assert!(entries.iter().any(|p|p.path=="assets/virgoland/textures/gui/tooltip.png"));
+        assert!(entries.iter().any(|p|p.path=="assets/virgoland/textures/gui/tooltip.png.mcmeta"));
+        assert!(!entries.iter().any(|p|p.path=="assets/virgoland/sounds/click.ogg"));
+        assert!(entries.iter().any(|p|p.path=="pack.mcmeta"));
+        let mut manifest=String::new();
+        outer.by_name("manifest.json").unwrap()
+            .read_to_string(&mut manifest).unwrap();
+        let manifest:Value=serde_json::from_str(&manifest).unwrap();
+        assert_eq!(manifest["schema"],"vspack-category-bundle-v1");
+        assert_eq!(manifest["packs"].as_array().unwrap().len(),3);
+    }
+
     #[test]
     fn recipe_schema_and_hash_validation(){
         assert!(is_hash(&"a".repeat(64)));
