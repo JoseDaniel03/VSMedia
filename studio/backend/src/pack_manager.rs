@@ -236,7 +236,7 @@ pub async fn export(Extension(hub):Extension<PackHub>,
 {
     authorize_origin(&headers)?;
     let recipe=decode(&body)?;
-    let merged=from_recipe(hub,recipe).await?;
+    let merged=from_recipe(hub.clone(),recipe).await?;
     let permit=hub.2.clone().acquire_owned().await
         .map_err(|_|bad("Motor ZIP cerrado"))?;
     let bytes=tokio::task::spawn_blocking(move||{
