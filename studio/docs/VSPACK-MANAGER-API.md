@@ -199,10 +199,10 @@ originales **no se guardan todavía**: es necesario reimportarlos después
 de reiniciar, y la recuperación muestra las huellas SHA-256 que faltan.
 
 La ubicación predeterminada es:
-\`./.vsmedia-data/vspack-projects/\`
+`./.vsmedia-data/vspack-projects/`
 
-Si se define la variable \`VSMEDIA_DATA_DIR\`, se usa:
-\`$VSMEDIA_DATA_DIR/vspack-projects/\`
+Si se define la variable `VSMEDIA_DATA_DIR`, se usa:
+`$VSMEDIA_DATA_DIR/vspack-projects/`
 
 No se aceptan IDs con rutas, barras ni puntos; sólo letras minúsculas,
 números, guiones y guiones bajos (máximo 48 caracteres).
@@ -212,28 +212,28 @@ enlaces simbólicos y los documentos guardados se validan al volver a leer.
 
 | Método | Endpoint | Función |
 |---|---|---|
-| GET | \`/api/v1/packs/manager/projects\` | Lista proyectos guardados con fecha y revisión |
-| GET | \`/api/v1/packs/manager/projects/{id}\` | Receta, revisión y \`missing_sources\` |
-| POST | \`/api/v1/packs/manager/projects/{id}\` | Crear o modificar un proyecto |
-| DELETE | \`/api/v1/packs/manager/projects/{id}?revision=...\` | Eliminar si la revisión coincide |
+| GET | `/api/v1/packs/manager/projects` | Lista proyectos guardados con fecha y revisión |
+| GET | `/api/v1/packs/manager/projects/{id}` | Receta, revisión y `missing_sources` |
+| POST | `/api/v1/packs/manager/projects/{id}` | Crear o modificar un proyecto |
+| DELETE | `/api/v1/packs/manager/projects/{id}?revision=...` | Eliminar si la revisión coincide |
 
 Crear un proyecto:
 
-\`\`\`http
+```http
 POST /api/v1/packs/manager/projects/virgoland-ui
 Content-Type: application/json
 
 {"recipe":{"schema":"vspack-recipe-v1","name":"Virgoland UI",
 "sources":[{"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 "enabled":true,"priority":20}],"choices":{},"exclude":[]}}
-\`\`\`
+```
 
-Al crear, \`expected_revision\` debe omitirse o ser \`null\`.
-La respuesta devuelve un \`revision\` SHA-256. Para actualizar se envía
-el mismo JSON con \`expected_revision\` igual a la revisión leída; si
+Al crear, `expected_revision` debe omitirse o ser `null`.
+La respuesta devuelve un `revision` SHA-256. Para actualizar se envía
+el mismo JSON con `expected_revision` igual a la revisión leída; si
 otra pestaña cambió el proyecto, el servidor devuelve HTTP **409**
 en lugar de sobrescribirlo. El borrado también requiere la revisión
-en el parámetro \`revision\`.
+en el parámetro `revision`.
 
 Guardar o recuperar un proyecto no ejecuta automáticamente una fusión
 ni modifica packs importados. La web futura deberá mostrar la lista de
@@ -241,9 +241,9 @@ fuentes faltantes y permitir reimportarlas.
 
 ### Hashes de los ZIP compilados
 
-Las exportaciones del manager (\`/manager/export\` y
-\`/manager/split/export\`) incluyen \`ETag\`, \`X-VSPack-SHA1\` y
-\`X-VSPack-SHA256\`. Son hashes de los **bytes del ZIP exportado**,
+Las exportaciones del manager (`/manager/export` y
+`/manager/split/export`) incluyen `ETag`, `X-VSPack-SHA1` y
+`X-VSPack-SHA256`. Son hashes de los **bytes del ZIP exportado**,
 no de los ZIP originales utilizados por la receta. Se exponen mediante
 CORS al Studio local para facilitar comprobaciones de integridad y
 futuras políticas de caché, aunque no se está publicando contenido en

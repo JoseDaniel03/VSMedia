@@ -106,8 +106,8 @@ VSPack también prepara un inspector de referencias y la selección conjunta de 
 ## Guardar proyectos de VSPack
 
 Las recetas de fusión se guardan ahora en
-\`VSMEDIA_DATA_DIR/vspack-projects/\` (por defecto,
-\`./.vsmedia-data/vspack-projects/\`). Es un almacenamiento local
+`VSMEDIA_DATA_DIR/vspack-projects/` (por defecto,
+`./.vsmedia-data/vspack-projects/`). Es un almacenamiento local
 duradero que permite recuperar los perfiles al reiniciar el backend,
 con revisión para evitar sobrescrituras accidentales. Las fuentes ZIP
 siguen siendo efímeras y hay que reimportarlas al recuperar una receta.
