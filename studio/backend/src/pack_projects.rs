@@ -144,7 +144,8 @@ impl ProjectHub {
         let mut count=0usize;
         for item in iter {
             let item=item.map_err(|e|fs_error("listar",e))?;
-            if let Some(id)=item.file_name().to_str()
+            let name=item.file_name();
+            if let Some(id)=name.to_str()
                 .and_then(|name|name.strip_suffix(".json")){
                 if valid_id(id){
                     count+=1;
@@ -167,7 +168,8 @@ impl ProjectHub {
         let mut ids=Vec::new();
         for item in iter {
             let item=item.map_err(|e|fs_error("listar",e))?;
-            if let Some(id)=item.file_name().to_str()
+            let name=item.file_name();
+            if let Some(id)=name.to_str()
                 .and_then(|name|name.strip_suffix(".json")){
                 if valid_id(id){ids.push(id.to_owned());}
             }

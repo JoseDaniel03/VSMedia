@@ -5,6 +5,7 @@ use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 mod live;
 mod packs;
 mod pack_manager;
+mod pack_projects;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
 use sha2::{Digest,Sha256};
 use axum::{
@@ -79,6 +80,8 @@ async fn capabilities() -> Json<Value> {
         "vspack_font_glyph_diagnostics":"vspack-font-review-v1",
         "vspack_category_splitting":true,
         "vspack_profiles_portable_json":true,
+        "vspack_saved_recipes_local":true,
+        "vspack_zip_sources_persisted":false,
         "accepted_formats":["wav","flac","mp3","ogg","webm","opus"]}))
 }
 /// Real read-only integration state. This backend deliberately does not
@@ -315,6 +318,12 @@ async fn unsupported() -> impl IntoResponse {
 }
 
 fn router(store:Store)->Router {
+    let folder=std::env::var_os("VSMEDIA_DATA_DIR")
+        .map(PathBuf::from).unwrap_or_else(||PathBuf::from("./.vsmedia-data"));
+    router_with_projects(store,folder.join("vspack-projects"))
+}
+fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
+    let projects=pack_projects::ProjectHub::new(project_dir);
     let hub=live::LiveHub::default();
     let pack_hub=packs::PackHub::default();
     let cors=CorsLayer::new()
@@ -334,6 +343,10 @@ fn router(store:Store)->Router {
         .route("/api/v1/packs",get(packs::list))
         .route("/api/v1/packs/manager/capabilities",get(pack_manager::capabilities))
         .route("/api/v1/packs/manager/recipe",get(pack_manager::draft))
+        .route("/api/v1/packs/manager/projects",get(pack_projects::list))
+        .route("/api/v1/packs/manager/projects/{id}",get(pack_projects::get)
+            .post(pack_projects::save).delete(pack_projects::delete)
+            .layer(DefaultBodyLimit::max(1024*1024)))
         .route("/api/v1/packs/manager/plan",post(pack_manager::plan)
             .layer(DefaultBodyLimit::max(1024*1024)))
         .route("/api/v1/packs/manager/export",post(pack_manager::export)
@@ -374,6 +387,7 @@ fn router(store:Store)->Router {
         .layer(cors)
         .layer(axum::Extension(hub))
         .layer(axum::Extension(pack_hub))
+        .layer(axum::Extension(projects))
         .with_state(store)
 }
 #[tokio::main]
