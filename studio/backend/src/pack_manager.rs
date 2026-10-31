@@ -266,11 +266,11 @@ pub async fn split_export(Extension(hub):Extension<PackHub>,
     let recipe=decode(&body)?;
     let merged=from_recipe(hub,recipe).await?;
     let bytes=tokio::task::spawn_blocking(move||{
-        let groups=split::split_categories(&merged)?;
+        let groups=split::split_categories(&merged).map_err(bad)?;
         let mut zipped=Vec::new();
         let mut manifest=Vec::<Value>::new();
         for (name,pack) in groups {
-            let bytes=archive::export_zip(&pack,limits())?;
+            let bytes=archive::export_zip(&pack,limits()).map_err(bad)?;
             let fingerprint=format!("{:x}",Sha256::digest(&bytes));
             manifest.push(json!({
                 "name":name,
