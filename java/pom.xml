@@ -9,6 +9,7 @@
     <module>vsmedia-api</module>
     <module>vsmedia-bridge</module>
     <module>vsmedia-folia-adapter</module>
+    <module>vsmedia-folia-plugin</module>
   </modules>
   <properties>
     <maven.compiler.release>21</maven.compiler.release>

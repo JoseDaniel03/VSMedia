@@ -1,0 +1,17 @@
+name: VSMedia
+version: '0.1.0-test'
+main: io.virgoland.vsmedia.plugin.VSMediaPlugin
+api-version: '26.3'
+folia-supported: true
+description: 'VSMedia 26.3 - Folia resource pack delivery test bootstrap'
+authors: [Virgoland]
+website: https://github.com/JoseDaniel03/VSMedia
+commands:
+  vsmedia:
+    description: 'Check VSMedia status, reload its config or offer a configured pack'
+    usage: '/vsmedia <status|reload|send [player]>'
+    permission: vsmedia.admin
+permissions:
+  vsmedia.admin:
+    description: 'Manage the VSMedia test plugin and offer resource packs'
+    default: op

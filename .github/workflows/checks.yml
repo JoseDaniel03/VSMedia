@@ -20,8 +20,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-      # Test/compile only; no package, release or artifact upload until completion.
-      - run: mvn -B -f java/pom.xml test
+      - run: mvn -B -f java/pom.xml verify
+      - name: Verify installable Paper/Folia JAR
+        run: |
+          test -s java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar
+          unzip -p java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar plugin.yml | grep -F "folia-supported: true"
+          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F "io/virgoland/vsmedia/plugin/VSMediaPlugin.class"
+          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F "io/virgoland/vsmedia/folia/FoliaResourcePackController.class"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VSMedia-Folia-26.3-Test-JAR
+          path: java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 14
   studio-backend:
     runs-on: ubuntu-latest
     steps:
