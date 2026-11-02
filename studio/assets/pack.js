@@ -2,9 +2,7 @@
  * Never inject source-controlled names, ZIP paths or labels as HTML. */
 (() => {
 "use strict";
-const API=(location.host==="127.0.0.1:3060"||location.host==="localhost:3060")
-  ?"http://127.0.0.1:3061/api/v1/packs"
-  :"/api/v1/packs";
+const API="http://127.0.0.1:3061/api/v1/packs";
 const mounted=new Map();
 function size(n){return n>=1048576?(n/1048576).toFixed(1)+" MiB":n>=1024?(n/1024).toFixed(1)+" KiB":n+" B";}
 function el(tag,cls,value){

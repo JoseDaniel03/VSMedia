@@ -4,7 +4,6 @@ import io.virgoland.vsmedia.api.ResourcePackDelivery;
 import io.virgoland.vsmedia.api.ResourcePackSessionCoordinator;
 import io.virgoland.vsmedia.folia.FoliaResourcePackController;
 import java.net.URI;
-import java.io.IOException;
 import java.util.Objects;
 import java.util.UUID;
 import org.bukkit.Bukkit;
@@ -28,15 +27,11 @@ public final class VSMediaPlugin extends JavaPlugin {
     private FoliaResourcePackController controller;
     private ResourcePackDelivery active;
     private boolean required;
-    private StudioWebServer studioWeb;
-    private StudioCoreProcess studioCore;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         loadConfiguredPack();
-        startStudioCore();
-        startStudioWeb();
         PluginCommand command = Objects.requireNonNull(getCommand("vsmedia"),
                 "The VSMedia plugin.yml does not declare /vsmedia");
         command.setExecutor(this::command);
@@ -46,41 +41,6 @@ public final class VSMediaPlugin extends JavaPlugin {
                 : "Ready to offer pack '" + active.logicalId() + "' to joining players.");
     }
 
-    private void startStudioCore() {
-        studioCore=new StudioCoreProcess(getLogger());
-        if (getConfig().getBoolean("studio-core.autostart",true)) {
-            studioCore.start(getDataFolder().toPath());
-        } else {
-            getLogger().info("Auto-start of bundled VSCore is disabled.");
-        }
-    }
-    private void stopStudioCore() {
-        if (studioCore != null) {
-            studioCore.close();
-            studioCore=null;
-        }
-    }
-    private void startStudioWeb() {
-        if (!getConfig().getBoolean("studio-web.enabled", true)) {
-            getLogger().info("Home/Audio Studio web is disabled in config.yml");
-            return;
-        }
-        int port=getConfig().getInt("studio-web.port", 3070);
-        try {
-            studioWeb=new StudioWebServer(port,getLogger());
-            studioWeb.start();
-        } catch (IOException | RuntimeException error) {
-            studioWeb=null;
-            getLogger().severe("Unable to open the packaged Studio web: "
-                    + error.getMessage());
-        }
-    }
-    private void stopStudioWeb() {
-        if (studioWeb != null) {
-            studioWeb.close();
-            studioWeb=null;
-        }
-    }
     private void loadConfiguredPack() {
         if (controller != null) {
             HandlerList.unregisterAll(controller);
@@ -127,25 +87,12 @@ public final class VSMediaPlugin extends JavaPlugin {
                         + (active == null ? "NO" : active.logicalId()));
                 sender.sendMessage(ChatColor.GRAY + "Ofertas rastreadas: "
                         + controller.coordinator().sessionCount());
-                sender.sendMessage(ChatColor.GOLD + "Home / Audio Studio: "
-                        + (studioWeb == null ? "OFFLINE" : studioWeb.url()));
-                sender.sendMessage(ChatColor.YELLOW + "VSCore audio Rust: "
-                        + (studioCore != null && studioCore.isRunning()
-                            ? "activo" : "inactivo (revisar vsmedia-core.log)"));
-            }
-            case "web" -> {
-                sender.sendMessage(ChatColor.GOLD + "VSMedia Studio: "
-                        + (studioWeb == null ? "OFFLINE" : studioWeb.url()));
-                sender.sendMessage(ChatColor.GRAY
-                        + "Acceso remoto: tunel SSH recomendado, no abrir el puerto publicamente.");
+                sender.sendMessage(ChatColor.YELLOW
+                        + "Editor VSPack: proceso Rust/web separado, no incluido en este JAR.");
             }
             case "reload" -> {
                 reloadConfig();
                 loadConfiguredPack();
-                stopStudioWeb();
-                stopStudioCore();
-                startStudioCore();
-                startStudioWeb();
                 sender.sendMessage(ChatColor.GREEN + "Configuracion VSMedia recargada. Pack: "
                         + (active == null ? "desactivado/invalido" : active.logicalId()));
             }
@@ -173,15 +120,13 @@ public final class VSMediaPlugin extends JavaPlugin {
                 sender.sendMessage(ChatColor.GREEN + "Oferta programada para " + target.getName());
             }
             default -> sender.sendMessage(ChatColor.YELLOW
-                    + "Uso: /vsmedia <status|web|reload|send [jugador]>");
+                    + "Uso: /vsmedia <status|reload|send [jugador]>");
         }
         return true;
     }
 
     @Override
     public void onDisable() {
-        stopStudioWeb();
-        stopStudioCore();
         if (controller != null) {
             HandlerList.unregisterAll(controller);
             controller.close();
