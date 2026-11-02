@@ -71,7 +71,8 @@ Axum, `cargo check` de Leptos wasm32, pruebas del editor y `node --check`
 sobre el cliente WebRTC, además del módulo Java. Las conexiones y dispositivos
 de audio requieren también **pruebas manuales en navegadores reales**.
 
-Sin empaquetado de JAR/ZIP/release durante el desarrollo.
+La pipeline genera un JAR de **prueba** con el frontend original compilado y, para Linux x86_64, el backend Rust. No es una release de producción ni se ha probado en un servidor Minecraft real.
+Ver [Instalación del JAR con Home y Audio Studio](docs/JAR-HOME-AUDIO.md).
 
 ## Backend para la futura web de interfaces
 
@@ -114,3 +115,7 @@ siguen siendo efímeras y hay que reimportarlas al recuperar una receta.
 La exportación del gestor incluye SHA-1, SHA-256 y ETag para
 comprobar la integridad. Más detalles:
 [VSPACK-MANAGER-API.md](docs/VSPACK-MANAGER-API.md).
+
+## Integración del Home y Audio Studio en VSMedia.jar
+
+El código de Home, VSAudio y VSMix sigue en `studio/src/app.rs`: la compilación de Trunk genera el mismo WebAssembly/CSS/JS que usa la web independiente. El módulo Maven `vsmedia-folia-plugin` empaqueta esta distribución dentro del JAR, junto a un binario Rust/Axum para Linux x86_64. El servidor HTTP del plugin escucha sólo en `127.0.0.1:3070` y reenvía `/api/v1` a VSCore en `127.0.0.1:3061`. No se han portado los editores a Java ni se ha reemplazado su diseño. VSPack se integrará cuando llegue su nueva página.
