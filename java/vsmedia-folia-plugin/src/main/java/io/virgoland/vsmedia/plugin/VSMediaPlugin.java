@@ -4,6 +4,7 @@ import io.virgoland.vsmedia.api.ResourcePackDelivery;
 import io.virgoland.vsmedia.api.ResourcePackSessionCoordinator;
 import io.virgoland.vsmedia.folia.FoliaResourcePackController;
 import java.net.URI;
+import java.io.IOException;
 import java.util.Objects;
 import java.util.UUID;
 import org.bukkit.Bukkit;
@@ -27,11 +28,13 @@ public final class VSMediaPlugin extends JavaPlugin {
     private FoliaResourcePackController controller;
     private ResourcePackDelivery active;
     private boolean required;
+    private StudioWebServer studioWeb;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         loadConfiguredPack();
+        startStudioWeb();
         PluginCommand command = Objects.requireNonNull(getCommand("vsmedia"),
                 "The VSMedia plugin.yml does not declare /vsmedia");
         command.setExecutor(this::command);
@@ -41,6 +44,27 @@ public final class VSMediaPlugin extends JavaPlugin {
                 : "Ready to offer pack '" + active.logicalId() + "' to joining players.");
     }
 
+    private void startStudioWeb() {
+        if (!getConfig().getBoolean("studio-web.enabled", true)) {
+            getLogger().info("Home/Audio Studio web is disabled in config.yml");
+            return;
+        }
+        int port=getConfig().getInt("studio-web.port", 3070);
+        try {
+            studioWeb=new StudioWebServer(port,getLogger());
+            studioWeb.start();
+        } catch (IOException | RuntimeException error) {
+            studioWeb=null;
+            getLogger().severe("Unable to open the packaged Studio web: "
+                    + error.getMessage());
+        }
+    }
+    private void stopStudioWeb() {
+        if (studioWeb != null) {
+            studioWeb.close();
+            studioWeb=null;
+        }
+    }
     private void loadConfiguredPack() {
         if (controller != null) {
             HandlerList.unregisterAll(controller);
@@ -87,12 +111,22 @@ public final class VSMediaPlugin extends JavaPlugin {
                         + (active == null ? "NO" : active.logicalId()));
                 sender.sendMessage(ChatColor.GRAY + "Ofertas rastreadas: "
                         + controller.coordinator().sessionCount());
+                sender.sendMessage(ChatColor.GOLD + "Home / Audio Studio: "
+                        + (studioWeb == null ? "OFFLINE" : studioWeb.url()));
                 sender.sendMessage(ChatColor.YELLOW
-                        + "Editor VSPack: proceso Rust/web separado, no incluido en este JAR.");
+                        + "Audio: requiere VSCore Rust en el host (127.0.0.1:3061).");
+            }
+            case "web" -> {
+                sender.sendMessage(ChatColor.GOLD + "VSMedia Studio: "
+                        + (studioWeb == null ? "OFFLINE" : studioWeb.url()));
+                sender.sendMessage(ChatColor.GRAY
+                        + "Acceso remoto: tunel SSH recomendado, no abrir el puerto publicamente.");
             }
             case "reload" -> {
                 reloadConfig();
                 loadConfiguredPack();
+                stopStudioWeb();
+                startStudioWeb();
                 sender.sendMessage(ChatColor.GREEN + "Configuracion VSMedia recargada. Pack: "
                         + (active == null ? "desactivado/invalido" : active.logicalId()));
             }
@@ -120,13 +154,14 @@ public final class VSMediaPlugin extends JavaPlugin {
                 sender.sendMessage(ChatColor.GREEN + "Oferta programada para " + target.getName());
             }
             default -> sender.sendMessage(ChatColor.YELLOW
-                    + "Uso: /vsmedia <status|reload|send [jugador]>");
+                    + "Uso: /vsmedia <status|web|reload|send [jugador]>");
         }
         return true;
     }
 
     @Override
     public void onDisable() {
+        stopStudioWeb();
         if (controller != null) {
             HandlerList.unregisterAll(controller);
             controller.close();

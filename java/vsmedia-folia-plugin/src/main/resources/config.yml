@@ -1,6 +1,11 @@
 # VSMedia 26.3 - Folia test plugin.
 # This JAR does NOT embed VSPack Studio, the Rust pack compiler or a CDN.
+# Home/Audio Studio is bundled in the plugin. The Rust VSCore API process
+# still runs separately on the Minecraft host at 127.0.0.1:3061.
 # Offer a ZIP only after publishing it on a real, accessible HTTPS URL.
+studio-web:
+  enabled: true
+  port: 3070
 resource-pack:
   enabled: false
   required: false
