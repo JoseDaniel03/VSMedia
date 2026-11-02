@@ -2,6 +2,8 @@
  * voice is provided by Plasmo Voice, never by this browser client. */
 (() => {
 "use strict";
+// VSRadio signaling requires a future WebSocket relay for the packaged site.
+// The original trunk serve workflow continues using the local Rust backend.
 const URL = "ws://127.0.0.1:3061/api/v1/live/ws";
 const mounted = new Map();
 const radioSources = new WeakMap();

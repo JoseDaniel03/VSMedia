@@ -10,7 +10,17 @@ use wasm_bindgen::{JsCast,JsValue};
 use wasm_bindgen_futures::{spawn_local,JsFuture};
 use web_sys::{Request,RequestInit,RequestMode,Response};
 
-const BASE: &str = "http://127.0.0.1:3061/api/v1";
+/// Trunk development uses the standalone Rust bridge at 3061.
+/// The packaged Folia JAR proxies /api/v1 to the same Rust process.
+fn api_base()->String {
+    let host=web_sys::window()
+        .and_then(|w|w.location().host().ok()).unwrap_or_default();
+    if host=="127.0.0.1:3060" || host=="localhost:3060" {
+        "http://127.0.0.1:3061/api/v1".into()
+    } else {
+        "/api/v1".into()
+    }
+}
 
 async fn request(path:&str,method:&str,body:JsValue,content_type:&str)
     ->Result<Value,String>
@@ -19,7 +29,7 @@ async fn request(path:&str,method:&str,body:JsValue,content_type:&str)
     opts.set_method(method);
     opts.set_mode(RequestMode::Cors);
     if method=="POST" {opts.set_body(&body);}
-    let req=Request::new_with_str_and_init(&format!("{BASE}{path}"),&opts)
+    let req=Request::new_with_str_and_init(&format!("{}{path}",api_base()),&opts)
         .map_err(|_|"No se pudo crear la solicitud HTTP")?;
     if method=="POST" {
         req.headers().set("Content-Type",content_type)
@@ -27,7 +37,7 @@ async fn request(path:&str,method:&str,body:JsValue,content_type:&str)
     }
     let window=web_sys::window().ok_or("No hay ventana")?;
     let res=JsFuture::from(window.fetch_with_request(&req)).await
-        .map_err(|_|"No se pudo conectar con VSMedia en 127.0.0.1:3061")?;
+        .map_err(|_|"No se pudo conectar con el motor VSCore Rust")?;
     let res:Response=res.dyn_into().map_err(|_|"Respuesta HTTP inválida")?;
     let text=JsFuture::from(res.text().map_err(|_|"No se pudo leer la respuesta")?).await
         .map_err(|_|"La respuesta del motor no pudo leerse")?;
@@ -187,7 +197,7 @@ pub fn refresh_projects(projects:RwSignal<Vec<SavedAudioProject>>,status:RwSigna
 }
 async fn fetch_source_blob(name:&str)->Result<web_sys::Blob,String> {
     let req=Request::new_with_str_and_init(
-        &format!("{BASE}/assets/{name}"),&RequestInit::new()
+        &format!("{}/assets/{name}",api_base()),&RequestInit::new()
     ).map_err(|_|"No se pudo crear la solicitud de audio")?;
     let window=web_sys::window().ok_or("No hay ventana")?;
     let value=JsFuture::from(window.fetch_with_request(&req)).await
@@ -658,7 +668,7 @@ async fn request_engine_wav(name:&str)->Result<Blob,String> {
         return Err("Nombre de proyecto no válido".into());
     }
     let req=Request::new_with_str_and_init(
-        &format!("{BASE}/audio/projects/{name}/render"),&RequestInit::new()
+        &format!("{}/audio/projects/{name}/render",api_base()),&RequestInit::new()
     ).map_err(|_|"No se pudo crear la solicitud de render")?;
     let window=web_sys::window().ok_or("No hay ventana")?;
     let response=JsFuture::from(window.fetch_with_request(&req)).await
@@ -738,7 +748,7 @@ async fn request_draft_wav(document:&Value)->Result<Blob,String> {
     settings.set_method("POST");
     settings.set_mode(RequestMode::Cors);
     settings.set_body(&JsValue::from_str(&document.to_string()));
-    let req=Request::new_with_str_and_init(&format!("{BASE}/audio/render"),&settings)
+    let req=Request::new_with_str_and_init(&format!("{}/audio/render",api_base()),&settings)
         .map_err(|_|"No se pudo preparar el render del borrador")?;
     req.headers().set("Content-Type","application/json")
         .map_err(|_|"No se pudo enviar el manifiesto de la mezcla")?;
