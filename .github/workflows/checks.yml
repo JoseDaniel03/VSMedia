@@ -37,8 +37,14 @@ jobs:
       - run: node --check studio/assets/pack.js
       - run: cargo check --manifest-path studio/Cargo.toml --target wasm32-unknown-unknown
       - run: cargo test --manifest-path studio/test-support/Cargo.toml --all-targets
-      - name: Install Trunk
-        run: cargo install trunk --locked --version 0.22.1
+      - name: Install verified Trunk release
+        run: |
+          curl --fail --location --retry 3 --output /tmp/trunk.tar.gz https://github.com/trunk-rs/trunk/releases/download/v0.22.1/trunk-x86_64-unknown-linux-gnu.tar.gz
+          echo "2ab8d548fd5ed9cda50906f61fd8654204e7893bd52ebbfd90533862b7d71ee1  /tmp/trunk.tar.gz" | sha256sum --check
+          mkdir -p /tmp/vsmedia-trunk
+          tar -xzf /tmp/trunk.tar.gz -C /tmp/vsmedia-trunk
+          sudo install -m 755 /tmp/vsmedia-trunk/trunk /usr/local/bin/trunk
+          trunk --version
       - name: Compile original VSMedia Home/Audio Studio to WebAssembly
         run: cd studio && trunk build --release
       - uses: actions/upload-artifact@v4
