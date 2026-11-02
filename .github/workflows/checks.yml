@@ -19,6 +19,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --manifest-path studio/backend/Cargo.toml --all-targets
+      - name: Build native Rust VSCore for Linux x86_64
+        run: cargo build --release --manifest-path studio/backend/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VSMedia-Rust-VSCore-Linux-x86_64
+          path: studio/backend/target/release/vsmedia-studio-bridge
+          if-no-files-found: error
+          retention-days: 14
 
   studio-frontend:
     runs-on: ubuntu-latest
@@ -43,7 +51,7 @@ jobs:
           retention-days: 14
 
   java-api:
-    needs: studio-frontend
+    needs: [studio-frontend, studio-backend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +63,10 @@ jobs:
         with:
           name: VSMedia-Original-Studio-Web
           path: java/vsmedia-folia-plugin/target/studio-web
+      - uses: actions/download-artifact@v4
+        with:
+          name: VSMedia-Rust-VSCore-Linux-x86_64
+          path: java/vsmedia-folia-plugin/target/studio-native
       - run: mvn -B -f java/pom.xml verify
       - name: Verify installable Paper/Folia JAR with original WebAssembly Studio
         run: |
@@ -63,7 +75,15 @@ jobs:
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F "io/virgoland/vsmedia/plugin/VSMediaPlugin.class"
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F "io/virgoland/vsmedia/plugin/StudioWebServer.class"
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F "studio-web/index.html"
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -E 'studio-web/.*[.]wasm$'
+          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -E 'studio-web/.*[.]wasm      - uses: actions/upload-artifact@v4
+        with:
+          name: VSMedia-Folia-26.3-Home-Audio-Studio-JAR
+          path: java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 14
+
+          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F "studio-native/vsmedia-studio-bridge"
+          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F "io/virgoland/vsmedia/plugin/StudioCoreProcess.class"
       - uses: actions/upload-artifact@v4
         with:
           name: VSMedia-Folia-26.3-Home-Audio-Studio-JAR
