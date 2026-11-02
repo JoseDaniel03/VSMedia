@@ -121,7 +121,7 @@ public final class StudioCoreProcess implements AutoCloseable {
             try {
                 if (!process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
                     process.destroyForcibly();
-                    process.waitFor(Duration.ofSeconds(2));
+                    process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS);
                 }
             } catch (InterruptedException interrupted) {
                 process.destroyForcibly();
