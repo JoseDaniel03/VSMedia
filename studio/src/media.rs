@@ -36,106 +36,20 @@ pub fn folder_rows(folders: Vec<Folder>) -> Vec<FolderRow> {
     out
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all="snake_case")]
-pub enum MixFadeCurve {
-    #[default] Linear,
-    EqualPower,
-}
-impl MixFadeCurve {
-    pub fn as_str(self)->&'static str { match self {Self::Linear=>"linear",Self::EqualPower=>"equal_power"} }
-    pub fn from_str(value:&str)->Option<Self> {
-        match value {"linear"=>Some(Self::Linear),"equal_power"=>Some(Self::EqualPower),_=>None}
-    }
-    pub fn amplitude(self, progress:f64)->f64 {
-        let fraction=progress.clamp(0.0,1.0);
-        match self {Self::Linear=>fraction,Self::EqualPower=>(fraction*std::f64::consts::FRAC_PI_2).sin()}
-    }
-}
-/// Non-destructive local-time automation. Gain is linear (0..2); the native
-/// .vsaudio renderer interpolates equivalent dB keyframes in amplitude.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MixGainPoint {
-    pub at: f64,
-    pub gain: f64,
-}
-#[derive(Clone, Serialize, Deserialize)]
-pub struct MixRegion {
-    pub id: String,
-    pub asset_id: String,
-    /// Position of this region on the output timeline (seconds).
-    pub start: f64,
-    /// Duration to play from the source file (seconds).
-    pub duration: f64,
-    pub source_in: f64,
-    pub volume: f64,
-    pub pan: f64,
-    pub fade_in: f64,
-    pub fade_out: f64,
-    /// Missing in earlier local sessions and manifests: use legacy linear fade.
-    #[serde(default)]
-    pub fade_curve: MixFadeCurve,
-    /// Missing in previous sessions means constant 100% automation.
-    #[serde(default)]
-    pub gain_points: Vec<MixGainPoint>,
-}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Track {
     pub id: String, pub name: String, pub asset_id: String,
     pub volume: f64, pub muted: bool, pub solo: bool,
     pub fade_in: f64, pub fade_out: f64,
-    /// Empty keeps the old one-file-per-track VSMix session compatible.
-    #[serde(default)]
-    pub regions: Vec<MixRegion>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Version {
     pub id: String, pub asset_id: String, pub label: String,
     pub start: f64, pub end: f64, pub gain: f64,
     pub fade_in: f64, pub fade_out: f64, pub reversed: bool,
-    /// Extra per-clip controls stored in VSAudio and rendered by VSCore.
-    #[serde(default)]
-    pub pan: f64,
-    #[serde(default)]
-    pub low_pass_hz: Option<f64>,
-    #[serde(default)]
-    pub high_pass_hz: Option<f64>,
-    /// Optional gain at the end of the clip, interpolated from `gain`.
-    #[serde(default)]
-    pub end_gain: Option<f64>,
 }
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Playlist {
-    pub id: String, pub name: String, pub items: Vec<String>,
-    /// Optional source filename for relinking after ephemeral Blob IDs change.
-    /// Legacy playlist manifests default to no mapping.
-    #[serde(default)]
-    pub source_names: HashMap<String,String>,
-}
-pub fn load_playlists()->Vec<Playlist>{
-    let raw=storage_get("vsmedia:radio:playlists:v1");
-    if raw.len()>128*1024{return Vec::new();}
-    let mut list:Vec<Playlist>=serde_json::from_str(&raw).unwrap_or_default();
-    list.truncate(crate::radio_queue::MAX_PLAYLISTS);
-    let mut unique=std::collections::HashSet::new();
-    list.retain(|p|unique.insert(p.id.clone())
-        && crate::radio_queue::valid_name(&p.name)
-        && !p.id.is_empty() && p.id.len()<=96);
-    for playlist in &mut list {
-        playlist.items.truncate(crate::radio_queue::MAX_ITEMS);
-        playlist.items.retain(|id|!id.is_empty()&&id.len()<=128);
-        playlist.source_names.retain(|key,name|playlist.items.contains(key)
-            && !name.is_empty() && name.chars().count()<=160);
-    }
-    list
-}
-pub fn save_playlists(list:&[Playlist]){
-    if let Ok(json)=serde_json::to_string(list){
-        if json.len()<=128*1024 {
-            storage_set("vsmedia:radio:playlists:v1",&json);
-        }
-    }
-}
+pub struct Playlist { pub id: String, pub name: String, pub items: Vec<String> }
 
 pub fn uid(prefix: &str) -> String {
     thread_local! {static NEXT: Cell<u64> = const { Cell::new(0) };}

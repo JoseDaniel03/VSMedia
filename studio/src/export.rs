@@ -30,7 +30,7 @@ async fn render_wav(asset: AudioAsset, v: Version) -> Result<Blob,String> {
     let source=media::get_blob(&asset.id).ok_or("El archivo ya no está en memoria")?;
     let bytes = JsFuture::from(source.array_buffer()).await.map_err(|_|"No se pudo leer el archivo")?;
     let raw: ArrayBuffer = bytes.dyn_into().map_err(|_|"Contenido de audio inválido")?;
-    let promise = context.decode_audio_data(&raw).map_err(|_|"Formato no reconocido por Web Audio")?;
+    let promise = context.decode_audio_data_with_array_buffer(&raw).map_err(|_|"Formato no reconocido por Web Audio")?;
     let decoded = JsFuture::from(promise).await.map_err(|_|"No se pudo decodificar este formato de audio")?;
     let buffer: web_sys::AudioBuffer = decoded.dyn_into().map_err(|_|"Datos de audio inválidos")?;
     let channels = buffer.number_of_channels().max(1).min(2) as usize;
@@ -44,8 +44,9 @@ async fn render_wav(asset: AudioAsset, v: Version) -> Result<Blob,String> {
     if samples > 100_000_000 {return Err("Archivo demasiado grande para exportar en el navegador".into());}
     let mut audio = Vec::<Vec<f32>>::new();
     for c in 0..channels {
-        let pcm = buffer.get_channel_data(c as u32).map_err(|_|"No se pudo leer el canal PCM")?;
-        if pcm.len() != length {return Err("Cantidad de muestras inesperada".into());}
+        let ch = buffer.get_channel_data(c as i32).map_err(|_|"No se pudo leer el canal PCM")?;
+        let mut pcm = vec![0.0f32;length];
+        ch.copy_to(&mut pcm);
         audio.push(pcm);
     }
     let capacity = 44usize.saturating_add(samples.saturating_mul(channels).saturating_mul(2));

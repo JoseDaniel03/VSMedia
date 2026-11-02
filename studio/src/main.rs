@@ -5,12 +5,6 @@ mod export;
 mod api_contract;
 mod teleprompter;
 mod studio_api;
-mod mix_timeline;
-mod waveform;
-mod gain_editor;
-mod radio_queue;
-mod mix_history;
-mod mix_batch;
 
 fn main() {
     console_error_panic_hook::set_once();
