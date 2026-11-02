@@ -28,8 +28,12 @@ pub fn start(assets: RwSignal<Vec<AudioAsset>>, status: RwSignal<String>, active
             let recorder = MediaRecorder::new_with_media_stream(&stream).map_err(|_|"MediaRecorder no compatible con este navegador")?;
             let mime = recorder.mime_type();
             let extension = if mime.contains("mp4") { "m4a" } else if mime.contains("ogg") { "ogg" } else { "webm" };
-            let callback = Closure::<dyn FnMut(BlobEvent)>::new(move |evt| {
-                let blob = evt.data();
+            let callback = Closure::<dyn FnMut(BlobEvent)>::new(move |evt: BlobEvent| {
+                let Some(blob) = evt.data() else {
+                    active.set(false);
+                    status.set("El micrófono no produjo datos válidos.".to_owned());
+                    return;
+                };
                 if blob.size() <= 0. {status.set("La grabación llegó vacía; intentá nuevamente.".to_owned());active.set(false);return;}
                 let name = format!("Grabacion-{}.{}",uid("mic"),extension);
                 if let Some(id) = add_blob(blob,name,assets,status) {on_complete(id);}
