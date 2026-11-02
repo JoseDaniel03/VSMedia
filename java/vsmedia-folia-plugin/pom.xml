@@ -43,6 +43,11 @@
         <targetPath>studio-web</targetPath>
         <filtering>false</filtering>
       </resource>
+      <resource>
+        <directory>${project.build.directory}/studio-native</directory>
+        <targetPath>studio-native</targetPath>
+        <filtering>false</filtering>
+      </resource>
     </resources>
     <plugins>
       <plugin>

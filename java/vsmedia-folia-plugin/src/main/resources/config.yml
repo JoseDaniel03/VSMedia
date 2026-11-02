@@ -6,6 +6,10 @@
 studio-web:
   enabled: true
   port: 3070
+studio-core:
+  # Linux x86_64: extract the trusted native backend from this JAR and start
+  # it on 127.0.0.1:3061. Set false if you already run the Rust bridge.
+  autostart: true
 resource-pack:
   enabled: false
   required: false

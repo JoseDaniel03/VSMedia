@@ -9,7 +9,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
-import java.time.Duration;
 import java.util.EnumSet;
 import java.util.Locale;
 import java.util.logging.Logger;
@@ -120,7 +119,7 @@ public final class StudioCoreProcess implements AutoCloseable {
         if (process != null) {
             process.destroy();
             try {
-                if (!process.waitFor(Duration.ofSeconds(2))) {
+                if (!process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
                     process.destroyForcibly();
                     process.waitFor(Duration.ofSeconds(2));
                 }

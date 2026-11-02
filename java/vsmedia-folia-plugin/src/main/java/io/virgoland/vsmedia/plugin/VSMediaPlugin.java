@@ -29,11 +29,13 @@ public final class VSMediaPlugin extends JavaPlugin {
     private ResourcePackDelivery active;
     private boolean required;
     private StudioWebServer studioWeb;
+    private StudioCoreProcess studioCore;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         loadConfiguredPack();
+        startStudioCore();
         startStudioWeb();
         PluginCommand command = Objects.requireNonNull(getCommand("vsmedia"),
                 "The VSMedia plugin.yml does not declare /vsmedia");
@@ -44,6 +46,20 @@ public final class VSMediaPlugin extends JavaPlugin {
                 : "Ready to offer pack '" + active.logicalId() + "' to joining players.");
     }
 
+    private void startStudioCore() {
+        studioCore=new StudioCoreProcess(getLogger());
+        if (getConfig().getBoolean("studio-core.autostart",true)) {
+            studioCore.start(getDataFolder().toPath());
+        } else {
+            getLogger().info("Auto-start of bundled VSCore is disabled.");
+        }
+    }
+    private void stopStudioCore() {
+        if (studioCore != null) {
+            studioCore.close();
+            studioCore=null;
+        }
+    }
     private void startStudioWeb() {
         if (!getConfig().getBoolean("studio-web.enabled", true)) {
             getLogger().info("Home/Audio Studio web is disabled in config.yml");
@@ -113,8 +129,9 @@ public final class VSMediaPlugin extends JavaPlugin {
                         + controller.coordinator().sessionCount());
                 sender.sendMessage(ChatColor.GOLD + "Home / Audio Studio: "
                         + (studioWeb == null ? "OFFLINE" : studioWeb.url()));
-                sender.sendMessage(ChatColor.YELLOW
-                        + "Audio: requiere VSCore Rust en el host (127.0.0.1:3061).");
+                sender.sendMessage(ChatColor.YELLOW + "VSCore audio Rust: "
+                        + (studioCore != null && studioCore.isRunning()
+                            ? "activo" : "inactivo (revisar vsmedia-core.log)"));
             }
             case "web" -> {
                 sender.sendMessage(ChatColor.GOLD + "VSMedia Studio: "
@@ -126,6 +143,8 @@ public final class VSMediaPlugin extends JavaPlugin {
                 reloadConfig();
                 loadConfiguredPack();
                 stopStudioWeb();
+                stopStudioCore();
+                startStudioCore();
                 startStudioWeb();
                 sender.sendMessage(ChatColor.GREEN + "Configuracion VSMedia recargada. Pack: "
                         + (active == null ? "desactivado/invalido" : active.logicalId()));
@@ -162,6 +181,7 @@ public final class VSMediaPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         stopStudioWeb();
+        stopStudioCore();
         if (controller != null) {
             HandlerList.unregisterAll(controller);
             controller.close();
