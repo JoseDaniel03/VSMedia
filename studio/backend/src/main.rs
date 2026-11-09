@@ -4,6 +4,7 @@
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 mod live;
 mod packs;
+mod fonts;
 mod pack_manager;
 mod pack_projects;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
@@ -338,6 +339,9 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
             header::HeaderName::from_static("x-vspack-sha1"),
             header::HeaderName::from_static("x-vspack-sha256")]);
     Router::new()
+        .route("/api/v1/fonts",get(fonts::catalog))
+        .route("/api/v1/fonts/import",post(fonts::import))
+        .route("/api/v1/fonts/file",get(fonts::file))
         .route("/api/v1/health",get(health))
         .route("/api/v1/capabilities",get(capabilities))
         .route("/api/v1/live/ws",get(live::socket))
@@ -369,7 +373,7 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
             .post(packs::choose_resource).delete(packs::clear_resource_choice))
         .route("/api/v1/packs/resources/file",get(packs::resource_file))
         .route("/api/v1/packs/texture",get(packs::texture))
-        .route("/api/v1/packs/export",get(packs::export))
+        .route("/api/v1/packs/export",get(fonts::export))
         .route("/api/v1/packs/layers/export",post(packs::export_layers))
         .route("/api/v1/packs/{id}/download",get(packs::download_source))
         .route("/api/v1/packs/{id}",get(packs::source_info)
@@ -399,7 +403,8 @@ async fn main()->Result<(),Box<dyn std::error::Error>> {
         .map(PathBuf::from).unwrap_or_else(||PathBuf::from("./.vsmedia-data"));
     let db=Arc::new(SqliteAssetStore::open(path)?);
     db.grant(STUDIO_NAMESPACE,STUDIO_NAMESPACE,true,true)?;
-    let addr:SocketAddr="127.0.0.1:3061".parse()?;
+    let addr:SocketAddr=std::env::var("VSMEDIA_BIND").unwrap_or_else(|_|"127.0.0.1:3061".into()).parse()?;
+    if !addr.ip().is_loopback(){return Err("VSMedia Studio must bind loopback".into());}
     let listener=tokio::net::TcpListener::bind(addr).await?;
     println!("VSMedia Studio bridge: http://{addr}/api/v1/health");
     axum::serve(listener,router(db)).await?;

@@ -24,5 +24,8 @@ zip = { version = "2.4", default-features = false, features = ["deflate"] }
 sha1 = "0.10"
 uuid = { version = "1", features = ["v5"] }
 
+base64 = "0.22"
+ttf-parser = "0.25"
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
