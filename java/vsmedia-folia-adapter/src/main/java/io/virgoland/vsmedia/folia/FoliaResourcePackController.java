@@ -50,8 +50,27 @@ public final class FoliaResourcePackController implements Listener {
             Objects.requireNonNull(stack, "stack").layers(), true);
     }
 
-    /** Schedule a pack offer on the player entity's owning Folia region. */
+    /** Schedule the configured pack on the player's owning Folia region. */
     public void offerTo(Player player, boolean retryFailed) {
+        offerPlanTo(player, retryFailed, null);
+    }
+
+    /**
+     * VSMedia owns the offers from cooperating plugins, so clients receive
+     * one stable stack instead of competing plugin send/remove packets.
+     * Empty lists withdraw only UUIDs previously offered by VSMedia.
+     */
+    public void offerLayersTo(
+            Player player, boolean retryFailed, java.util.List<ResourcePackDelivery> layers) {
+        Objects.requireNonNull(layers, "layers");
+        if (layers.size() > ResourcePackStack.MAX_LAYERS) {
+            throw new IllegalArgumentException("Too many resource-pack layers");
+        }
+        offerPlanTo(player, retryFailed, new DeliveryPlan(
+                java.util.List.copyOf(layers), true));
+    }
+
+    private void offerPlanTo(Player player, boolean retryFailed, DeliveryPlan provided) {
         Objects.requireNonNull(player, "player");
         UUID playerId = player.getUniqueId();
         player.getScheduler().run(plugin, task -> {
@@ -59,7 +78,7 @@ public final class FoliaResourcePackController implements Listener {
                 sessions.onQuit(playerId);
                 return;
             }
-            DeliveryPlan snapshot = plan;
+            DeliveryPlan snapshot = provided != null ? provided : plan;
             if (snapshot == null) return;
             Set<UUID> expected = snapshot.layers().stream()
                 .map(ResourcePackDelivery::packId).collect(Collectors.toUnmodifiableSet());

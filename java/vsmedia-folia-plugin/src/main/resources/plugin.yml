@@ -3,7 +3,7 @@ version: '0.1.0-test'
 main: io.virgoland.vsmedia.plugin.VSMediaPlugin
 api-version: '26.3'
 folia-supported: true
-description: 'VSMedia 26.3 - Folia resource pack delivery test bootstrap'
+description: 'VSMedia 26.3 - central resource pack distribution for Folia'
 authors: [Virgoland]
 website: https://github.com/JoseDaniel03/VSMedia
 commands:

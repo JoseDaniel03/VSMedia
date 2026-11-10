@@ -20,3 +20,9 @@ resource-pack:
   url: 'https://example.invalid/virgoland-resourcepack.zip'
   sha1: '0000000000000000000000000000000000000000'
   size-bytes: 0
+
+# Otros plugins (VSRender, etc.) pueden ceder los packs HTTPS existentes a
+# VSMedia sin recompimir ni procesar texturas en Minecraft. El cliente descarga
+# capas por UUID/SHA-1 y aplica la prioridad de la pila.
+external-packs:
+  enabled: true
