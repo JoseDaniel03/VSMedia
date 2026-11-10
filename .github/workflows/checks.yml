@@ -90,6 +90,12 @@ jobs:
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web/index.html'
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -E 'studio-web/.*[.]wasm'
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-native/vsmedia-studio-bridge'
+      - name: Verify bundled client web when web/ is published
+        if: ${{ hashFiles('web/index.html') != '' }}
+        run: |
+          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web-v11/index.html'
+          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web-v11/assets/js/vs-codecs.js'
+          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web-v11/modules/vspack/vs-model-studio/dist/bundle.js'
       - uses: actions/upload-artifact@v4
         with:
           name: VSMedia-Folia-26.3-Home-Audio-Studio-JAR

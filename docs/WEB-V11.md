@@ -1,4 +1,4 @@
-# VSMedia Web v11 y comando único
+> **Importante:** `vsmedia web` es un modo de desarrollo local opcional. En producción el servidor web arranca automáticamente desde `VSMediaPlugin.onEnable()`, sin Node ni comandos externos. Ver [integración Folia](FOLIA-WEB-V11.md).\n\n# VSMedia Web v11 y comando único
 
 Este repositorio conserva Rust Core, APIs Java/Folia y el frontend Leptos en `studio/`. La **web v11**, basada en Node/HTML/JS con VSAudio, VSMix, VSRadio, VS Pack, VS Pixel Studio y Blockbench, se coloca por separado en `web/`.
 
