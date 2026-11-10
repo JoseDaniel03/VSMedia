@@ -1,0 +1,22 @@
+name: Web CLI smoke
+on:
+  push:
+    paths:
+      - vsmedia
+      - scripts/import-web-v11.py
+      - scripts/install-cli.sh
+      - .github/workflows/web-cli-smoke.yml
+  pull_request:
+    paths:
+      - vsmedia
+      - scripts/import-web-v11.py
+      - scripts/install-cli.sh
+      - .github/workflows/web-cli-smoke.yml
+jobs:
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n vsmedia scripts/install-cli.sh
+      - run: python3 -m py_compile scripts/import-web-v11.py
+      - run: bash vsmedia doctor

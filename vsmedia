@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ROOT="$(dirname -- "$(readlink -f -- "$0")")"
+WEB="$ROOT/web"
+die() { printf '[VSMedia] %s\n' "$*" >&2; exit 1; }
+help() {
+  cat <<'EOF'
+VSMedia — comandos (CachyOS/Linux)
+  vsmedia web [--port N] [--no-browser] [--build]
+  vsmedia doctor
+  vsmedia import-web <archivo-v11.zip>
+  vsmedia install
+  vsmedia publish-web
+EOF
+}
+cmd=help
+if (( $# )); then cmd="$1"; shift; fi
+case "$cmd" in
+  web)
+    PORT="$(printenv VSMEDIA_PORT 2>/dev/null || echo 3060)"
+    OPEN=1; BUILD=0
+    while (( $# )); do
+      case "$1" in
+        --port) (( $# >= 2 )) || die 'Falta puerto'; PORT="$2"; shift 2 ;;
+        --no-browser) OPEN=0; shift ;;
+        --build) BUILD=1; shift ;;
+        *) die "Opción desconocida: $1" ;;
+      esac
+    done
+    [[ "$PORT" =~ ^[0-9]+$ ]] && (( 10#$PORT >= 1 && 10#$PORT <= 65535 )) || die 'Puerto inválido'
+    [[ -f "$WEB/index.html" && -f "$WEB/start.sh" && -f "$WEB/serve.mjs" ]] || die 'Falta web v11. Usá: vsmedia import-web /ruta/al/zip'
+    URL="http://127.0.0.1:$PORT/"
+    echo "[VSMedia] Abriendo $URL"
+    if (( OPEN )) && [[ -n "$(printenv DISPLAY 2>/dev/null || true)$(printenv WAYLAND_DISPLAY 2>/dev/null || true)" ]] && command -v xdg-open >/dev/null && command -v curl >/dev/null; then
+      (for _ in {1..70}; do
+        if curl -fsS --max-time 1 -o /dev/null "$URL"; then xdg-open "$URL" >/dev/null 2>&1 || true; exit; fi
+        sleep 0.25
+      done) >/dev/null 2>&1 &
+    fi
+    cd -- "$WEB"
+    if (( BUILD )); then export VSMEDIA_SKIP_BUILD=0; else export VSMEDIA_SKIP_BUILD=1; fi
+    export VSMEDIA_PORT="$PORT"
+    exec bash ./start.sh
+    ;;
+  doctor)
+    echo "[VSMedia] Repo: $ROOT"
+    if [[ -f "$WEB/index.html" && -f "$WEB/serve.mjs" ]]; then echo '[ok] Web v11'; else echo '[pendiente] import-web'; fi
+    for c in node ffmpeg python3 cargo git; do
+      if command -v "$c" >/dev/null; then echo "[ok] $c"; else echo "[opcional] $c no disponible"; fi
+    done
+    ;;
+  import-web)
+    (( $# == 1 )) || die 'Uso: vsmedia import-web archivo.zip'
+    exec python3 "$ROOT/scripts/import-web-v11.py" "$1" "$WEB"
+    ;;
+  install)
+    (( $# == 0 )) || die 'Uso: vsmedia install'
+    exec bash "$ROOT/scripts/install-cli.sh" "$ROOT"
+    ;;
+  publish-web)
+    (( $# == 0 )) || die 'Uso: vsmedia publish-web'
+    [[ -f "$WEB/index.html" ]] || die 'Primero importá la web v11'
+    git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null || die 'Se requiere checkout Git'
+    [[ -z "$(git -C "$ROOT" diff --cached --name-only)" ]] || die 'Hay otros cambios preparados para commit'
+    if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=all -- web)" ]]; then
+      git -C "$ROOT" add -- web
+      git -C "$ROOT" commit -m 'feat(web): publish VSMedia Studio v11'
+    fi
+    git -C "$ROOT" push origin HEAD
+    ;;
+  help|--help|-h) help ;;
+  *) die "Comando desconocido: $cmd" ;;
+esac

@@ -73,3 +73,8 @@ emisión a Minecraft. Los endpoints remotos de streaming/voz siguen
 sin implementar.
 Ver [integración Studio](docs/STUDIO-INTEGRATION.md) y
 [manual técnico](studio/docs/INTEGRATION.md).
+
+
+## VSMedia Web v11 y comando `vsmedia web`
+
+La web 2026 v11 se puede incorporar en `web/` sin reemplazar Rust Core ni el plugin Folia. Ver [guía de arranque](docs/WEB-V11.md).
