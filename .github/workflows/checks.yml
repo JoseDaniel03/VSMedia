@@ -72,15 +72,18 @@ jobs:
           distribution: temurin
           java-version: '25'
       - uses: actions/download-artifact@v4
+        if: ${{ hashFiles('web/index.html') == '' }}
         with:
           name: VSMedia-Original-Studio-Web
           path: java/vsmedia-folia-plugin/target/studio-web
       - uses: actions/download-artifact@v4
+        if: ${{ hashFiles('web/index.html') == '' }}
         with:
           name: VSMedia-Rust-VSCore-Linux-x86_64
           path: java/vsmedia-folia-plugin/target/studio-native
       - run: mvn -B -f java/pom.xml verify
       - name: Verify Folia JAR with native VSCore and original WASM Studio
+        if: ${{ hashFiles('web/index.html') == '' }}
         run: |
           test -s java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar
           unzip -p java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar plugin.yml | grep -F 'folia-supported: true'
@@ -93,6 +96,8 @@ jobs:
       - name: Verify bundled client web when web/ is published
         if: ${{ hashFiles('web/index.html') != '' }}
         run: |
+          test -s java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar
+          unzip -p java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar plugin.yml | grep -F 'folia-supported: true'
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web-v11/index.html'
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web-v11/assets/js/vs-codecs.js'
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web-v11/modules/vspack/vs-model-studio/dist/bundle.js'
