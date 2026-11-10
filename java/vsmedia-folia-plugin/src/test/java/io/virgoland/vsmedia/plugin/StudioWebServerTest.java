@@ -31,8 +31,16 @@ class StudioWebServerTest {
                     URI.create(root+"/")).GET().build(),
                     HttpResponse.BodyHandlers.ofString());
             assertEquals(200,home.statusCode());
-            assertTrue(home.body().contains("VSMedia Studio"),
-                    "The jar must serve the original Leptos Studio HTML");
+            assertTrue(home.body().contains("VSMedia"),
+                    "The JAR must serve a VSMedia frontend");
+            if (web.usingV11()) {
+                HttpResponse<String> caps = client.send(HttpRequest.newBuilder(
+                        URI.create(root + "/api/audio/capabilities")).GET().build(),
+                        HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, caps.statusCode());
+                assertTrue(caps.body().contains("\"ffmpeg\":false"));
+                assertTrue(caps.body().contains("\"pluginConnected\":true"));
+            }
             HttpResponse<String> denied=client.send(HttpRequest.newBuilder(
                     URI.create(root+"/%2e%2e/plugin.yml")).GET().build(),
                     HttpResponse.BodyHandlers.ofString());

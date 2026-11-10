@@ -40,7 +40,7 @@ public final class VSMediaPlugin extends JavaPlugin {
         PluginCommand command = Objects.requireNonNull(getCommand("vsmedia"),
                 "The VSMedia plugin.yml does not declare /vsmedia");
         command.setExecutor(this::command);
-        getLogger().info("VSMedia 26.3 TEST enabled; /vsmedia status");
+        getLogger().info("VSMedia 26.3 enabled: web autostart; /vsmedia web muestra la dirección");
         getLogger().info(active == null
                 ? "No resource pack is configured. Studio remains available from this plugin."
                 : "Ready to offer pack '" + active.logicalId() + "' to joining players.");
@@ -48,7 +48,7 @@ public final class VSMediaPlugin extends JavaPlugin {
 
     private void startStudioCore() {
         studioCore=new StudioCoreProcess(getLogger());
-        if (getConfig().getBoolean("studio-core.autostart",true)) {
+        if (getConfig().getBoolean("studio-core.autostart",false)) {
             studioCore.start(getDataFolder().toPath());
         } else {
             getLogger().info("Auto-start of bundled VSCore is disabled.");
@@ -127,7 +127,7 @@ public final class VSMediaPlugin extends JavaPlugin {
                         + (active == null ? "NO" : active.logicalId()));
                 sender.sendMessage(ChatColor.GRAY + "Ofertas rastreadas: "
                         + controller.coordinator().sessionCount());
-                sender.sendMessage(ChatColor.GOLD + "Home / Audio Studio: "
+                sender.sendMessage(ChatColor.GOLD + "VSMedia Web: "
                         + (studioWeb == null ? "OFFLINE" : studioWeb.url()));
                 sender.sendMessage(ChatColor.YELLOW + "VSCore audio Rust: "
                         + (studioCore != null && studioCore.isRunning()

@@ -1,7 +1,9 @@
 # VSMedia 26.3 - Folia test plugin.
-# This JAR embeds the ORIGINAL FullCanvas Studio without redesigning the web.
+# When web/ is present at build time, the JAR serves the optimized v11 automatically.
+# Otherwise it falls back to the old FullCanvas frontend and logs a warning.
 # The Rust VSCore process is started by this plugin on Linux x86_64.
-# Web port 3060 preserves the original browser -> Rust connection at 3061.
+# The web always starts with the Folia plugin. JS/audio/pack/rendering runs in browser.
+# Keep the HTTP interface on loopback: use an authenticated HTTPS reverse proxy/tunnel for remote users.
 # Offer a ZIP only after publishing it on a real, accessible HTTPS URL.
 studio-web:
   enabled: true
@@ -9,7 +11,7 @@ studio-web:
 studio-core:
   # Linux x86_64: extract the trusted native backend from this JAR and start
   # it on 127.0.0.1:3061. Set false if you already run the Rust bridge.
-  autostart: true
+  autostart: false
 resource-pack:
   enabled: false
   required: false

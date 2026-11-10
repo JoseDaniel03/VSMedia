@@ -78,3 +78,8 @@ Ver [integración Studio](docs/STUDIO-INTEGRATION.md) y
 ## VSMedia Web v11 y comando `vsmedia web`
 
 La web 2026 v11 se puede incorporar en `web/` sin reemplazar Rust Core ni el plugin Folia. Ver [guía de arranque](docs/WEB-V11.md).
+
+
+## Inicio automático desde Folia
+
+El plugin inicia VSMedia Web al habilitarse. La web v11 se incorpora al JAR desde la carpeta `web/` del repositorio y delega la edición/render al navegador. [Instrucciones de empaquetado y seguridad](docs/FOLIA-WEB-V11.md).

@@ -28,7 +28,7 @@ import java.util.logging.Logger;
  */
 public final class StudioWebServer implements AutoCloseable {
     private static final long MAX_BODY = 96L * 1024 * 1024;
-    private static final String RESOURCE_PREFIX = "/studio-web/";
+    private final String resourcePrefix;
     private final HttpServer server;
     private final ExecutorService executor;
     private final HttpClient client;
@@ -40,6 +40,8 @@ public final class StudioWebServer implements AutoCloseable {
             throw new IllegalArgumentException("Port must be 1024..65535");
         }
         this.logger = Objects.requireNonNull(logger);
+        this.resourcePrefix = StudioWebServer.class.getResource("/studio-web-v11/index.html") != null
+                ? "/studio-web-v11/" : "/studio-web/";
         this.server = HttpServer.create(new InetSocketAddress(
                 InetAddress.getByName("127.0.0.1"), port), 24);
         this.executor = Executors.newFixedThreadPool(4, task -> {
@@ -56,12 +58,17 @@ public final class StudioWebServer implements AutoCloseable {
 
     public void start() {
         server.start();
-        logger.info("Home y Audio Studio: " + url
-                + " (API Rust externo: 127.0.0.1:3061)");
+        logger.info("VSMedia Web " + (usingV11() ? "v11" : "legacy FullCanvas") + ": " + url);
+        if (!usingV11()) logger.warning("La web v11 todavía no está empaquetada en el JAR. "
+                + "Se sirve el frontend FullCanvas anterior.");
     }
 
     public String url() {
         return url;
+    }
+
+    public boolean usingV11() {
+        return "/studio-web-v11/".equals(resourcePrefix);
     }
 
     private void dispatch(HttpExchange exchange) throws IOException {
@@ -71,7 +78,21 @@ public final class StudioWebServer implements AutoCloseable {
             out.set("Cache-Control", "no-store");
             out.set("Referrer-Policy", "no-referrer");
             String path = exchange.getRequestURI().getPath();
-            if (path.startsWith("/api/v1/")) {
+            if (path.equals("/api/audio/capabilities") && usingV11()) {
+                if (!"GET".equals(exchange.getRequestMethod())) {
+                    fail(exchange, 405, "Method not allowed");
+                } else {
+                    byte[] payload = ("{\"ok\":true,\"server\":\"folia-static\","
+                            + "\"ffmpeg\":false,\"browserEncoding\":true,"
+                            + "\"pluginConnected\":true}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    out.set("Content-Type", "application/json; charset=utf-8");
+                    exchange.sendResponseHeaders(200, payload.length);
+                    try (OutputStream body = exchange.getResponseBody()) { body.write(payload); }
+                }
+            } else if (path.startsWith("/api/audio/") && usingV11()) {
+                // Deliberately no FFmpeg on the Minecraft server. Use browser encoders.
+                fail(exchange, 501, "Conversion on Folia is disabled; encode in the browser");
+            } else if (path.startsWith("/api/v1/")) {
                 proxy(exchange, path);
             } else {
                 staticResource(exchange, path);
@@ -97,30 +118,42 @@ public final class StudioWebServer implements AutoCloseable {
         }
         // Only web assets produced by Trunk: no traversal, decoded escapes,
         // symbolic paths, or access to other JAR contents.
-        if (!path.matches("/[A-Za-z0-9_./-]{1,180}") || path.contains("..")
+        if (!path.matches("/[A-Za-z0-9_./\\- ]{1,180}") || path.contains("..")
                 || path.contains("//") || path.endsWith("/")) {
             fail(exchange, 404, "Not found");
             return;
         }
-        String name = RESOURCE_PREFIX + path.substring(1);
-        try (InputStream stream = getClass().getResourceAsStream(name)) {
-            if (stream == null) {
-                fail(exchange, 404, "Not found");
-                return;
-            }
-            byte[] data = stream.readAllBytes();
-            if (data.length > 32 * 1024 * 1024) {
-                fail(exchange, 413, "Static resource too large");
-                return;
-            }
-            exchange.getResponseHeaders().set("Content-Type", mime(path));
-            if ("HEAD".equals(method)) {
-                exchange.sendResponseHeaders(200, -1);
-                return;
-            }
-            exchange.sendResponseHeaders(200, data.length);
+        String name = resourcePrefix + path.substring(1);
+        java.net.URL resource = getClass().getResource(name);
+        if (resource == null) {
+            fail(exchange, 404, "Not found");
+            return;
+        }
+        java.net.URLConnection connection = resource.openConnection();
+        connection.setUseCaches(false);
+        long bytes = connection.getContentLengthLong();
+        if (bytes > 32L * 1024 * 1024) {
+            fail(exchange, 413, "Static resource too large");
+            return;
+        }
+        exchange.getResponseHeaders().set("Content-Type", mime(path));
+        // Do not keep large Blockbench bundles in the JVM heap.
+        exchange.getResponseHeaders().set("Cache-Control", path.endsWith(".html")
+                ? "no-cache" : "private, max-age=120");
+        if ("HEAD".equals(method)) {
+            exchange.sendResponseHeaders(200, -1);
+            return;
+        }
+        try (InputStream input = connection.getInputStream()) {
+            exchange.sendResponseHeaders(200, bytes > 0 ? bytes : 0);
             try (OutputStream output = exchange.getResponseBody()) {
-                output.write(data);
+                byte[] buffer = new byte[64 * 1024];
+                long copied = 0;
+                for (int read; (read = input.read(buffer)) != -1; ) {
+                    copied += read;
+                    if (copied > 32L * 1024 * 1024) throw new IOException("Static resource exceeded limit");
+                    output.write(buffer, 0, read);
+                }
             }
         }
     }
@@ -209,7 +242,13 @@ public final class StudioWebServer implements AutoCloseable {
     private static String mime(String path) {
         String lower = path.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".html")) return "text/html; charset=utf-8";
-        if (lower.endsWith(".js")) return "text/javascript; charset=utf-8";
+        if (lower.endsWith(".js") || lower.endsWith(".mjs")) return "text/javascript; charset=utf-8";
+        if (lower.endsWith(".webmanifest")) return "application/manifest+json";
+        if (lower.endsWith(".woff2")) return "font/woff2";
+        if (lower.endsWith(".woff")) return "font/woff";
+        if (lower.endsWith(".ttf")) return "font/ttf";
+        if (lower.endsWith(".ico")) return "image/x-icon";
+        if (lower.endsWith(".jpeg") || lower.endsWith(".jpg")) return "image/jpeg";
         if (lower.endsWith(".css")) return "text/css; charset=utf-8";
         if (lower.endsWith(".wasm")) return "application/wasm";
         if (lower.endsWith(".svg")) return "image/svg+xml";

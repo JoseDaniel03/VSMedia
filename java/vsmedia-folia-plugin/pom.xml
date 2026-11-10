@@ -50,6 +50,19 @@
         <filtering>false</filtering>
       </resource>
       <resource>
+        <directory>${project.basedir}/../../web</directory>
+        <targetPath>studio-web-v11</targetPath>
+        <filtering>false</filtering>
+        <excludes>
+          <exclude>serve.mjs</exclude>
+          <exclude>start.sh</exclude>
+          <exclude>start</exclude>
+          <exclude>**/*.md</exclude>
+          <exclude>**/*.sh</exclude>
+          <exclude>**/*.map</exclude>
+        </excludes>
+      </resource>
+      <resource>
         <directory>${project.build.directory}/studio-native</directory>
         <targetPath>studio-native</targetPath>
         <filtering>false</filtering>
