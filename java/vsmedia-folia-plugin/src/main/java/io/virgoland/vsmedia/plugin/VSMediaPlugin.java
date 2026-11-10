@@ -311,7 +311,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         external.clear();
-        HandlerList.unregisterAll(this);
+        HandlerList.unregisterAll((Listener) this);
         stopStudioWeb();
         stopStudioCore();
         if (controller != null) {
