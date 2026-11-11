@@ -174,7 +174,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
 
     private void startStudioCore() {
         studioCore=new StudioCoreProcess(getLogger());
-        if (getConfig().getBoolean("studio-core.autostart",false)) {
+        if (getConfig().getBoolean("studio-core.autostart",true)) {
             studioCore.start(getDataFolder().toPath());
         } else {
             getLogger().info("Auto-start of bundled VSCore is disabled.");
