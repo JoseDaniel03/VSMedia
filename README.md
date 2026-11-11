@@ -83,3 +83,16 @@ La web 2026 v11 se puede incorporar en `web/` sin reemplazar Rust Core ni el plu
 ## Inicio automático desde Folia
 
 El plugin inicia VSMedia Web al habilitarse. La web v11 se incorpora al JAR desde la carpeta `web/` del repositorio y delega la edición/render al navegador. [Instrucciones de empaquetado y seguridad](docs/FOLIA-WEB-V11.md).
+
+## Arranque de VSCore desde Folia (VSCinematic/VSRender)
+
+Al activar el plugin, el backend Rust VSCore incluido en el JAR se inicia por defecto
+en Linux x86_64, escuchando solamente en `127.0.0.1:3061`. Si ya existe una
+instancia activa, la reutiliza y **no** ejecuta otra. Si falta el binario o no
+se está ejecutando en una plataforma compatible, la web sigue activa y se
+registra un aviso; no se declara una integración de fuentes/pack operativa.
+
+Los ajustes existentes en `plugins/VSMedia/config.yml` no se sobrescriben.
+Si una instalación anterior ya tenía `studio-core.autostart: false`, cambiarlo a
+`true` y reiniciar para activar el nuevo valor. Para instalaciones nuevas
+`true` es el valor por defecto. El puerto 3061 **no** debe exponerse a Internet.
