@@ -93,6 +93,7 @@ pub struct Station {
     pub anchor_unix_ms:u64,
     pub cycle_ms:u64,
     pub revision:String,
+    #[serde(default)]pub durations_ms:Vec<u64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -163,7 +164,8 @@ pub async fn publish_station(State(store):State<Store>,Path(id):Path<String>,
         if old.revision==revision {old.anchor_unix_ms}else{now}
     } else {now};
     let station=Station{id:id.clone(),display_name:req.display_name,
-        playlist:req.playlist,anchor_unix_ms:anchor,cycle_ms:cycle,revision};
+        playlist:req.playlist,anchor_unix_ms:anchor,cycle_ms:cycle,revision,
+        durations_ms:durations.clone()};
     store.publish(key,AssetKind::Other,&serde_json::to_vec(&station).map_err(bad)?)
         .map_err(not_found)?;
     Ok(Json(snapshot(&station,&durations,now)))
@@ -181,7 +183,13 @@ pub async fn list_stations(State(store):State<Store>)->Result<Json<Value>,ApiErr
 }
 pub async fn now(State(store):State<Store>,Path(id):Path<String>)->Result<Json<Value>,ApiError>{
     let station=load(&store,&id)?;
-    let times=playlist_durations(&store,&station.playlist)?;
+    // Stable cached durations make frequent live clock polls O(number of tracks)
+    // without repeatedly loading potentially hundreds of MiB of PCM from SQLite.
+    let cached_valid=station.durations_ms.len()==station.playlist.len()
+        && station.durations_ms.iter().all(|t|*t>0)
+        && station.durations_ms.iter().sum::<u64>()==station.cycle_ms;
+    let times=if cached_valid {station.durations_ms.clone()}
+        else {playlist_durations(&store,&station.playlist)?};
     Ok(Json(snapshot(&station,&times,millis())))
 }
 #[cfg(test)]
@@ -205,7 +213,8 @@ mod tests{
     }
     #[test]fn timeline_joins_at_current_position_and_wraps(){
         let station=Station{id:"latinsabroso".into(),display_name:"LatinSabroso".into(),
-            playlist:vec!["tema1".into(),"tema2".into()],anchor_unix_ms:1000,cycle_ms:6000,revision:"a".into()};
+            playlist:vec!["tema1".into(),"tema2".into()],anchor_unix_ms:1000,cycle_ms:6000,
+            revision:"a".into(),durations_ms:vec![2000,4000]};
         let at=snapshot(&station,&[2000,4000],4500);
         assert_eq!(at["track"],"tema2");assert_eq!(at["position_ms"],1500);
         assert_eq!(at["remaining_ms"],2500);
