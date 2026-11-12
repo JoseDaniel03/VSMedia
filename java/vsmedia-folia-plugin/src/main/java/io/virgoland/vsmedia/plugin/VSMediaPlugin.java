@@ -336,6 +336,40 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                 sender.sendMessage(ChatColor.GREEN + "Configuracion VSMedia recargada. Pack: "
                         + (active == null ? "desactivado/invalido" : active.logicalId()));
             }
+            case "packs" -> {
+                if (args.length < 2) {
+                    sender.sendMessage(ChatColor.YELLOW + "Uso: /vsmedia packs <jugador>");
+                    return true;
+                }
+                Player target = Bukkit.getPlayerExact(args[1]);
+                if (target == null) {
+                    sender.sendMessage(ChatColor.RED + "Jugador no encontrado.");
+                    return true;
+                }
+                List<ResourcePackDelivery> expected = orderedLayers(
+                        external.getOrDefault(target.getUniqueId(), Map.of()));
+                if (expected == null) {
+                    sender.sendMessage(ChatColor.RED + "Hay demasiados Resource Packs para ese jugador.");
+                    return true;
+                }
+                if (expected.isEmpty()) {
+                    sender.sendMessage(ChatColor.YELLOW + "No hay capas configuradas.");
+                    return true;
+                }
+                sender.sendMessage(ChatColor.GOLD + "[VSMedia] Estado de packs de " + target.getName());
+                for (ResourcePackDelivery delivery : expected) {
+                    String status = controller.coordinator()
+                            .snapshot(target.getUniqueId(), delivery.packId())
+                            .map(item -> item.sha1Hex().equals(delivery.sha1Hex())
+                                    ? item.status().name() : "VERSION_ANTERIOR")
+                            .orElse("NO_OFRECIDO");
+                    sender.sendMessage(ChatColor.GRAY + delivery.logicalId() + " "
+                            + delivery.sha1Hex().substring(0, 8) + " · " + status);
+                }
+                sender.sendMessage(ChatColor.GRAY
+                        + "SUCCESSFULLY_LOADED = Minecraft notificó carga; "
+                        + "no confirma que un sonido específico haya sonado.");
+            }
             case "send" -> {
                 Player target;
                 if (args.length >= 2) {
@@ -364,7 +398,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
             case "title", "subtitle", "preview", "chatfont", "play", "sound", "stopsound" ->
                     playback.execute(sender, sub, args);
             default -> sender.sendMessage(ChatColor.YELLOW
-                    + "Uso: /vsmedia <status|web|reload|send|title|subtitle|preview|chatfont|play|stopsound>");
+                    + "Uso: /vsmedia <status|web|reload|send|packs|title|subtitle|preview|chatfont|play|stopsound>");
         }
         return true;
     }
