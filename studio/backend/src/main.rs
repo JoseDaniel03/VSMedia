@@ -435,6 +435,42 @@ mod tests {
             .body(Body::from(body)).unwrap()
     }
     #[tokio::test]
+    async fn published_sound_is_persistent_and_included_in_unified_pack() {
+        use std::io::Read;
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let mut ogg=vec![0;128];
+        ogg[..4].copy_from_slice(b"OggS");
+        ogg[10..17].copy_from_slice(b"\x01vorbis");
+        let upload=app.clone().oneshot(request(Method::POST,
+            "/api/v1/sounds/intro",ogg)).await.unwrap();
+        assert_eq!(upload.status(),StatusCode::OK);
+        let response:Value=serde_json::from_slice(
+            &to_bytes(upload.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(response["id"],"vsmedia:published.intro");
+        assert_eq!(response["deliveredToMinecraft"],false);
+        let listing=app.clone().oneshot(request(Method::GET,
+            "/api/v1/sounds",vec![])).await.unwrap();
+        let listed:Value=serde_json::from_slice(
+            &to_bytes(listing.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(listed["sounds"][0]["name"],"intro");
+        let exported=app.clone().oneshot(request(Method::GET,
+            "/api/v1/packs/export",vec![])).await.unwrap();
+        assert_eq!(exported.status(),StatusCode::OK);
+        let bytes=to_bytes(exported.into_body(),32*1024*1024).await.unwrap();
+        let mut zip=zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        assert!(zip.by_name("assets/vsmedia/sounds/published/intro.ogg").is_ok());
+        let mut manifest=String::new();
+        zip.by_name("assets/vsmedia/sounds.json").unwrap()
+            .read_to_string(&mut manifest).unwrap();
+        let data:Value=serde_json::from_str(&manifest).unwrap();
+        assert_eq!(data["published.intro"]["sounds"][0]["name"],
+            "vsmedia:published/intro");
+        drop(zip);drop(app);drop(db);
+        let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn vspack_saved_project_roundtrip_survives_restart_and_checks_revisions(){
         let (db,dir)=store();
         let project_dir=dir.join("vspack-projects");
