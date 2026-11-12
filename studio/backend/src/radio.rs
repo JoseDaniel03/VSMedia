@@ -201,7 +201,7 @@ mod tests{
     #[test]fn validates_wav_and_duration(){
         let w=wave(2);assert_eq!(duration(&w).unwrap(),2000);
         let mut invalid=w.clone();invalid[22]=2;assert!(pcm(&invalid).is_err());
-        let mut invalid=w;invalid[40]=0;assert!(pcm(&invalid).is_err());
+        let mut invalid=w;invalid[40]=1;assert!(pcm(&invalid).is_err());
     }
     #[test]fn timeline_joins_at_current_position_and_wraps(){
         let station=Station{id:"latinsabroso".into(),display_name:"LatinSabroso".into(),
