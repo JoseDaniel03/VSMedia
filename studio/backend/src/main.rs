@@ -1,6 +1,7 @@
 //! Development-only VSMedia Studio HTTP bridge. Reuses the actual SQLite CAS,
 //! native document parser, project revisions and non-destructive Studio editor.
-//! Only listens on loopback. No plugin broadcasting or radio transmitters.
+//! Only listens on loopback. VSRadio stores a shared playlist clock; the
+//! optional Plasmo Voice server addon provides game audio outside this process.
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 mod live;
 mod packs;
