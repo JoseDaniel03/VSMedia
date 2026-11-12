@@ -6,6 +6,7 @@ folia-supported: true
 description: 'VSMedia 26.3 - central resource pack distribution for Folia'
 authors: [Virgoland]
 website: https://github.com/JoseDaniel03/VSMedia
+depend: [PlasmoVoice]
 commands:
   vsmedia:
     description: 'Manage resource packs, play published sounds and preview Minecraft fonts'
