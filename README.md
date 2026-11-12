@@ -5,6 +5,17 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 
 > **Estado: desarrollo activo.** Solo código fuente, pruebas y documentación. No se ha publicado ningún JAR, ZIP final, release ni plugin instalable. Voice Chat y streaming NO están implementados.
 
+## VSRadio: emisoras sincronizadas para Minecraft (rama de desarrollo)
+
+La playlist local del editor VSRadio puede publicarse mediante **◉ Emitir en
+Minecraft**. VSCore guarda pistas PCM16 mono 48 kHz y un reloj UTC de emisora.
+El nuevo comando `/vsradio emisora LatinSabroso` sintoniza la fuente compartida
+Plasmo Voice donde se encuentre la canción; `/vsradio apagar` la desconecta.
+
+Requiere PlasmoVoice en servidor y clientes, y una futura compilación del
+plugin autorizado para desplegar los cambios. El audio de micrófono WebRTC
+no está enlazado a este sistema. [Manual VSRadio](docs/VSRADIO-LIVE.md).
+
 ## VSPack: packs optimizados y publicación CDN (rama de desarrollo)
 
 Se añadió el publicador offline tools/vspack_publish.py: exporta el ZIP de VSCore
