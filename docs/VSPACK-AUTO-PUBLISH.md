@@ -116,7 +116,10 @@ publication:
 
 Recargar con /vsmedia reload. Después, publicar un ZIP nuevo no requiere recompilar el plugin. Los clientes descargan desde R2 y no desde el servidor Minecraft. El intervalo de comprobación se restringe a 60-3600 segundos.
 
-El watcher no sigue redirecciones y exige HTTPS, mismo host para todos los ZIPs y hashes y tamaños válidos. La actualización de recursos en clientes reales requiere confirmación in-game.
+El watcher no sigue redirecciones y exige HTTPS, mismo host para todos los ZIPs y hashes y tamaños válidos.
+El comando de administración /vsmedia packs <jugador> muestra por capa si el cliente
+la descargó, rechazó, falló o notificó SUCCESSFULLY_LOADED. No confirma
+reproducción individual de audio. La actualización de recursos en clientes reales requiere confirmación in-game.
 
 ## Pruebas sin empaquetar JAR
 
