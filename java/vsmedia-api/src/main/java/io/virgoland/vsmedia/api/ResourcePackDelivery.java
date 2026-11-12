@@ -28,7 +28,7 @@ public record ResourcePackDelivery(
         }
         if (sha1Hex.length() != 40
                 || !sha1Hex.matches("[0-9a-f]{40}")
-                || sizeBytes < 0 || sizeBytes > 64L * 1024 * 1024) {
+                || sizeBytes < 0 || sizeBytes > 250L * 1024 * 1024) {
             throw new IllegalArgumentException("Invalid Minecraft pack hash or size");
         }
     }
