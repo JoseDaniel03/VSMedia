@@ -442,6 +442,55 @@ mod tests {
             .body(Body::from(body)).unwrap()
     }
     #[tokio::test]
+    async fn radio_emisora_publishes_and_reconnects_at_shared_live_position() {
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let count=48000u32;
+        let mut wav=Vec::new();
+        wav.extend(b"RIFF");wav.extend((count*2+36).to_le_bytes());
+        wav.extend(b"WAVEfmt ");wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());wav.extend(1u16.to_le_bytes());
+        wav.extend(48000u32.to_le_bytes());wav.extend(96000u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");wav.extend((count*2).to_le_bytes());
+        wav.resize(44+count as usize*2,0);
+        let upload=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/tracks/latinsabroso_001",wav)).await.unwrap();
+        assert_eq!(upload.status(),StatusCode::OK);
+        let imported:Value=serde_json::from_slice(
+            &to_bytes(upload.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(imported["duration_ms"],1000);
+        let station=json!({"display_name":"LatinSabroso",
+            "playlist":["latinsabroso_001"],"elapsed_ms":430});
+        let posted=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/stations/latinsabroso",
+            serde_json::to_vec(&station).unwrap())).await.unwrap();
+        assert_eq!(posted.status(),StatusCode::OK);
+        let started:Value=serde_json::from_slice(
+            &to_bytes(posted.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(started["track"],"latinsabroso_001");
+        assert_eq!(started["position_ms"],430);
+        let now=app.clone().oneshot(request(Method::GET,
+            "/api/v1/radio/stations/latinsabroso/now",vec![])).await.unwrap();
+        assert_eq!(now.status(),StatusCode::OK);
+        let value:Value=serde_json::from_slice(
+            &to_bytes(now.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(value["display_name"],"LatinSabroso");
+        assert_eq!(value["playing"],true);
+        let audio=app.clone().oneshot(request(Method::GET,
+            "/api/v1/radio/tracks/latinsabroso_001/pcm",vec![])).await.unwrap();
+        assert_eq!(audio.status(),StatusCode::OK);
+        assert_eq!(to_bytes(audio.into_body(),256*1024).await.unwrap().len(),96000);
+        drop(app);
+        let restarted=router(db.clone());
+        let status=restarted.oneshot(request(Method::GET,
+            "/api/v1/radio/stations/latinsabroso/now",vec![])).await.unwrap();
+        assert_eq!(status.status(),StatusCode::OK);
+        drop(db);
+        let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn published_sound_is_persistent_and_included_in_unified_pack() {
         use std::io::Read;
         let (db,dir)=store();
