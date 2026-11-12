@@ -456,6 +456,31 @@ def download_studio_export(url: str) -> bytes:
     return data
 
 
+def studio_session_pack_count(studio_url: str) -> int | None:
+    """Best-effort guard against accidentally publishing missing ephemeral VSPack sources."""
+    from urllib.parse import urlsplit
+    from urllib.request import build_opener, HTTPRedirectHandler, ProxyHandler
+    from urllib.error import URLError
+    parsed = urlsplit(studio_url)
+    if (parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost")
+            or parsed.port not in (3060, 3061)
+            or parsed.path != "/api/v1/packs/export" or parsed.query or parsed.fragment):
+        raise PackError("URL de VSCore fuera de loopback")
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, request, fp, code, msg, headers, newurl):
+            return None
+    opener = build_opener(ProxyHandler({}), NoRedirect())
+    try:
+        with opener.open(studio_url.removesuffix("/export"), timeout=5) as response:
+            data = response.read(65537)
+        if len(data) > 65536:
+            return None
+        packs = json.loads(data).get("packs")
+        return len(packs) if isinstance(packs, list) else None
+    except (OSError, URLError, ValueError, KeyError, TypeError):
+        return None
+
+
 def watch_once(root: Path, studio_url: str, limit: int, profile: str,
                packsquash: str | None, require_optimizer: bool, publish: bool,
                prefix: str) -> dict:
@@ -466,6 +491,10 @@ def watch_once(root: Path, studio_url: str, limit: int, profile: str,
     root.mkdir(parents=True, exist_ok=True)
     state_file = root / "publication-state.json"
     state = json.loads(state_file.read_text("utf-8")) if state_file.exists() else {}
+    count = studio_session_pack_count(studio_url)
+    if (state.get("source_pack_count", 0) > 0 and count == 0):
+        raise PackError("Los packs importados ya no están cargados en la sesión VSPack. "
+                        "Reimportá las fuentes originales antes de publicar esta revisión.")
     if state.get("source_sha256") == sha256 and (
             not publish or state.get("status") == "uploaded_to_r2"):
         return {"changed": False, "source_sha256": sha256, "status": state.get("status")}
@@ -490,6 +519,7 @@ def watch_once(root: Path, studio_url: str, limit: int, profile: str,
     else:
         status = "built_not_published"
     next_state = {"schema": "vspack-watch-v1", "source_sha256": sha256,
+                  "source_pack_count": count if count is not None else state.get("source_pack_count", 0),
                   "revision": destination.name, "status": status}
     temporary = state_file.with_suffix(".tmp")
     temporary.write_text(json.dumps(next_state, indent=2) + "\n", "utf-8")
