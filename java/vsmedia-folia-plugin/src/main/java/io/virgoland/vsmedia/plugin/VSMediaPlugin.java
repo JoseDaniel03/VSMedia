@@ -4,6 +4,7 @@ import io.virgoland.vsmedia.api.ResourcePackDelivery;
 import io.virgoland.vsmedia.api.ResourcePackSessionCoordinator;
 import io.virgoland.vsmedia.api.ResourcePackStack;
 import io.virgoland.vsmedia.folia.FoliaResourcePackController;
+import su.plo.voice.api.server.PlasmoVoiceServer;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -49,6 +50,14 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
     private StudioWebServer studioWeb;
     private StudioCoreProcess studioCore;
     private PlaybackControl playback;
+    private final RadioVoiceAddon voiceAddon = new RadioVoiceAddon();
+    private RadioService radioService;
+
+    @Override
+    public void onLoad() {
+        // PlasmoVoice is declared as a dependency in plugin.yml and is loaded first.
+        PlasmoVoiceServer.getAddonsLoader().load(voiceAddon);
+    }
 
     @Override
     public void onEnable() {
@@ -56,6 +65,9 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         loadConfiguredPack();
         getServer().getPluginManager().registerEvents(this, this);
         playback = new PlaybackControl(this);
+        if (getConfig().getBoolean("radio.enabled", true)) {
+            radioService = new RadioService(this, voiceAddon);
+        }
         getServer().getPluginManager().registerEvents(playback, this);
         startStudioCore();
         startStudioWeb();
@@ -63,6 +75,19 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         PluginCommand command = Objects.requireNonNull(getCommand("vsmedia"),
                 "The VSMedia plugin.yml does not declare /vsmedia");
         command.setExecutor(this::command);
+        PluginCommand radioCommand = Objects.requireNonNull(getCommand("vsradio"),
+                "plugin.yml no declara /vsradio");
+        radioCommand.setExecutor((sender, commandLabel, alias, args) -> {
+            if (!sender.hasPermission("vsradio.listen")) {
+                sender.sendMessage(ChatColor.RED + "No tenés permiso para sintonizar VSRadio.");
+                return true;
+            }
+            if (radioService == null) {
+                sender.sendMessage(ChatColor.RED + "VSRadio está desactivada en config.yml.");
+                return true;
+            }
+            return radioService.command(sender, args);
+        });
         getLogger().info("VSMedia 26.3 enabled: web autostart; /vsmedia web muestra la dirección");
         getLogger().info(active == null
                 ? "No resource pack is configured. Studio remains available from this plugin."
@@ -179,6 +204,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         external.remove(event.getPlayer().getUniqueId());
+        if (radioService != null) radioService.quit(event.getPlayer().getUniqueId());
     }
 
     private void startStudioCore() {
@@ -405,6 +431,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (radioService != null) {radioService.close();radioService = null;}
         stopRemoteCatalog();
         external.clear();
         HandlerList.unregisterAll((Listener) this);
