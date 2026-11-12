@@ -70,6 +70,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   java-api:
+    # JAR packaging paused by request. Reactivate only when explicitly requested.
+    if: ${{ false }}
     needs: [studio-frontend, studio-backend]
     runs-on: ubuntu-latest
     steps:
