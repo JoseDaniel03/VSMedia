@@ -43,6 +43,7 @@ import su.plo.voice.api.server.player.VoicePlayer;
  */
 final class RadioService implements AutoCloseable {
     private static final int MAX_ACTIVE_STATIONS = 8;
+    private final int maxActiveStations;
     private static final int MAX_PCM_BYTES = 32 * 1024 * 1024;
     private static final URI CORE = URI.create("http://127.0.0.1:3061");
     private final VSMediaPlugin plugin;
@@ -79,6 +80,8 @@ final class RadioService implements AutoCloseable {
         this.plugin=Objects.requireNonNull(plugin);
         this.addon=Objects.requireNonNull(addon);
         this.logger=plugin.getLogger();
+        this.maxActiveStations=Math.max(1,Math.min(MAX_ACTIVE_STATIONS,
+            plugin.getConfig().getInt("radio.max-active-stations", MAX_ACTIVE_STATIONS)));
         tasks.scheduleWithFixedDelay(this::tickSafely, 250L, 250L, TimeUnit.MILLISECONDS);
     }
 
@@ -171,8 +174,8 @@ final class RadioService implements AutoCloseable {
             }
             String previous=tuning.get(id);
             if(!station.equals(previous) && !broadcasts.containsKey(station)
-                    && broadcasts.size()>=MAX_ACTIVE_STATIONS) {
-                tell(player,ChatColor.RED+"Capacidad de emisoras activas agotada (8).");
+                    && broadcasts.size()>=maxActiveStations) {
+                tell(player,ChatColor.RED+"Capacidad de emisoras activas agotada ("+maxActiveStations+").");
                 return;
             }
             if(previous!=null&&!previous.equals(station))remove(id);
