@@ -29,6 +29,12 @@ jobs:
           path: studio/backend/target/release/vsmedia-studio-bridge
           if-no-files-found: error
           retention-days: 14
+  vspack-publication:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate offline optimization and R2 publisher without compiling JARs
+        run: python3 -m unittest discover -s tests -p 'test_vspack_publish.py' -v
   studio-frontend:
     runs-on: ubuntu-latest
     steps:
