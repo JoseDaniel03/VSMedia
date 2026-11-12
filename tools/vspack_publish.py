@@ -399,6 +399,31 @@ def publish_r2(directory: Path, prefix: str) -> dict:
     return published
 
 
+
+def download_studio_export(url: str) -> bytes:
+    """Allow only loopback endpoints; never fetch a user-controlled Internet URL."""
+    from urllib.parse import urlsplit
+    from urllib.request import build_opener, HTTPRedirectHandler, ProxyHandler
+    parsed = urlsplit(url)
+    if (parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost")
+            or parsed.port not in (3060, 3061) or parsed.username is not None
+            or parsed.password is not None or parsed.query or parsed.fragment
+            or parsed.path != "/api/v1/packs/export"):
+        raise PackError("Solo se permite importar desde VSMedia local :3060 o :3061")
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, request, fp, code, msg, headers, newurl):
+            return None
+    opener = build_opener(ProxyHandler({}), NoRedirect())
+    with opener.open(url, timeout=60) as response:
+        if response.status != 200:
+            raise PackError("VSCore no respondió 200 al exportar")
+        data = response.read(MAX_UNPACKED + 1)
+    if len(data) > MAX_UNPACKED:
+        raise PackError("Resource Pack exportado supera la cuota de 512 MiB")
+    inspect_zip(data)
+    return data
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="VSPack: optimizar, dividir y publicar packs sin generar JAR")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -409,6 +434,15 @@ def main(argv: list[str] | None = None) -> int:
     build_parser.add_argument("--profile", choices=("lossless", "balanced", "compact"), default="balanced")
     build_parser.add_argument("--packsquash", help="Ruta ejecutable PackSquash (opcional)")
     build_parser.add_argument("--require-packsquash", action="store_true")
+    studio_parser = commands.add_parser("studio", help="Leer el ZIP directamente de VSCore local, construir y opcionalmente publicar")
+    studio_parser.add_argument("destination", type=Path)
+    studio_parser.add_argument("--studio-url", default="http://127.0.0.1:3061/api/v1/packs/export")
+    studio_parser.add_argument("--max-mib", type=int, default=90)
+    studio_parser.add_argument("--profile", choices=("lossless", "balanced", "compact"), default="balanced")
+    studio_parser.add_argument("--packsquash")
+    studio_parser.add_argument("--require-packsquash", action="store_true")
+    studio_parser.add_argument("--publish-r2", action="store_true", help="Requiere secretos R2 en variables de entorno")
+    studio_parser.add_argument("--prefix", default="virgoland")
     verify_parser = commands.add_parser("verify", help="Validar hashes, rutas y límites de una publicación")
     verify_parser.add_argument("directory", type=Path)
     publish_parser = commands.add_parser("publish-r2", help="Subir versión inmutable a Cloudflare R2")
@@ -416,7 +450,18 @@ def main(argv: list[str] | None = None) -> int:
     publish_parser.add_argument("--prefix", default="virgoland")
     args = parser.parse_args(argv)
     try:
-        if args.command == "build":
+        if args.command == "studio":
+            with tempfile.TemporaryDirectory(prefix="vspack-studio-") as folder:
+                source = Path(folder) / "vsmedia-export.zip"
+                source.write_bytes(download_studio_export(args.studio_url))
+                report = build(source, args.destination, args.max_mib, args.profile,
+                               args.packsquash, args.require_packsquash)
+            print("Pack de Studio listo:", len(report["packs"]), "capas")
+            for note in report["notes"]:
+                print(" Nota:", note)
+            if args.publish_r2:
+                publish_r2(args.destination, args.prefix)
+        elif args.command == "build":
             report = build(args.source, args.destination, args.max_mib,
                            args.profile, args.packsquash, args.require_packsquash)
             print("OK:", len(report["packs"]), "packs, perfil", report["profile"])
