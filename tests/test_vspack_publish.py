@@ -189,5 +189,31 @@ class VSPackPublishTests(unittest.TestCase):
         self.assertEqual(uploaded[0]["ContentType"], "application/json")
 
 
+    def test_watch_builds_only_changed_source(self):
+        payload = fixture({"assets/demo/lang/en_us.json": b'{"hello":"world"}'})
+        root = self.directory / "watch"
+        with patch.object(tool, "download_studio_export", return_value=payload):
+            first = tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                    90, "lossless", None, False, False, "virgoland")
+            second = tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                     90, "lossless", None, False, False, "virgoland")
+        self.assertTrue(first["changed"])
+        self.assertFalse(second["changed"])
+        self.assertEqual(first["source_sha256"], second["source_sha256"])
+        self.assertTrue((root / first["revision"] / "manifest.json").is_file())
+        self.assertEqual(len(list(root.glob("revision-*"))), 1)
+
+    def test_watch_failed_publish_does_not_promote_state(self):
+        payload = fixture({"assets/demo/lang/en_us.json": b'{}'})
+        root = self.directory / "failedwatch"
+        with patch.object(tool, "download_studio_export", return_value=payload):
+            with patch.object(tool, "publish_r2", side_effect=tool.PackError("R2 no disponible")):
+                with self.assertRaises(tool.PackError):
+                    tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                    90, "lossless", None, False, True, "virgoland")
+        self.assertFalse((root / "publication-state.json").exists())
+
+
+
 if __name__ == "__main__":
     unittest.main()
