@@ -8,10 +8,10 @@ authors: [Virgoland]
 website: https://github.com/JoseDaniel03/VSMedia
 commands:
   vsmedia:
-    description: 'Check VSMedia status, reload its config or offer a configured pack'
-    usage: '/vsmedia <status|web|reload|send [player]>'
+    description: 'Manage resource packs, play published sounds and preview Minecraft fonts'
+    usage: '/vsmedia <status|web|reload|send|title|subtitle|preview|chatfont|play|sound|stopsound>'
     permission: vsmedia.admin
 permissions:
   vsmedia.admin:
-    description: 'Manage the VSMedia test plugin and offer resource packs'
+    description: 'Manage VSMedia packs and player audio/typography controls'
     default: op
