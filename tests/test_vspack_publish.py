@@ -156,5 +156,38 @@ class VSPackPublishTests(unittest.TestCase):
                 tool.publish_r2(out, "virgoland")
 
 
+    def test_studio_source_rejects_remote_urls_and_redirect_tricks(self):
+        for value in ("https://example.org/demo.zip",
+                      "http://127.0.0.1:3000/api/v1/packs/export",
+                      "http://evil.example:3061/api/v1/packs/export",
+                      "http://127.0.0.1:3061/api/v1/packs/export?target=evil",
+                      "http://127.0.0.1:3061/anything-else"):
+            with self.subTest(value=value):
+                with self.assertRaises(tool.PackError):
+                    tool.download_studio_export(value)
+
+    def test_r2_rollback_updates_only_current_pointer(self):
+        report, out = self.build({"assets/demo/lang/en_us.json": b'{}'})
+        uploaded = []
+        class Client:
+            def put_object(self, **kwargs):
+                uploaded.append(kwargs)
+        fake = types.SimpleNamespace(client=lambda *args, **kwargs: Client())
+        env = {
+            "VSPACK_R2_ENDPOINT": "https://example.r2.cloudflarestorage.com",
+            "VSPACK_R2_BUCKET": "packs",
+            "VSPACK_R2_PUBLIC_URL": "https://packs.example.org",
+            "VSPACK_R2_ACCESS_KEY_ID": "fake",
+            "VSPACK_R2_SECRET_ACCESS_KEY": "fake",
+        }
+        with patch.dict(os.environ, env), patch.dict(sys.modules, {"boto3": fake}):
+            tool.publish_r2(out, "virgoland")
+            uploaded.clear()
+            tool.rollback_r2(out, "virgoland")
+        self.assertEqual(len(uploaded), 1)
+        self.assertEqual(uploaded[0]["Key"], "virgoland/current.json")
+        self.assertEqual(uploaded[0]["ContentType"], "application/json")
+
+
 if __name__ == "__main__":
     unittest.main()
