@@ -322,8 +322,22 @@ final class RadioService implements AutoCloseable {
 
     @Override
     public void close() {
-        tasks.shutdownNow();
-        for(StationAudio audio:broadcasts.values())closeStream(audio);
-        broadcasts.clear();tuning.clear();
+        // Execute cleanup on the SAME single worker as the station maps;
+        // a Bukkit disable thread must not race with an in-flight HTTP tick.
+        try {
+            java.util.concurrent.Future<?> done=tasks.submit(() -> {
+                for(StationAudio audio:broadcasts.values())closeStream(audio);
+                broadcasts.clear();
+                tuning.clear();
+            });
+            done.get(10,TimeUnit.SECONDS);
+        }catch(java.util.concurrent.RejectedExecutionException ignored) {
+            // Shutdown already started.
+        }catch(Exception error) {
+            logger.warning("VSRadio no pudo limpiar a tiempo: "
+                +error.getClass().getSimpleName());
+        }finally {
+            tasks.shutdownNow();
+        }
     }
 }
