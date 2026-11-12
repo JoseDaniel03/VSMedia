@@ -6,6 +6,7 @@ mod live;
 mod packs;
 mod fonts;
 mod published_sounds;
+mod radio;
 mod pack_manager;
 mod pack_projects;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
@@ -65,7 +66,7 @@ async fn capabilities() -> Json<Value> {
     Json(json!({"api_version":"v1","audio_process":true,
         "audio_render_formats":["wav"],"minecraft_sound_upload":"ogg_vorbis", "minecraft_sound_pack_export":true,
         "audio_render_output":"wav_pcm16_48000_stereo",
-        "radio_broadcast":false,"live_monitoring":false,
+        "radio_broadcast":true,"radio_transport":"plasmo_voice_optional", "radio_station_clock":"utc_playlist", "live_monitoring":false,
         "webrtc_signaling":true,"webrtc_voice_rooms":false,
         "webrtc_radio_peer_mesh":true,"max_radio_peers":16,
         "vsstreams_provider":"plasmo_voice","vsstreams_connected":false,
@@ -345,6 +346,12 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .route("/api/v1/fonts/file",get(fonts::file))
         .route("/api/v1/sounds",get(published_sounds::list))
         .route("/api/v1/sounds/{name}",post(published_sounds::publish))
+        .route("/api/v1/radio/stations",get(radio::list_stations))
+        .route("/api/v1/radio/stations/{id}",post(radio::publish_station))
+        .route("/api/v1/radio/stations/{id}/now",get(radio::now))
+        .route("/api/v1/radio/tracks/{id}",post(radio::upload_track)
+            .layer(DefaultBodyLimit::max(32*1024*1024)))
+        .route("/api/v1/radio/tracks/{id}/pcm",get(radio::track_pcm))
         .route("/api/v1/health",get(health))
         .route("/api/v1/capabilities",get(capabilities))
         .route("/api/v1/live/ws",get(live::socket))
