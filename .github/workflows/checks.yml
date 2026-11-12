@@ -83,6 +83,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
+      - name: Provide a tiny web fixture for the existing HTTP unit tests (no JAR)
+        run: |
+          mkdir -p java/vsmedia-folia-plugin/target/studio-web
+          printf '<!doctype html><title>VSMedia test fixture</title>\n' > java/vsmedia-folia-plugin/target/studio-web/index.html
       - name: Compile Java sources and run tests without packaging any JAR
         run: mvn -B -f java/pom.xml test
   java-api:
