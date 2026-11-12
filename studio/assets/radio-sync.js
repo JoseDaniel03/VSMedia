@@ -23,7 +23,7 @@
     return response;
   }
   const slug = name => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 34);
+    .toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 48);
   const currentRows = () => [...document.querySelectorAll(".radio-stage .playlist-rows .playlist-row")];
   const currentName = () => document.querySelector(".radio-stage .playlist-tab.active > button")?.textContent?.trim() || "";
   function status(message, error = false) {
