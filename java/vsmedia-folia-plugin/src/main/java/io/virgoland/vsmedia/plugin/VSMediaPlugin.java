@@ -2,6 +2,7 @@ package io.virgoland.vsmedia.plugin;
 
 import io.virgoland.vsmedia.api.ResourcePackDelivery;
 import io.virgoland.vsmedia.api.ResourcePackSessionCoordinator;
+import io.virgoland.vsmedia.api.ResourcePackStack;
 import io.virgoland.vsmedia.folia.FoliaResourcePackController;
 import java.net.URI;
 import java.util.ArrayList;
@@ -42,6 +43,8 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
     private final Map<UUID, Map<String, List<ResourcePackDelivery>>> external = new ConcurrentHashMap<>();
     private volatile FoliaResourcePackController controller;
     private volatile ResourcePackDelivery active;
+    private volatile List<ResourcePackDelivery> published = List.of();
+    private RemotePackCatalog remoteCatalog;
     private boolean required;
     private StudioWebServer studioWeb;
     private StudioCoreProcess studioCore;
@@ -56,6 +59,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(playback, this);
         startStudioCore();
         startStudioWeb();
+        startRemoteCatalog();
         PluginCommand command = Objects.requireNonNull(getCommand("vsmedia"),
                 "The VSMedia plugin.yml does not declare /vsmedia");
         command.setExecutor(this::command);
@@ -144,10 +148,12 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
             Map<String, List<ResourcePackDelivery>> sources) {
         List<ResourcePackDelivery> layers = new ArrayList<>();
         if (active != null) layers.add(active);
+        layers.addAll(published);
         sources.entrySet().stream().sorted(Map.Entry.comparingByKey())
                 .forEach(e -> layers.addAll(e.getValue()));
-        if (layers.size() > 8 || layers.stream().map(ResourcePackDelivery::packId)
-                .distinct().count() != layers.size()) return null;
+        if (layers.size() > ResourcePackStack.MAX_LAYERS
+                || layers.stream().map(ResourcePackDelivery::packId).distinct().count() != layers.size()
+                || layers.stream().map(ResourcePackDelivery::logicalId).distinct().count() != layers.size()) return null;
         return List.copyOf(layers);
     }
 
@@ -212,6 +218,50 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
             studioWeb=null;
         }
     }
+    private void startRemoteCatalog() {
+        if (!getConfig().getBoolean("publication.enabled", false)) return;
+        try {
+            String raw = getConfig().getString("publication.manifest-url", "");
+            long seconds = getConfig().getLong("publication.check-seconds", 300);
+            RemotePackCatalog catalog = new RemotePackCatalog(
+                    URI.create(raw), seconds, getLogger(), this::applyPublication);
+            remoteCatalog = catalog;
+            catalog.start();
+        } catch (RuntimeException invalid) {
+            getLogger().severe("No se pudo iniciar publicación automática: " + invalid.getMessage());
+        }
+    }
+
+    private void stopRemoteCatalog() {
+        RemotePackCatalog previous = remoteCatalog;
+        remoteCatalog = null;
+        if (previous != null) previous.close();
+        published = List.of();
+    }
+
+    /** Called by the HTTP worker; all Bukkit interactions run on the global region scheduler. */
+    private void applyPublication(List<ResourcePackDelivery> layers) {
+        try {
+            getServer().getGlobalRegionScheduler().run(this, task -> {
+                if (!isEnabled() || remoteCatalog == null || controller == null) return;
+                published = layers;
+                List<ResourcePackDelivery> common = orderedLayers(Map.of());
+                if (common == null || common.isEmpty()) {
+                    getLogger().warning("Publicación excede la capacidad total de capas");
+                    return;
+                }
+                controller.setCurrentStack(new ResourcePackStack(common));
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    List<ResourcePackDelivery> all = orderedLayers(
+                            external.getOrDefault(player.getUniqueId(), Map.of()));
+                    if (all != null) controller.offerLayersTo(player, false, all);
+                }
+            });
+        } catch (IllegalStateException stopped) {
+            // Server is shutting down; no update should outlive the plugin.
+        }
+    }
+
     private void loadConfiguredPack() {
         if (controller != null) {
             HandlerList.unregisterAll(controller);
@@ -256,6 +306,8 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                         + ChatColor.GRAY + " | Folia adapter cargado");
                 sender.sendMessage(ChatColor.GRAY + "Pack configurado: "
                         + (active == null ? "NO" : active.logicalId()));
+                sender.sendMessage(ChatColor.GRAY + "Capas publicadas por CDN: "
+                        + published.size());
                 sender.sendMessage(ChatColor.GRAY + "Fuentes externas activas: "
                         + external.values().stream().mapToInt(Map::size).sum());
                 sender.sendMessage(ChatColor.GRAY + "Ofertas rastreadas: "
@@ -273,12 +325,14 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                         + "Acceso remoto: tunel SSH recomendado, no abrir el puerto publicamente.");
             }
             case "reload" -> {
+                stopRemoteCatalog();
                 reloadConfig();
                 loadConfiguredPack();
                 stopStudioWeb();
                 stopStudioCore();
                 startStudioCore();
                 startStudioWeb();
+                startRemoteCatalog();
                 sender.sendMessage(ChatColor.GREEN + "Configuracion VSMedia recargada. Pack: "
                         + (active == null ? "desactivado/invalido" : active.logicalId()));
             }
@@ -317,6 +371,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        stopRemoteCatalog();
         external.clear();
         HandlerList.unregisterAll((Listener) this);
         if (playback != null) HandlerList.unregisterAll(playback);
