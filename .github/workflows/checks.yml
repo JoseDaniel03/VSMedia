@@ -75,6 +75,16 @@ jobs:
           path: studio/dist/
           if-no-files-found: error
           retention-days: 14
+  java-tests-no-jar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Compile Java sources and run tests without packaging any JAR
+        run: mvn -B -f java/pom.xml test
   java-api:
     # JAR packaging paused by request. Reactivate only when explicitly requested.
     if: ${{ false }}
