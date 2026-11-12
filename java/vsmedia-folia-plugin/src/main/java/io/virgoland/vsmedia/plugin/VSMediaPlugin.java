@@ -45,12 +45,15 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
     private boolean required;
     private StudioWebServer studioWeb;
     private StudioCoreProcess studioCore;
+    private PlaybackControl playback;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         loadConfiguredPack();
         getServer().getPluginManager().registerEvents(this, this);
+        playback = new PlaybackControl(this);
+        getServer().getPluginManager().registerEvents(playback, this);
         startStudioCore();
         startStudioWeb();
         PluginCommand command = Objects.requireNonNull(getCommand("vsmedia"),
@@ -302,8 +305,10 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                 controller.offerLayersTo(target, true, layers);
                 sender.sendMessage(ChatColor.GREEN + "Oferta programada para " + target.getName());
             }
+            case "title", "subtitle", "preview", "chatfont", "play", "sound", "stopsound" ->
+                    playback.execute(sender, sub, args);
             default -> sender.sendMessage(ChatColor.YELLOW
-                    + "Uso: /vsmedia <status|web|reload|send [jugador]>");
+                    + "Uso: /vsmedia <status|web|reload|send|title|subtitle|preview|chatfont|play|stopsound>");
         }
         return true;
     }
@@ -312,6 +317,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
     public void onDisable() {
         external.clear();
         HandlerList.unregisterAll((Listener) this);
+        if (playback != null) HandlerList.unregisterAll(playback);
         stopStudioWeb();
         stopStudioCore();
         if (controller != null) {
