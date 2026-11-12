@@ -364,8 +364,7 @@ def verify(directory: Path) -> dict:
     return manifest
 
 
-def publish_r2(directory: Path, prefix: str) -> dict:
-    manifest = verify(directory)
+def r2_settings(prefix: str):
     base = os.environ.get("VSPACK_R2_PUBLIC_URL", "").rstrip("/")
     endpoint = os.environ.get("VSPACK_R2_ENDPOINT", "")
     bucket = os.environ.get("VSPACK_R2_BUCKET", "")
@@ -383,6 +382,12 @@ def publish_r2(directory: Path, prefix: str) -> dict:
         raise PackError("Para subir a R2 instalá boto3: python -m pip install boto3") from exc
     client = boto3.client("s3", endpoint_url=endpoint,
         aws_access_key_id=access, aws_secret_access_key=secret, region_name="auto")
+    return client, bucket, base
+
+
+def publish_r2(directory: Path, prefix: str) -> dict:
+    manifest = verify(directory)
+    client, bucket, base = r2_settings(prefix)
     published = json.loads(json.dumps(manifest))
     for pack in published["packs"]:
         key = prefix.rstrip("/") + "/versions/" + pack["filename"]
@@ -402,6 +407,29 @@ def publish_r2(directory: Path, prefix: str) -> dict:
     print("Manifest publicado: " + base + "/" + published_key)
     return published
 
+
+
+
+def rollback_r2(directory: Path, prefix: str) -> dict:
+    """Restore a previously published, locally verified manifest, without re-uploading ZIPs."""
+    built = verify(directory)
+    previous_file = directory / "published-manifest.json"
+    published = json.loads(previous_file.read_text(encoding="utf-8"))
+    if published.get("schema") != "vspack-publication-v1" or published.get("status") != "uploaded_to_r2":
+        raise PackError("No hay una publicación anterior válida en esa carpeta")
+    if [(p["filename"], p["sha256"]) for p in built["packs"]] != [
+        (p["filename"], p["sha256"]) for p in published["packs"]]:
+        raise PackError("El manifiesto publicado no coincide con los ZIPs locales")
+    client, bucket, base = r2_settings(prefix)
+    for pack in published["packs"]:
+        if not isinstance(pack.get("url"), str) or not pack["url"].startswith(
+                base + "/" + prefix.rstrip("/") + "/versions/"):
+            raise PackError("Un ZIP de la versión anterior no pertenece al CDN configurado")
+    key = prefix.rstrip("/") + "/current.json"
+    client.put_object(Bucket=bucket, Key=key, Body=previous_file.read_bytes(),
+        ContentType="application/json", CacheControl="no-cache, max-age=0")
+    print("Versión anterior restaurada: " + base + "/" + key)
+    return published
 
 
 def download_studio_export(url: str) -> bytes:
@@ -449,6 +477,9 @@ def main(argv: list[str] | None = None) -> int:
     studio_parser.add_argument("--prefix", default="virgoland")
     verify_parser = commands.add_parser("verify", help="Validar hashes, rutas y límites de una publicación")
     verify_parser.add_argument("directory", type=Path)
+    rollback_parser = commands.add_parser("rollback-r2", help="Restaurar el manifest de una versión publicada anteriormente")
+    rollback_parser.add_argument("directory", type=Path, help="Carpeta anterior con published-manifest.json")
+    rollback_parser.add_argument("--prefix", default="virgoland")
     publish_parser = commands.add_parser("publish-r2", help="Subir versión inmutable a Cloudflare R2")
     publish_parser.add_argument("directory", type=Path)
     publish_parser.add_argument("--prefix", default="virgoland")
@@ -475,6 +506,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(" Nota:", note)
         elif args.command == "verify":
             print("OK:", len(verify(args.directory)["packs"]), "packs verificados")
+        elif args.command == "rollback-r2":
+            rollback_r2(args.directory, args.prefix)
         else:
             publish_r2(args.directory, args.prefix)
         return 0
