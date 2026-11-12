@@ -79,7 +79,7 @@ final class RadioService implements AutoCloseable {
         this.plugin=Objects.requireNonNull(plugin);
         this.addon=Objects.requireNonNull(addon);
         this.logger=plugin.getLogger();
-        tasks.scheduleWithFixedDelay(this::tickSafely, 1L, 1L, TimeUnit.SECONDS);
+        tasks.scheduleWithFixedDelay(this::tickSafely, 250L, 250L, TimeUnit.MILLISECONDS);
     }
 
     static String stationId(String name) {
@@ -164,7 +164,8 @@ final class RadioService implements AutoCloseable {
     private void tune(Player player,UUID id,String username,String station) {
         try {
             Now now=fetchNow(station); // Reject unknown station before modifying the old tuning.
-            if(addon.voiceServer().getPlayerManager().getPlayerByName(username).isEmpty()) {
+            if(addon.voiceServer().getPlayerManager().getPlayerByName(username)
+                .filter(voice -> voice.getModVersion().isPresent()).isEmpty()) {
                 tell(player,ChatColor.RED+"Activá y conectá Plasmo Voice en tu cliente para escuchar VSRadio.");
                 return;
             }
