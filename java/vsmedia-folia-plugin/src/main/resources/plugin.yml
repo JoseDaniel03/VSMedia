@@ -9,7 +9,7 @@ website: https://github.com/JoseDaniel03/VSMedia
 commands:
   vsmedia:
     description: 'Manage resource packs, play published sounds and preview Minecraft fonts'
-    usage: '/vsmedia <status|web|reload|send|title|subtitle|preview|chatfont|play|sound|stopsound>'
+    usage: '/vsmedia <status|web|reload|send|packs|title|subtitle|preview|chatfont|play|sound|stopsound>'
     permission: vsmedia.admin
 permissions:
   vsmedia.admin:
