@@ -39,11 +39,17 @@ jobs:
       - run: node --check studio/assets/live.js
       - run: node --check studio/assets/pack.js
       - run: node --check studio/assets/minecraft.js
+      - name: Prepare browser OGG/Vorbis codec
+        run: |
+          bash scripts/build-browser-vorbis.sh
+          node --check studio/assets/vs-ogg-vorbis.js
+          test -s studio/assets/vs-ogg-vorbis.js
       - name: Verify original FullCanvas Rust editor is preserved
         run: |
           test "$(git hash-object studio/src/app.rs)" = "93fa676d992100a805cf271e62d1ba7e56cd85fa"
           grep -F 'minecraft.js' studio/index.html
           test -s studio/assets/minecraft.js
+          grep -F 'vs-ogg-vorbis.js' studio/index.html
           test "$(git hash-object studio/src/studio_api.rs)" = "17315d3ce1900b84ab115d1f94f7d3339472824a"
       - run: cargo check --manifest-path studio/Cargo.toml --target wasm32-unknown-unknown
       - run: cargo test --manifest-path studio/test-support/Cargo.toml --all-targets
@@ -93,6 +99,7 @@ jobs:
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'io/virgoland/vsmedia/plugin/StudioCoreProcess.class'
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web/index.html'
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web/minecraft.js'
+          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web/vs-ogg-vorbis.js'
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -E 'studio-web/.*[.]wasm'
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-native/vsmedia-studio-bridge'
       - name: Verify bundled client web when web/ is published
