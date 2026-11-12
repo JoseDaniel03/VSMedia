@@ -4,7 +4,8 @@ Esta tanda agrega la publicación **dentro del ZIP** de sonido OGG Vorbis y fuen
 TTF/OTF y controles de títulos, chat y audio para el plugin Folia.
 **Agregar recursos al ZIP no los distribuye automáticamente al jugador.**
 La publicación HTTPS y aplicación efectiva del resource pack siguen siendo
-un paso operativo separado.
+un paso operativo separado hasta configurar R2 y desplegar el watcher del
+plugin. No se generan JARs en esta tanda.
 
 ## Desde VSAudio, VSMix o VSRadio
 
@@ -96,9 +97,11 @@ de que un jugador haya reproducido un sonido. El API de VSCore local
 
 ## Qué sigue sin estar terminado
 
-- **Distribución automática**: falta integrar un proveedor de alojamiento
-  HTTPS (p. ej. R2) y ofrecer el ZIP actualizado/confirmar aceptación
-  en los clientes sin editar manualmente `config.yml`.
+- **Distribución automática**: ya existe un publicador externo de packs
+  con perfiles de optimización, separación por tamaño, hashes, R2 y watcher
+  HTTPS en Folia en la rama de desarrollo. **Todavía es necesario configurar
+  una cuenta real R2, desplegar una futura compilación del plugin y comprobar
+  aceptación real en los clientes**. Guía: [VSPack Auto Publish](VSPACK-AUTO-PUBLISH.md).
 - **Publicación con un solo clic desde el proyecto abierto**: el panel usa
   el archivo exportado, porque la sesión VSMix sigue siendo un borrador
   del navegador. No se declara publicado un WAV sin convertirlo.
