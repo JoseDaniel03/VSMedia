@@ -196,7 +196,9 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         }
         int port=getConfig().getInt("studio-web.port", 3060);
         try {
-            studioWeb=new StudioWebServer(port,getLogger());
+            studioWeb=new StudioWebServer(port,getLogger(), args -> 
+                    getServer().getGlobalRegionScheduler().run(this, task ->
+                            playback.execute(getServer().getConsoleSender(), args[0], args)));
             studioWeb.start();
         } catch (IOException | RuntimeException error) {
             studioWeb=null;
