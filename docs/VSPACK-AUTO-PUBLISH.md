@@ -74,6 +74,30 @@ python3 tools/vspack_publish.py rollback-r2 ./publicaciones/v002 --prefix virgol
 
 Rollback requiere el published-manifest.json histórico, valida los ZIPs locales y restaura solo current.json, sin borrar archivos del CDN.
 
+## Modo automático continuo: watch
+
+Para que las modificaciones publicadas en VSMedia se conviertan en nuevas
+versiones sin ejecutar manualmente cada comando, iniciar el publicador como
+servicio de usuario en CachyOS/Linux. El proceso consulta el ZIP exportado
+por VSCore cada 300 segundos por defecto, compara su SHA-256 y solo genera
+o sube una nueva versión cuando cambia.
+
+~~~bash
+python3 tools/vspack_publish.py watch ./publicaciones \
+  --interval-seconds 300 --max-mib 90 --profile balanced --publish-r2
+~~~
+
+El modo watch necesita que el plugin/VSCore ya esté iniciado y las mismas
+variables R2 privadas del paso anterior. No debe exponerse el puerto local
+3061 públicamente. Con --once hace una sola comprobación (útil para
+pruebas o cron). Para con Ctrl+C. El proceso no corre en los schedulers de
+Folia y no manipula ningún JAR. Al fallar un build/publicación conserva
+current.json y el último estado válido. Guarda las versiones bajo
+publicaciones/revision-<SHA256> y publication-state.json en la carpeta raíz.
+
+**Nota**: la detección consulta el ZIP completo, así que no conviene
+establecer un intervalo muy corto, especialmente con packs grandes.
+
 ## Plugin de servidor Folia
 
 En una **futura compilación del plugin** que contenga el watcher, establecer en plugins/VSMedia/config.yml:
