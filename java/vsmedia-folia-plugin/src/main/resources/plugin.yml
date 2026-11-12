@@ -12,7 +12,14 @@ commands:
     description: 'Manage resource packs, play published sounds and preview Minecraft fonts'
     usage: '/vsmedia <status|web|reload|send|packs|title|subtitle|preview|chatfont|play|sound|stopsound>'
     permission: vsmedia.admin
+  vsradio:
+    description: "Sintonizar emisoras sincronizadas de VSMedia usando Plasmo Voice"
+    usage: "/vsradio emisora <nombre> | emisoras | estado | apagar"
+    permission: vsradio.listen
 permissions:
   vsmedia.admin:
     description: 'Manage VSMedia packs and player audio/typography controls'
     default: op
+  vsradio.listen:
+    description: "Permite sintonizar emisoras de VSRadio"
+    default: true
