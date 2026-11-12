@@ -9,6 +9,11 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Consumer;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -34,8 +39,15 @@ public final class StudioWebServer implements AutoCloseable {
     private final HttpClient client;
     private final Logger logger;
     private final String url;
+    private final Consumer<String[]> minecraftHandler;
 
     public StudioWebServer(int port, Logger logger) throws IOException {
+        this(port, logger, null);
+    }
+
+    public StudioWebServer(int port, Logger logger, Consumer<String[]> minecraftHandler)
+            throws IOException {
+        this.minecraftHandler = minecraftHandler;
         if (port < 1024 || port > 65535) {
             throw new IllegalArgumentException("Port must be 1024..65535");
         }
@@ -92,6 +104,8 @@ public final class StudioWebServer implements AutoCloseable {
             } else if (path.startsWith("/api/audio/") && usingV11()) {
                 // Deliberately no FFmpeg on the Minecraft server. Use browser encoders.
                 fail(exchange, 501, "Conversion on Folia is disabled; encode in the browser");
+            } else if (path.equals("/api/v1/minecraft/action")) {
+                minecraftAction(exchange);
             } else if (path.startsWith("/api/v1/")) {
                 proxy(exchange, path);
             } else {
@@ -105,6 +119,88 @@ public final class StudioWebServer implements AutoCloseable {
                     + invalid.getClass().getSimpleName());
             fail(exchange, 500, "Studio server error");
         }
+    }
+
+    /**
+     * Explicit same-origin local operator action. Never call the Bukkit API
+     * on the HTTP executor; the plugin callback schedules on Folia's global
+     * region and each player subsequently on its owning entity scheduler.
+     */
+    private void minecraftAction(HttpExchange exchange) throws IOException {
+        if (!"POST".equals(exchange.getRequestMethod())) {
+            fail(exchange, 405, "Method not allowed"); return;
+        }
+        if (minecraftHandler == null) {
+            fail(exchange, 503, "Minecraft actions are unavailable"); return;
+        }
+        String origin = exchange.getRequestHeaders().getFirst("Origin");
+        int port = server.getAddress().getPort();
+        if (origin == null || !(origin.equals("http://127.0.0.1:" + port)
+                || origin.equals("http://localhost:" + port))
+                || !"1".equals(exchange.getRequestHeaders().getFirst("X-VSMedia-Control"))) {
+            fail(exchange, 403, "Same-origin local operator action required"); return;
+        }
+        String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+        if (contentType == null || !contentType.startsWith("application/x-www-form-urlencoded")) {
+            fail(exchange, 415, "Expected form-urlencoded body"); return;
+        }
+        byte[] bytes;
+        try (InputStream input = exchange.getRequestBody()) {
+            bytes = input.readNBytes(4097);
+        }
+        if (bytes.length > 4096) {
+            fail(exchange, 413, "Command payload too large"); return;
+        }
+        Map<String,String> params = new HashMap<>();
+        try {
+            for (String entry : new String(bytes, StandardCharsets.UTF_8).split("&")) {
+                String[] parts = entry.split("=", 2);
+                if (parts.length != 2 || params.size() >= 8) throw new IllegalArgumentException();
+                String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
+                String value = URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
+                if (value.length() > 512 || value.chars().anyMatch(ch -> ch < 32)
+                        || params.putIfAbsent(key, value) != null) throw new IllegalArgumentException();
+            }
+        } catch (IllegalArgumentException invalid) {
+            fail(exchange, 400, "Invalid control payload"); return;
+        }
+        String action = params.getOrDefault("action", "");
+        String target = params.getOrDefault("player", "");
+        if (!target.matches("(\\*|[A-Za-z0-9_]{1,16})")) {
+            fail(exchange, 400, "Invalid player selector"); return;
+        }
+        String[] args;
+        switch (action) {
+            case "title", "subtitle", "preview" -> {
+                String text = params.getOrDefault("text", "");
+                if (text.isBlank()) { fail(exchange, 400, "Missing text"); return; }
+                args = new String[]{action,target,
+                        params.getOrDefault("font", "minecraft:default"),
+                        params.getOrDefault("color", "white"),text};
+            }
+            case "play", "sound" -> args = new String[]{"play",target,
+                    params.getOrDefault("sound", ""),
+                    params.getOrDefault("volume", "1"),
+                    params.getOrDefault("pitch", "1")};
+            case "stopsound" -> args = new String[]{"stopsound",target,
+                    params.getOrDefault("sound", "")};
+            case "chatfont" -> {
+                if ("*".equals(target)) {fail(exchange, 400, "Choose a player");return;}
+                args = new String[]{"chatfont",target,
+                        params.getOrDefault("font", "default")};
+            }
+            default -> { fail(exchange, 400, "Unknown control action"); return; }
+        }
+        try {
+            minecraftHandler.accept(args);
+        } catch (IllegalStateException shuttingDown) {
+            fail(exchange, 503, "Minecraft scheduler unavailable");return;
+        }
+        byte[] result = "{\"scheduled\":true,\"status\":\"accepted-not-confirmed\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(202, result.length);
+        try (OutputStream output = exchange.getResponseBody()) {output.write(result);}
     }
 
     private void staticResource(HttpExchange exchange, String path) throws IOException {
