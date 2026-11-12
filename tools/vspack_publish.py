@@ -295,8 +295,9 @@ def build(input_zip: Path, destination: Path, limit_mib: int,
         raise PackError("El directorio de salida debe estar vacío (evita pisar versiones anteriores)")
     directory.mkdir(parents=True, exist_ok=True)
     packs = []
+    grouped = units_for(optimized)
     for group in ORDER:
-        entries = units_for(optimized).get(group, [])
+        entries = grouped.get(group, [])
         if not entries:
             continue
         archives = fitted(entries, metadata, cap)
@@ -319,6 +320,9 @@ def build(input_zip: Path, destination: Path, limit_mib: int,
                       "filename": "base-01.zip", "bytes": len(packs_data),
                       "sha1": digest(packs_data, "sha1"), "sha256": digest(packs_data, "sha256"),
                       "category": "base", "priority": 0, "url": None})
+    if len(packs) >= 32:
+        raise PackError("Más de 31 packs en una publicación; aumentá el límite por módulo "
+                        "o reducí contenido para que Folia pueda ofrecerlos juntos")
     report = {
         "schema": "vspack-publication-v1", "status": "built_not_published",
         "profile": profile, "max_pack_mib": limit_mib,
@@ -342,8 +346,8 @@ def verify(directory: Path) -> dict:
         raise PackError("Manifest no compatible")
     if not isinstance(manifest.get("packs"), list) or not manifest["packs"]:
         raise PackError("Manifest sin packs")
-    if len(manifest["packs"]) > 128:
-        raise PackError("Demasiadas capas, revisá el límite")
+    if len(manifest["packs"]) >= 32:
+        raise PackError("Minecraft/VSMedia admite hasta 31 capas remotas por publicación")
     seen: set[str] = set()
     for pack in manifest["packs"]:
         name = pack["filename"]
