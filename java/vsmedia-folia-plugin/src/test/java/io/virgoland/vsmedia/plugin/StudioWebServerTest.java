@@ -52,4 +52,37 @@ class StudioWebServerTest {
             assertEquals(405,deniedWrite.statusCode());
         }
     }
+    @Test
+    void minecraftActionsRequireSameOriginAndTypedControlHeader() throws Exception {
+        int port=availablePort();
+        java.util.concurrent.atomic.AtomicReference<String[]> received=
+                new java.util.concurrent.atomic.AtomicReference<>();
+        HttpClient client=HttpClient.newHttpClient();
+        try (StudioWebServer web=new StudioWebServer(port,
+                Logger.getLogger("vsmedia-control-test"),received::set)) {
+            web.start();
+            URI uri=URI.create("http://127.0.0.1:"+port+"/api/v1/minecraft/action");
+            String body="action=title&player=Demo&font=minecraft%3Adefault"
+                    +"&color=%23FFAACC&text=Hola+Virgoland";
+            HttpRequest wrongOrigin=HttpRequest.newBuilder(uri)
+                    .header("Origin","https://evil.example")
+                    .header("X-VSMedia-Control","1")
+                    .header("Content-Type","application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+            assertEquals(403,client.send(wrongOrigin,
+                    HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertNull(received.get());
+            HttpRequest allowed=HttpRequest.newBuilder(uri)
+                    .header("Origin","http://127.0.0.1:"+port)
+                    .header("X-VSMedia-Control","1")
+                    .header("Content-Type","application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+            HttpResponse<String> queued=client.send(allowed,
+                    HttpResponse.BodyHandlers.ofString());
+            assertEquals(202,queued.statusCode());
+            assertArrayEquals(new String[]{"title","Demo","minecraft:default",
+                    "#FFAACC","Hola Virgoland"},received.get());
+        }
+    }
+
 }
