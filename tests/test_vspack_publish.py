@@ -215,5 +215,18 @@ class VSPackPublishTests(unittest.TestCase):
 
 
 
+    def test_watch_blocks_missing_session_sources_after_restart(self):
+        payload = fixture({"assets/demo/lang/en_us.json": b'{}'})
+        root = self.directory / "sources"
+        with patch.object(tool, "download_studio_export", return_value=payload):
+            with patch.object(tool, "studio_session_pack_count", return_value=2):
+                tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                90, "lossless", None, False, False, "virgoland")
+            with patch.object(tool, "studio_session_pack_count", return_value=0):
+                with self.assertRaisesRegex(tool.PackError, "ya no están cargados"):
+                    tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                    90, "lossless", None, False, False, "virgoland")
+
+
 if __name__ == "__main__":
     unittest.main()
