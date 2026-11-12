@@ -477,10 +477,13 @@ def watch_once(root: Path, studio_url: str, limit: int, profile: str,
         if existing.get("profile") != profile or existing.get("max_pack_mib") != limit:
             raise PackError("Esta revisión ya existe con otra configuración; usá otra carpeta de publicaciones")
     else:
-        with tempfile.TemporaryDirectory(prefix="vspack-watch-") as tmp:
+        with tempfile.TemporaryDirectory(prefix=".vspack-staging-", dir=root) as tmp:
             src = Path(tmp) / "studio.zip"
             src.write_bytes(source_bytes)
-            build(src, destination, limit, profile, packsquash, require_optimizer)
+            staged = Path(tmp) / "output"
+            build(src, staged, limit, profile, packsquash, require_optimizer)
+            # Promote an entire successfully validated revision, never partial ZIPs.
+            os.replace(staged, destination)
     if publish:
         published = publish_r2(destination, prefix)
         status = published["status"]
