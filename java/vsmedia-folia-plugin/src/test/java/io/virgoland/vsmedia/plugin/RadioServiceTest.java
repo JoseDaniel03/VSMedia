@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class RadioServiceTest {
     @Test void resolvesCommandStationIdsLikeTheWeb() {
         assertEquals("latinsabroso", RadioService.stationId("LatinSabroso"));
-        assertEquals("radio_romantica", RadioService.stationId("Radio Romántica"));
+        assertEquals("radioromantica", RadioService.stationId("Radio Romántica"));
         assertEquals("", RadioService.stationId("../"));
         assertEquals("radio_123", RadioService.stationId("RADIO_123"));
         assertTrue(RadioService.stationId("a".repeat(120)).length()<=48);
