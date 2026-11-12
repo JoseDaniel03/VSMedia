@@ -5,6 +5,25 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 
 > **Estado: desarrollo activo.** Solo código fuente, pruebas y documentación. No se ha publicado ningún JAR, ZIP final, release ni plugin instalable. Voice Chat y streaming NO están implementados.
 
+## VSPack: packs optimizados y publicación CDN (rama de desarrollo)
+
+Se añadió el publicador offline tools/vspack_publish.py: exporta el ZIP de VSCore
+local, optimiza archivos JSON y opcionalmente invoca PackSquash externo, divide
+los ZIPs por módulos bajo un límite configurable (90 MiB predeterminado),
+genera hashes SHA-1/SHA-256, UUID, manifiestos de versiones, permite subir a
+Cloudflare R2 y volver a una versión anterior.
+
+Un watcher HTTPS en el plugin Folia prepara la actualización de capas para los
+jugadores desde un manifiesto público, sin realizar compresión ni descargas
+en los hilos del juego. **No está desplegado ni probado in-game**: primero se
+debe conectar R2 y en otra etapa compilar/instalar el plugin actualizado.
+
+Ver [manual de optimización y publicación](docs/VSPACK-AUTO-PUBLISH.md)
+y [audio y tipografías Minecraft](docs/MINECRAFT-PUBLICATION.md).
+
+**No generar JARs ahora**: CI mantiene el job de empaquetado deshabilitado.
+La publicación de resource packs no recompila el plugin.
+
 ## Arquitectura
 
 | Módulo | Implementado actualmente | Pendiente principal |
