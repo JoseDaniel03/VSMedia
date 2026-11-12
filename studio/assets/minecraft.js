@@ -110,9 +110,24 @@
     const name = value("sound-id").toLowerCase();
     if (!file) throw Error("Elegí un OGG Vorbis para publicar.");
     if (!/^[a-z0-9_-]{1,48}$/.test(name)) throw Error("ID: 1–48 caracteres, minúsculas, números, guión o _.");
-    if (file.size > 16*1024*1024) throw Error("Máximo 16 MiB por sonido.");
+    if (file.size > 96*1024*1024) throw Error("Archivo de origen demasiado grande (96 MiB).");
+    let ogg = file;
+    if (!file.name.toLowerCase().endsWith(".ogg")) {
+      if (!window.VSOggVorbis?.encodeBuffer) {
+        throw Error("No se empaquetó el codificador OGG del navegador. Ejecutá scripts/build-browser-vorbis.sh al compilar.");
+      }
+      status("Convirtiendo a OGG Vorbis en tu navegador; no se procesa PCM en Folia…");
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) throw Error("Tu navegador no permite convertir este audio.");
+      const context = new AudioCtx();
+      try {
+        const decoded = await context.decodeAudioData(await file.arrayBuffer());
+        ogg = await window.VSOggVorbis.encodeBuffer(decoded,{quality:5});
+      } finally {await context.close().catch(() => {});}
+    }
+    if (ogg.size > 16*1024*1024) throw Error("OGG comprimido supera 16 MiB. Acortá o dividí el audio.");
     const result = await (await api("/sounds/" + name, {
-      method:"POST",headers:{"Content-Type":"audio/ogg"},body:file
+      method:"POST",headers:{"Content-Type":"audio/ogg"},body:ogg
     })).json();
     await listSounds();
     selected('[name="sound"]').value = result.id;
@@ -166,8 +181,8 @@
           <button type="button" data-mc-tab="player" aria-pressed="false">Jugador</button>
         </div>
         <div data-mc-page="audio">
-          <p>Subí OGG Vorbis existente (VSAudio, VSMix o radio exportados). El archivo se guarda en VSCore y entra al ZIP unificado.</p>
-          <label>Archivo OGG Vorbis <input type="file" name="sound-file" accept=".ogg,audio/ogg"></label>
+          <p>Subí OGG Vorbis o exportá WAV desde VSAudio/VSMix y elegí ese archivo. El navegador convierte a Vorbis y lo agrega al ZIP unificado.</p>
+          <label>Audio exportado o OGG <input type="file" name="sound-file" accept=".ogg,.wav,.mp3,.flac,.webm,.opus,audio/*"></label>
           <label>ID del sonido <input name="sound-id" placeholder="intro, mezcla_01, radio_jingle" maxlength="48"></label>
           <button type="button" data-mc-upload-sound>＋ Agregar sonido al pack</button>
           <small data-mc-sound-count>Consultando sonidos…</small>
@@ -249,7 +264,7 @@
         const title = toolbar.querySelector("strong")?.textContent || "";
         if (!/VSAudio|VSMix|VSRadio/i.test(title)) return;
         const button = elm("button",{type:"button",class:"toolbar-button","data-mc-shortcut":"1"},"✦ Publicar a Minecraft");
-        button.onclick = () => page(title === "VSRadio" ? "audio" : "audio");
+        button.onclick = () => page("audio");
         toolbar.append(button);
       });
     }
