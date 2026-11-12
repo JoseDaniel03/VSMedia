@@ -262,7 +262,7 @@
       document.querySelectorAll(".studio-toolbar").forEach(toolbar => {
         if (toolbar.querySelector("[data-mc-shortcut]")) return;
         const title = toolbar.querySelector("strong")?.textContent || "";
-        if (!/VSAudio|VSMix|VSRadio/i.test(title)) return;
+        if (!/VSAudio|VSMix/i.test(title)) return; // VSRadio has its own synchronized emission action.
         const button = elm("button",{type:"button",class:"toolbar-button","data-mc-shortcut":"1"},"✦ Publicar a Minecraft");
         button.onclick = () => page("audio");
         toolbar.append(button);
