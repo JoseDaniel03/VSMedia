@@ -732,7 +732,7 @@ mod tests {
         assert_eq!(capabilities["vsstreams_provider"],"plasmo_voice");
         assert_eq!(capabilities["vsstreams_connected"],false);
         assert_eq!(capabilities["webrtc_radio_peer_mesh"],true);
-        assert_eq!(capabilities["radio_broadcast"],false);
+        assert_eq!(capabilities["radio_broadcast"],true);
         let integration=app.clone().oneshot(request(Method::GET,
             "/api/v1/streams/integration",vec![])).await.unwrap();
         assert_eq!(integration.status(),StatusCode::OK);
