@@ -5,6 +5,7 @@ use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 mod live;
 mod packs;
 mod fonts;
+mod published_sounds;
 mod pack_manager;
 mod pack_projects;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
@@ -62,7 +63,7 @@ async fn health() -> Json<Value> {
 }
 async fn capabilities() -> Json<Value> {
     Json(json!({"api_version":"v1","audio_process":true,
-        "audio_render_formats":["wav"],
+        "audio_render_formats":["wav"],"minecraft_sound_upload":"ogg_vorbis", "minecraft_sound_pack_export":true,
         "audio_render_output":"wav_pcm16_48000_stereo",
         "radio_broadcast":false,"live_monitoring":false,
         "webrtc_signaling":true,"webrtc_voice_rooms":false,
@@ -342,6 +343,8 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .route("/api/v1/fonts",get(fonts::catalog))
         .route("/api/v1/fonts/import",post(fonts::import))
         .route("/api/v1/fonts/file",get(fonts::file))
+        .route("/api/v1/sounds",get(published_sounds::list))
+        .route("/api/v1/sounds/{name}",post(published_sounds::publish))
         .route("/api/v1/health",get(health))
         .route("/api/v1/capabilities",get(capabilities))
         .route("/api/v1/live/ws",get(live::socket))
