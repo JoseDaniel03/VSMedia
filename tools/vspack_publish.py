@@ -456,6 +456,66 @@ def download_studio_export(url: str) -> bytes:
     return data
 
 
+def watch_once(root: Path, studio_url: str, limit: int, profile: str,
+               packsquash: str | None, require_optimizer: bool, publish: bool,
+               prefix: str) -> dict:
+    """Observe VSMedia's deterministic ZIP. Preserve the last good publication on failure."""
+    import time
+    source_bytes = download_studio_export(studio_url)
+    sha256 = digest(source_bytes, "sha256")
+    root.mkdir(parents=True, exist_ok=True)
+    state_file = root / "publication-state.json"
+    state = json.loads(state_file.read_text("utf-8")) if state_file.exists() else {}
+    if state.get("source_sha256") == sha256 and (
+            not publish or state.get("status") == "uploaded_to_r2"):
+        return {"changed": False, "source_sha256": sha256, "status": state.get("status")}
+    destination = root / ("revision-" + sha256[:16])
+    if destination.exists():
+        if not (destination / "manifest.json").is_file():
+            raise PackError("Ya existe una carpeta de revisión sin manifest válido: " + str(destination))
+        existing = verify(destination)
+        if existing.get("profile") != profile or existing.get("max_pack_mib") != limit:
+            raise PackError("Esta revisión ya existe con otra configuración; usá otra carpeta de publicaciones")
+    else:
+        with tempfile.TemporaryDirectory(prefix="vspack-watch-") as tmp:
+            src = Path(tmp) / "studio.zip"
+            src.write_bytes(source_bytes)
+            build(src, destination, limit, profile, packsquash, require_optimizer)
+    if publish:
+        published = publish_r2(destination, prefix)
+        status = published["status"]
+    else:
+        status = "built_not_published"
+    next_state = {"schema": "vspack-watch-v1", "source_sha256": sha256,
+                  "revision": destination.name, "status": status}
+    temporary = state_file.with_suffix(".tmp")
+    temporary.write_text(json.dumps(next_state, indent=2) + "\n", "utf-8")
+    os.replace(temporary, state_file)
+    return {"changed": True, **next_state}
+
+
+def watch_loop(args) -> None:
+    """Long-running opt-in daemon. Not run on Minecraft/Folia threads."""
+    import time
+    interval = max(60, min(args.interval_seconds, 3600))
+    print("VSPack watch: intervalo", interval, "segundos; Ctrl+C para detener", flush=True)
+    while True:
+        try:
+            report = watch_once(args.directory, args.studio_url, args.max_mib,
+                                args.profile, args.packsquash, args.require_packsquash,
+                                args.publish_r2, args.prefix)
+            print("VSPack watch:", "nueva versión" if report["changed"] else "sin cambios",
+                  report["source_sha256"][:12], report["status"], flush=True)
+        except (PackError, OSError, KeyError, ValueError) as exc:
+            print("VSPack watch: se conserva la última publicación válida: " + str(exc),
+                  file=sys.stderr, flush=True)
+            if args.once:
+                raise
+        if args.once:
+            break
+        time.sleep(interval)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="VSPack: optimizar, dividir y publicar packs sin generar JAR")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -475,6 +535,17 @@ def main(argv: list[str] | None = None) -> int:
     studio_parser.add_argument("--require-packsquash", action="store_true")
     studio_parser.add_argument("--publish-r2", action="store_true", help="Requiere secretos R2 en variables de entorno")
     studio_parser.add_argument("--prefix", default="virgoland")
+    watch_parser = commands.add_parser("watch", help="Observar VSCore y construir/publicar automáticamente cada revisión nueva")
+    watch_parser.add_argument("directory", type=Path, help="Directorio persistente de versiones")
+    watch_parser.add_argument("--studio-url", default="http://127.0.0.1:3061/api/v1/packs/export")
+    watch_parser.add_argument("--interval-seconds", type=int, default=300)
+    watch_parser.add_argument("--max-mib", type=int, default=90)
+    watch_parser.add_argument("--profile", choices=("lossless", "balanced", "compact"), default="balanced")
+    watch_parser.add_argument("--packsquash")
+    watch_parser.add_argument("--require-packsquash", action="store_true")
+    watch_parser.add_argument("--publish-r2", action="store_true")
+    watch_parser.add_argument("--prefix", default="virgoland")
+    watch_parser.add_argument("--once", action="store_true", help="Una iteración para pruebas y cron")
     verify_parser = commands.add_parser("verify", help="Validar hashes, rutas y límites de una publicación")
     verify_parser.add_argument("directory", type=Path)
     rollback_parser = commands.add_parser("rollback-r2", help="Restaurar el manifest de una versión publicada anteriormente")
@@ -485,7 +556,9 @@ def main(argv: list[str] | None = None) -> int:
     publish_parser.add_argument("--prefix", default="virgoland")
     args = parser.parse_args(argv)
     try:
-        if args.command == "studio":
+        if args.command == "watch":
+            watch_loop(args)
+        elif args.command == "studio":
             with tempfile.TemporaryDirectory(prefix="vspack-studio-") as folder:
                 source = Path(folder) / "vsmedia-export.zip"
                 source.write_bytes(download_studio_export(args.studio_url))
