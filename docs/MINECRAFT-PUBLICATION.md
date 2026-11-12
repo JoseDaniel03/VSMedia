@@ -105,10 +105,14 @@ de que un jugador haya reproducido un sonido. El API de VSCore local
 - **Publicación con un solo clic desde el proyecto abierto**: el panel usa
   el archivo exportado, porque la sesión VSMix sigue siendo un borrador
   del navegador. No se declara publicado un WAV sin convertirlo.
-- **VSRadio dentro de Minecraft**: por ahora WebRTC funciona entre
-  navegadores; el bridge no tiene transporte de radio hacia los clientes
-  de Minecraft. `/api/v1/radio/sessions` sigue devolviendo 501,
-  intencionalmente en vez de simular una transmisión.
+- **VSRadio dentro de Minecraft**: se añadió la publicación de playlists
+  con reloj UTC y transporte Plasmo Voice para oyentes que usan
+  `/vsradio emisora <nombre>`. El audio de lista pregrabada y el control
+  de sintonización están implementados en código, pero requieren una
+  próxima compilación del plugin y una prueba real en Minecraft.
+  **Micrófono en directo / WebRTC del DJ** aún no alimenta la radio del juego.
+  `/api/v1/radio/sessions` continúa devolviendo 501 porque representa
+  otro transporte (las salas WebRTC). Manual: [VSRadio Live](VSRADIO-LIVE.md).
 - **Confirmación de reproducción**: el servidor sólo programa el packet
   de sonido/título. Aceptación del pack y estado exacto de ejecución
   necesitan telemetría del cliente.
