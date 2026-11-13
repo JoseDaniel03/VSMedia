@@ -329,5 +329,25 @@ class VSPackPublishTests(unittest.TestCase):
                                 90, "lossless", None, False, False, "virgoland")
 
 
+    def test_manifest_rejects_invalid_uuid_and_priority_before_upload(self):
+        report, out = self.build({
+            "assets/demo/textures/item/pickaxe.png": b"image",
+            "assets/demo/lang/es_ar.json": b'{"test":"ok"}'
+        })
+        manifest_file = out / "manifest.json"
+        baseline = json.loads(manifest_file.read_text("utf-8"))
+        for key, value in (("priority", 42), ("uuid", "bad-uuid"),
+                           ("category", "not-allowed"), ("logical_id", "unknown")):
+            with self.subTest(key=key):
+                broken = json.loads(json.dumps(baseline))
+                broken["packs"][0][key] = value
+                manifest_file.write_text(json.dumps(broken), encoding="utf-8")
+                with self.assertRaises(tool.PackError):
+                    tool.verify(out)
+        manifest_file.write_text(json.dumps(baseline), encoding="utf-8")
+        self.assertEqual(len(tool.verify(out)["packs"]), len(report["packs"]))
+
+
+
 if __name__ == "__main__":
     unittest.main()
