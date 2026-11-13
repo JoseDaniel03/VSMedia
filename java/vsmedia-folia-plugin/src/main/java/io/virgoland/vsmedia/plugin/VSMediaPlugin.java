@@ -65,12 +65,10 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         loadConfiguredPack();
         getServer().getPluginManager().registerEvents(this, this);
         playback = new PlaybackControl(this);
-        if (getConfig().getBoolean("radio.enabled", true)) {
-            radioService = new RadioService(this, voiceAddon);
-        }
         getServer().getPluginManager().registerEvents(playback, this);
         startStudioCore();
         startStudioWeb();
+        startRadioService();
         startRemoteCatalog();
         PluginCommand command = Objects.requireNonNull(getCommand("vsmedia"),
                 "The VSMedia plugin.yml does not declare /vsmedia");
@@ -171,9 +169,15 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
 
     private List<ResourcePackDelivery> orderedLayers(
             Map<String, List<ResourcePackDelivery>> sources) {
+        return orderedLayers(sources,published);
+    }
+
+    private List<ResourcePackDelivery> orderedLayers(
+            Map<String, List<ResourcePackDelivery>> sources,
+            List<ResourcePackDelivery> candidate) {
         List<ResourcePackDelivery> layers = new ArrayList<>();
         if (active != null) layers.add(active);
-        layers.addAll(published);
+        layers.addAll(candidate);
         sources.entrySet().stream().sorted(Map.Entry.comparingByKey())
                 .forEach(e -> layers.addAll(e.getValue()));
         if (layers.size() > ResourcePackStack.MAX_LAYERS
@@ -205,6 +209,17 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         external.remove(event.getPlayer().getUniqueId());
         if (radioService != null) radioService.quit(event.getPlayer().getUniqueId());
+    }
+
+    private void startRadioService() {
+        if (radioService == null && getConfig().getBoolean("radio.enabled", true)) {
+            radioService = new RadioService(this, voiceAddon);
+        }
+    }
+    private void stopRadioService() {
+        RadioService current=radioService;
+        radioService=null;
+        if (current != null) current.close();
     }
 
     private void startStudioCore() {
@@ -267,15 +282,29 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
 
     /** Called by the HTTP worker; all Bukkit interactions run on the global region scheduler. */
     private void applyPublication(List<ResourcePackDelivery> layers) {
+        // Validate the candidate without mutating the active publication.
+        // Throwing here also makes the watcher retry the same revision later,
+        // rather than marking a rejected manifest as successfully applied.
+        synchronized (packLock) {
+            if (orderedLayers(Map.of(), layers) == null) {
+                throw new IllegalArgumentException("La publicación excede el límite de capas");
+            }
+            for (var current : external.values()) {
+                if (orderedLayers(current,layers) == null) {
+                    throw new IllegalArgumentException(
+                        "La publicación supera las capas con otros plugins activos");
+                }
+            }
+        }
         try {
             getServer().getGlobalRegionScheduler().run(this, task -> {
                 if (!isEnabled() || remoteCatalog == null || controller == null) return;
-                published = layers;
-                List<ResourcePackDelivery> common = orderedLayers(Map.of());
+                List<ResourcePackDelivery> common = orderedLayers(Map.of(),layers);
                 if (common == null || common.isEmpty()) {
-                    getLogger().warning("Publicación excede la capacidad total de capas");
+                    getLogger().warning("Publicación rechazada antes de modificar el catálogo");
                     return;
                 }
+                published = layers;
                 controller.setCurrentStack(new ResourcePackStack(common));
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     List<ResourcePackDelivery> all = orderedLayers(
@@ -352,12 +381,14 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
             }
             case "reload" -> {
                 stopRemoteCatalog();
+                stopRadioService();
                 reloadConfig();
                 loadConfiguredPack();
                 stopStudioWeb();
                 stopStudioCore();
                 startStudioCore();
                 startStudioWeb();
+                startRadioService();
                 startRemoteCatalog();
                 sender.sendMessage(ChatColor.GREEN + "Configuracion VSMedia recargada. Pack: "
                         + (active == null ? "desactivado/invalido" : active.logicalId()));
@@ -431,7 +462,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
-        if (radioService != null) {radioService.close();radioService = null;}
+        stopRadioService();
         stopRemoteCatalog();
         external.clear();
         HandlerList.unregisterAll((Listener) this);
