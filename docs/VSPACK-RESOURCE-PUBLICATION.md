@@ -51,7 +51,10 @@ no inventa números de versión.
    VSMEDIA_DATA_DIR/vspack-sources/ con SHA-256.
 3. Configurar prioridad con **Orden**, quitar fuentes innecesarias y
    consultar **Revisar dependencias** para conflictos y referencias.
-   Las fuentes, prioridades y elecciones sobreviven a reinicios.
+   La sección **Resolver conflictos de recursos** permite elegir la fuente
+   ganadora por modelo, textura o archivo; para PNG también conserva su
+   animación .png.mcmeta de la misma fuente. Las fuentes, prioridades y
+   elecciones sobreviven a reinicios.
 4. **Exportar pack** descarga un Resource Pack combinado. También
    incluye sonidos publicados desde VSAudio/VSMix y fuentes TTF/OTF
    añadidas a la biblioteca de Minecraft de VSMedia.
