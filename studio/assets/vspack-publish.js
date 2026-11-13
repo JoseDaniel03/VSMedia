@@ -143,6 +143,44 @@ async function upload(zip,name){
   await refresh();status(item.name+" agregado · "+item.files+
     " recursos. Se incluirá en el Resource Pack final.");
 }
+async function renderConflicts(){
+  const target=$("[data-vspack-conflicts]");
+  if(!target)return;
+  target.replaceChildren();
+  const data=await (await api("/packs/resources?conflicts_only=true&limit=75")).json();
+  const files=(data.items||[]).filter(item=>item.conflict);
+  if(!files.length){
+    target.append(node("small","No hay conflictos entre fuentes."));
+    return;
+  }
+  target.append(node("strong",files.length+" conflictos de modelos, texturas u otros recursos"));
+  for(const item of files){
+    const row=node("div","",{class:"vs-minecraft-inline"});
+    const title=node("span",item.path+(item.blocked?" · empate bloqueante":""));
+    title.title=item.path;
+    const select=node("select","",{"aria-label":"Fuente ganadora para "+item.path});
+    for(const entry of item.candidates||[]){
+      const option=node("option",entry.source_name||entry.source_id,{value:entry.source_id});
+      select.append(option);
+    }
+    if(item.override_source||item.chosen_source)
+      select.value=item.override_source||item.chosen_source;
+    const choose=node("button","Elegir",{type:"button"});
+    choose.onclick=()=>guarded(async()=>{
+      const type=item.path.endsWith(".png")
+        ? "/packs/merge/texture-bundle" : "/packs/merge/overrides";
+      await api(type,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({path:item.path,source_id:select.value})});
+      status("Se eligió "+select.value+" para "+item.path+
+        (item.path.endsWith(".png")?" junto a su animación":""));
+      await renderConflicts();
+    });
+    row.append(title,select,choose);
+    target.append(row);
+  }
+  if(data.total>files.length)
+    target.append(node("small","Hay más conflictos. Consultalos desde la API paginada."));
+}
 async function diagnose(){
   status("Revisando conflictos y referencias…");
   const catalog=await (await api("/packs")).json();
@@ -158,8 +196,21 @@ async function diagnose(){
     status("Biblioteca persistente revisada. Podés exportar directamente.",false);
     return;
   }
-  const p=await (await api("/packs/preview")).json();
-  const d=await (await api("/packs/diagnostics")).json();
+  // The structured merger can reject tied priorities. Render actionable
+  // candidates BEFORE asking it for a full preview so users can fix the tie.
+  await renderConflicts();
+  let p,d;
+  try{
+    p=await (await api("/packs/preview")).json();
+    d=await (await api("/packs/diagnostics")).json();
+  }catch(error){
+    $("[data-vspack-diagnostics]").textContent=
+      "Hay recursos por resolver antes de exportar: "+error.message+
+      "\nSonidos persistentes: "+publishedSounds+
+      "\nTipografías persistentes: "+importedFonts;
+    status("Conflicto de prioridad: elegí una fuente ganadora debajo.",true);
+    return;
+  }
   $("[data-vspack-diagnostics]").textContent=
     "Recursos de ZIPs: "+p.file_count+" | "+(p.bytes/1048576).toFixed(2)+" MiB\n"+
     "Sonidos persistentes adicionales: "+publishedSounds+
@@ -206,6 +257,8 @@ function mount(){
     '<button type="button" data-vspack-check>Revisar dependencias</button>',
     '<button type="button" data-vspack-export>↓ Exportar pack</button></div>',
     '<pre data-vspack-diagnostics style="white-space:pre-wrap;max-height:190px;overflow:auto"></pre>',
+    '<h4>Resolver conflictos de recursos</h4>',
+    '<div data-vspack-conflicts></div>',
     '<p data-vspack-status role="status">Importá modelos y texturas con sus rutas originales.</p>',
     '<small>El ZIP exportado aún necesita alojamiento HTTPS para llegar al jugador.</small>'
   ].join("");
