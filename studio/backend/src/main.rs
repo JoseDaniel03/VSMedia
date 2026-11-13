@@ -8,6 +8,7 @@ mod packs;
 mod fonts;
 mod published_sounds;
 mod radio;
+mod radio_live;
 mod pack_manager;
 mod pack_projects;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
@@ -329,6 +330,7 @@ fn router(store:Store)->Router {
 fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
     let projects=pack_projects::ProjectHub::new(project_dir);
     let hub=live::LiveHub::default();
+    let dj_hub=radio_live::DjHub::default();
     let pack_hub=packs::PackHub::default();
     let cors=CorsLayer::new()
         .allow_origin(AllowOrigin::list([
@@ -337,7 +339,8 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         ]))
         .allow_methods([Method::GET,Method::POST,Method::DELETE])
         .allow_headers([header::CONTENT_TYPE,
-            header::HeaderName::from_static("x-vspack-label")])
+            header::HeaderName::from_static("x-vspack-label"),
+            header::HeaderName::from_static("x-vsradio-session")])
         .expose_headers([header::CONTENT_DISPOSITION,header::ETAG,
             header::HeaderName::from_static("x-vspack-sha1"),
             header::HeaderName::from_static("x-vspack-sha256")]);
@@ -348,6 +351,12 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .route("/api/v1/sounds",get(published_sounds::list))
         .route("/api/v1/sounds/{name}",post(published_sounds::publish))
         .route("/api/v1/radio/stations",get(radio::list_stations))
+        .route("/api/v1/radio/stations/{id}/live/start",post(radio_live::start))
+        .route("/api/v1/radio/stations/{id}/live/push",post(radio_live::push)
+            .layer(DefaultBodyLimit::max(19200)))
+        .route("/api/v1/radio/stations/{id}/live/stop",post(radio_live::stop))
+        .route("/api/v1/radio/stations/{id}/live/status",get(radio_live::status))
+        .route("/api/v1/radio/stations/{id}/live/drain/{after}",get(radio_live::drain))
         .route("/api/v1/radio/stations/{id}",post(radio::publish_station))
         .route("/api/v1/radio/stations/{id}/now",get(radio::now))
         .route("/api/v1/radio/tracks/{id}",post(radio::upload_track)
@@ -404,6 +413,7 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .layer(DefaultBodyLimit::max(MAX_UPLOAD))
         .layer(cors)
         .layer(axum::Extension(hub))
+        .layer(axum::Extension(dj_hub))
         .layer(axum::Extension(pack_hub))
         .layer(axum::Extension(projects))
         .with_state(store)
