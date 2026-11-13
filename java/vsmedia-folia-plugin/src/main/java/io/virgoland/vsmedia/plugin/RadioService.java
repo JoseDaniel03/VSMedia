@@ -244,6 +244,13 @@ final class RadioService implements AutoCloseable {
     private void refresh(StationAudio audio,Now now) throws IOException,InterruptedException {
         JsonObject liveStatus=requestJson("/api/v1/radio/stations/"+audio.station+"/live/status");
         if(liveStatus.get("active").getAsBoolean()) {
+            // A fresh DJ session resets its sequence to 1. Never retain an old
+            // high-water mark, otherwise subsequent audio would be ignored.
+            if(audio.live && liveStatus.get("seq").getAsLong()<audio.lastLiveSeq){
+                closeStream(audio);
+                audio.live=false;
+                audio.lastLiveSeq=0;
+            }
             refreshLive(audio);
             return;
         }
