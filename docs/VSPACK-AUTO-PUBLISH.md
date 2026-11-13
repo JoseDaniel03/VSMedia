@@ -136,6 +136,6 @@ El trabajo de CI que antes empaquetaba JAR está deshabilitado en esta rama.
 
 - No hay cuenta real R2 conectada ni subida real verificada, por falta de credenciales y dominio públicos configurados.
 - El panel actual exporta WAV de VSMix/VSAudio y permite importarlo como OGG al pack. Todavía no existe un botón directo de publicación desde una mezcla no exportada.
-- VSRadio de playlists sincronizadas ya está implementada por Plasmo Voice (véase [VSRadio Live](VSRADIO-LIVE.md)); no utiliza el Resource Pack. Su reproducción en Minecraft requiere una próxima compilación del plugin y pruebas con clientes. La entrada de micrófono/DJ WebRTC en directo sigue separada.
+- VSRadio de playlists y la captura de DJ desde la web cuentan con una ruta de audio a Plasmo Voice en el código (véase [VSRadio Live](VSRADIO-LIVE.md)); no utilizan el Resource Pack. Su reproducción real en Minecraft sigue pendiente de desplegar y validar con clientes. Las salas WebRTC P2P de navegador son un transporte separado.
 - No se validó en un servidor Minecraft real ni se confirmó aceptación/descarga en clientes. Una compilación futura del plugin será necesaria solo para desplegar este nuevo código de distribución.
 - Revisar conflictos de recursos y el límite global de capas al sumar plugins externos antes de producción.
