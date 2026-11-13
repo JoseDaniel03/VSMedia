@@ -94,6 +94,8 @@ pub struct Station {
     pub cycle_ms:u64,
     pub revision:String,
     #[serde(default)]pub durations_ms:Vec<u64>,
+    #[serde(default)]pub paused:bool,
+    #[serde(default)]pub paused_phase_ms:u64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -118,14 +120,16 @@ fn playlist_durations(store:&Store,playlist:&[String])->Result<Vec<u64>,ApiError
 }
 fn snapshot(station:&Station,durations:&[u64],now:u64)->Value {
     let cycle=durations.iter().sum::<u64>();
-    let phase=now.saturating_sub(station.anchor_unix_ms)%cycle;
+    let phase=if station.paused {station.paused_phase_ms%cycle}
+        else {now.saturating_sub(station.anchor_unix_ms)%cycle};
     let mut start=0;
     for (index,len) in durations.iter().enumerate() {
         if phase<start+len {
             let position=phase-start;
             return json!({
                 "schema":"vsradio-now-v1","station":station.id,"display_name":station.display_name,
-                "revision":station.revision,"playing":true,"track":station.playlist[index],
+                "revision":station.revision,"playing":!station.paused,"paused":station.paused,
+                "track":station.playlist[index],
                 "index":index,"position_ms":position,"remaining_ms":len-position,
                 "track_started_unix_ms":now-position,"server_unix_ms":now,"cycle_ms":cycle,
                 "anchor_unix_ms":station.anchor_unix_ms,"playlist":station.playlist
@@ -157,19 +161,81 @@ pub async fn publish_station(State(store):State<Store>,Path(id):Path<String>,
     }
     let revision=format!("{:x}",version.finalize());
     let now=millis();
+    let previous=load(&store,&id).ok();
     let anchor=if let Some(elapsed)=req.elapsed_ms {
         if elapsed>cycle{return Err(bad("Posición inicial fuera de la playlist"));}
         now.saturating_sub(elapsed)
-    } else if let Ok(old)=load(&store,&id) {
+    } else if let Some(old)=&previous {
         if old.revision==revision {old.anchor_unix_ms}else{now}
     } else {now};
     let station=Station{id:id.clone(),display_name:req.display_name,
         playlist:req.playlist,anchor_unix_ms:anchor,cycle_ms:cycle,revision,
-        durations_ms:durations.clone()};
+        durations_ms:durations.clone(),
+        paused:req.elapsed_ms.is_none() && previous.as_ref().is_some_and(|p|p.revision==revision && p.paused),
+        paused_phase_ms:previous.as_ref().filter(|p|p.revision==revision)
+            .map(|p|p.paused_phase_ms).unwrap_or(0)};
     store.publish(key,AssetKind::Other,&serde_json::to_vec(&station).map_err(bad)?)
         .map_err(not_found)?;
     Ok(Json(snapshot(&station,&durations,now)))
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlRequest {
+    action:String,
+    #[serde(default)]index:Option<usize>,
+    #[serde(default)]position_ms:Option<u64>,
+}
+pub async fn control_station(State(store):State<Store>,Path(id):Path<String>,
+    headers:HeaderMap,Json(req):Json<ControlRequest>)
+    ->Result<Json<Value>,ApiError>{
+    authorize_origin(&headers)?;
+    let key=station_key(&id)?;
+    let mut station=load(&store,&id)?;
+    let times=if station.durations_ms.len()==station.playlist.len()
+        && station.durations_ms.iter().all(|v|*v>0) {
+        station.durations_ms.clone()
+    } else {playlist_durations(&store,&station.playlist)?};
+    let cycle=times.iter().sum::<u64>();
+    if cycle==0 {return Err(bad("La emisora no tiene audio"));}
+    let now=millis();
+    let phase=if station.paused {station.paused_phase_ms%cycle}
+        else {now.saturating_sub(station.anchor_unix_ms)%cycle};
+    let mut elapsed=0u64;
+    let current_index=times.iter().position(|length|{
+        let hit=phase<elapsed+length;
+        if !hit {elapsed+=length;}
+        hit
+    }).unwrap_or(0);
+    match req.action.as_str(){
+        "pause"=>{
+            station.paused_phase_ms=phase;
+            station.paused=true;
+        }
+        "resume"=>{
+            station.anchor_unix_ms=now.saturating_sub(phase);
+            station.paused=false;
+        }
+        "next"|"previous"|"seek"=>{
+            let index=match req.action.as_str(){
+                "next"=>(current_index+1)%times.len(),
+                "previous"=>(current_index+times.len()-1)%times.len(),
+                _=>req.index.ok_or_else(||bad("seek requiere index"))?,
+            };
+            if index>=times.len() {return Err(bad("Índice de canción fuera de rango"));}
+            let pos=if req.action=="seek" {req.position_ms.unwrap_or(0)}else{0};
+            if pos>=times[index] {return Err(bad("Posición fuera de duración"));}
+            let next=times[..index].iter().sum::<u64>()+pos;
+            station.anchor_unix_ms=now.saturating_sub(next);
+            station.paused_phase_ms=next;
+        }
+        _=>return Err(bad("Acción permitida: pause, resume, previous, next, seek"))
+    }
+    store.publish(key,AssetKind::Other,&serde_json::to_vec(&station).map_err(bad)?)
+        .map_err(not_found)?;
+    Ok(Json(snapshot(&station,&times,now)))
+}
+
 pub async fn list_stations(State(store):State<Store>)->Result<Json<Value>,ApiError>{
     let records=store.list_assets("studio",STATION_PREFIX,MAX_STATIONS).map_err(bad)?;
     let mut stations=Vec::new();
@@ -214,7 +280,7 @@ mod tests{
     #[test]fn timeline_joins_at_current_position_and_wraps(){
         let station=Station{id:"latinsabroso".into(),display_name:"LatinSabroso".into(),
             playlist:vec!["tema1".into(),"tema2".into()],anchor_unix_ms:1000,cycle_ms:6000,
-            revision:"a".into(),durations_ms:vec![2000,4000]};
+            revision:"a".into(),durations_ms:vec![2000,4000],paused:false,paused_phase_ms:0};
         let at=snapshot(&station,&[2000,4000],4500);
         assert_eq!(at["track"],"tema2");assert_eq!(at["position_ms"],1500);
         assert_eq!(at["remaining_ms"],2500);
