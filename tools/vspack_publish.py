@@ -385,17 +385,51 @@ def r2_settings(prefix: str):
     return client, bucket, base
 
 
+def remote_matches(client, bucket: str, key: str, pack: dict) -> bool:
+    """Use R2 HEAD to skip proven identical ZIPs and reject collisions.
+
+    Missing objects are expected on first upload. Every other R2 error is
+    propagated; never advance current.json if the storage provider is failing.
+    """
+    head = getattr(client, "head_object", None)
+    if head is None:  # Thin test doubles; boto3's real client supports HEAD.
+        return False
+    try:
+        response = head(Bucket=bucket, Key=key)
+    except Exception as error:
+        code = str(getattr(error, "response", {}).get("Error", {}).get("Code", ""))
+        if code in ("404", "NoSuchKey", "NotFound"):
+            return False
+        raise
+    metadata = response.get("Metadata", {})
+    exact = (int(response.get("ContentLength", -1)) == pack["bytes"]
+             and metadata.get("sha256") == pack["sha256"]
+             and metadata.get("sha1") == pack["sha1"])
+    if not exact:
+        raise PackError("Colisión en el objeto inmutable de R2: " + key
+                        + ". No se reemplaza un archivo con otro hash.")
+    return True
+
+
 def publish_r2(directory: Path, prefix: str) -> dict:
     manifest = verify(directory)
     client, bucket, base = r2_settings(prefix)
     published = json.loads(json.dumps(manifest))
     for pack in published["packs"]:
         key = prefix.rstrip("/") + "/versions/" + pack["filename"]
-        data = (directory / pack["filename"]).read_bytes()
-        client.put_object(Bucket=bucket, Key=key, Body=data,
-            ContentType="application/zip",
-            CacheControl="public, max-age=31536000, immutable",
-            Metadata={"sha256": pack["sha256"], "sha1": pack["sha1"]})
+        if not remote_matches(client, bucket, key, pack):
+            # Stream from disk instead of allocating another 90-250 MiB ZIP in RAM.
+            with (directory / pack["filename"]).open("rb") as src:
+                client.put_object(Bucket=bucket, Key=key, Body=src,
+                    ContentLength=pack["bytes"],
+                    ContentType="application/zip",
+                    CacheControl="public, max-age=31536000, immutable",
+                    Metadata={"sha256": pack["sha256"], "sha1": pack["sha1"]})
+            # HEAD confirms that the object landed with the correct length/hash
+            # before publishing the version pointer.
+            if getattr(client, "head_object", None) is not None:
+                if not remote_matches(client, bucket, key, pack):
+                    raise PackError("R2 no confirma el ZIP recién publicado: " + key)
         pack["url"] = base + "/" + key
     published["status"] = "uploaded_to_r2"
     # Upload a pointer LAST so incomplete versions never become current.
@@ -425,6 +459,11 @@ def rollback_r2(directory: Path, prefix: str) -> dict:
         if not isinstance(pack.get("url"), str) or not pack["url"].startswith(
                 base + "/" + prefix.rstrip("/") + "/versions/"):
             raise PackError("Un ZIP de la versión anterior no pertenece al CDN configurado")
+    for pack in published["packs"]:
+        key_name = prefix.rstrip("/") + "/versions/" + pack["filename"]
+        if getattr(client, "head_object", None) is not None:
+            if not remote_matches(client, bucket, key_name, pack):
+                raise PackError("Rollback imposible: falta un ZIP de esa versión en R2: " + key_name)
     key = prefix.rstrip("/") + "/current.json"
     client.put_object(Bucket=bucket, Key=key, Body=previous_file.read_bytes(),
         ContentType="application/json", CacheControl="no-cache, max-age=0")
