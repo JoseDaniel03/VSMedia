@@ -100,6 +100,8 @@ async function folderZip(files){
   chunks.push(end.bytes);
   return new Blob(chunks,{type:"application/zip"});
 }
+// Reusable by VSRender/Typewriter browser integrations; no server roundtrip.
+window.VSPackBrowser = Object.freeze({zipFolder:folderZip});
 async function refresh(){
   const value=await (await api("/packs")).json();
   const list=$("[data-vspack-list]");list.replaceChildren();
