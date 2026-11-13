@@ -50,6 +50,19 @@ class RemotePackCatalogTest {
     }
 
     @Test
+    void cdnMustServeEveryImmutableZipBeforeManifestCanGoLive() throws Exception {
+        assertDoesNotThrow(() -> RemotePackCatalog.validateZipAvailability(200, 184320, 184320));
+        assertThrows(java.io.IOException.class,
+            () -> RemotePackCatalog.validateZipAvailability(404, -1, 184320));
+        assertThrows(java.io.IOException.class,
+            () -> RemotePackCatalog.validateZipAvailability(302, -1, 184320));
+        assertThrows(java.io.IOException.class,
+            () -> RemotePackCatalog.validateZipAvailability(200, 7, 184320));
+        assertThrows(java.io.IOException.class,
+            () -> RemotePackCatalog.validateZipAvailability(200, -1, 184320));
+    }
+
+    @Test
     void rejectsMalformedAndEmptyDocuments() {
         assertThrows(RuntimeException.class,
             () -> RemotePackCatalog.parseManifest("{}", SOURCE));
