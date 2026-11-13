@@ -169,7 +169,7 @@ pub async fn publish_station(State(store):State<Store>,Path(id):Path<String>,
         if old.revision==revision {old.anchor_unix_ms}else{now}
     } else {now};
     let station=Station{id:id.clone(),display_name:req.display_name,
-        playlist:req.playlist,anchor_unix_ms:anchor,cycle_ms:cycle,revision,
+        playlist:req.playlist,anchor_unix_ms:anchor,cycle_ms:cycle,revision:revision.clone(),
         durations_ms:durations.clone(),
         paused:req.elapsed_ms.is_none() && previous.as_ref().is_some_and(|p|p.revision==revision && p.paused),
         paused_phase_ms:previous.as_ref().filter(|p|p.revision==revision)
