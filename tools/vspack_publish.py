@@ -491,14 +491,26 @@ def watch_once(root: Path, studio_url: str, limit: int, profile: str,
     root.mkdir(parents=True, exist_ok=True)
     state_file = root / "publication-state.json"
     state = json.loads(state_file.read_text("utf-8")) if state_file.exists() else {}
+    # Source hash alone is insufficient: changing a compression profile or
+    # pack-size cap must always rebuild, never reuse an incompatible revision.
+    build_options = {"max_pack_mib": limit, "profile": profile,
+                     "packsquash": str(packsquash or ""), "require_optimizer": require_optimizer}
+    build_id = digest(json.dumps(build_options, sort_keys=True).encode("utf-8"), "sha256")[:12]
+    # Include target too: the exact same ZIP may need publishing to a NEW CDN.
+    publish_target = {"prefix": prefix, "public_url": os.environ.get("VSPACK_R2_PUBLIC_URL", "").rstrip("/")}
     count = studio_session_pack_count(studio_url)
     if (state.get("source_pack_count", 0) > 0 and count == 0):
         raise PackError("Los packs importados ya no están cargados en la sesión VSPack. "
                         "Reimportá las fuentes originales antes de publicar esta revisión.")
-    if state.get("source_sha256") == sha256 and (
-            not publish or state.get("status") == "uploaded_to_r2"):
+    if (state.get("source_sha256") == sha256
+            and state.get("build_options") == build_options
+            and state.get("revision") == "revision-" + sha256[:16] + "-" + build_id
+            and (not publish or (state.get("status") == "uploaded_to_r2"
+                                 and state.get("publish_target") == publish_target))):
+        revision = root / state["revision"]
+        verify(revision)  # Never skip a corrupted or manually deleted release.
         return {"changed": False, "source_sha256": sha256, "status": state.get("status")}
-    destination = root / ("revision-" + sha256[:16])
+    destination = root / ("revision-" + sha256[:16] + "-" + build_id)
     if destination.exists():
         if not (destination / "manifest.json").is_file():
             raise PackError("Ya existe una carpeta de revisión sin manifest válido: " + str(destination))
@@ -519,6 +531,8 @@ def watch_once(root: Path, studio_url: str, limit: int, profile: str,
     else:
         status = "built_not_published"
     next_state = {"schema": "vspack-watch-v1", "source_sha256": sha256,
+                  "build_options": build_options,
+                  "publish_target": publish_target if publish else None,
                   "source_pack_count": count if count is not None else state.get("source_pack_count", 0),
                   "revision": destination.name, "status": status}
     temporary = state_file.with_suffix(".tmp")
