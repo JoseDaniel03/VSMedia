@@ -95,11 +95,11 @@ cada ZIP interno es un Resource Pack independiente.
 - El bridge sigue limitado a localhost (127.0.0.1:3061).
   Los POST verifican que el Origin sea el Studio local permitido.
 
-**Persistencia:** una receta JSON puede guardarse y volver a cargar,
-pero el servidor NO conserva automáticamente los ZIP al reiniciar.
-El servidor guarda proyectos de recetas localmente, pero para un
-catálogo persistente de ZIP compartidos hacen falta CAS, autenticación y
-almacenamiento seguro.
+**Persistencia:** VSCore ahora conserva las recetas y los ZIP originales
+importados en carpetas locales separadas. Los ZIPs se verifican mediante
+SHA-256 antes de restaurarse, y las selecciones y prioridades se recuperan
+con ellos. No es almacenamiento multiusuario público ni una CDN; para
+compartir recursos con VSClient todavía hace falta el adaptador de entrega.
 
 **Minecraft:** este backend NO instala automáticamente paquetes en
 VSClient ni publica a VSEngine/CanvasMC. Sigue pendiente una capa
@@ -193,16 +193,19 @@ opciones de resolución de glifos.
 
 ## Proyectos de fusión guardados en disco
 
-El backend local conserva ahora **las recetas JSON**, incluso después de
-reiniciar el bridge, con un máximo de 32 proyectos. Los archivos ZIP
-originales **no se guardan todavía**: es necesario reimportarlos después
-de reiniciar, y la recuperación muestra las huellas SHA-256 que faltan.
+El backend local conserva **las recetas JSON** y, en la ejecución normal,
+los **ZIP originales** de las fuentes importadas. El catálogo se recupera
+tras reiniciar VSCore y valida los tamaños, el contenido y SHA-256. Las
+fuentes dañadas o perdidas no se cargan, y la receta informa los hashes
+que realmente faltan. Se mantiene el máximo de 32 proyectos y 24 fuentes.
 
 La ubicación predeterminada es:
 `./.vsmedia-data/vspack-projects/`
 
 Si se define la variable `VSMEDIA_DATA_DIR`, se usa:
-`$VSMEDIA_DATA_DIR/vspack-projects/`
+`$VSMEDIA_DATA_DIR/vspack-projects/`. Los ZIP originales y las decisiones
+se guardan junto a ellos en `$VSMEDIA_DATA_DIR/vspack-sources/`, con un
+límite de 512 MiB comprimidos y 384 MiB descomprimidos.
 
 No se aceptan IDs con rutas, barras ni puntos; sólo letras minúsculas,
 números, guiones y guiones bajos (máximo 48 caracteres).
@@ -236,8 +239,8 @@ en lugar de sobrescribirlo. El borrado también requiere la revisión
 en el parámetro `revision`.
 
 Guardar o recuperar un proyecto no ejecuta automáticamente una fusión
-ni modifica packs importados. La web futura deberá mostrar la lista de
-fuentes faltantes y permitir reimportarlas.
+ni modifica packs importados. Si faltan archivos, la web debe mostrar
+los hashes ausentes para permitir reimportar exactamente esos ZIPs.
 
 ### Hashes de los ZIP compilados
 

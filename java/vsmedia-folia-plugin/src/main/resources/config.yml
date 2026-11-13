@@ -1,4 +1,9 @@
 # VSMedia 26.3 - Folia test plugin.
+# VSRadio: requiere Plasmo Voice en el servidor y mod en los clientes.
+radio:
+  enabled: true
+  max-active-stations: 8
+  source: 'VSCore local 127.0.0.1:3061'
 # When web/ is present at build time, the JAR serves the optimized v11 automatically.
 # Otherwise it falls back to the old FullCanvas frontend and logs a warning.
 # The Rust VSCore process is started by this plugin on Linux x86_64.
@@ -26,3 +31,11 @@ resource-pack:
 # capas por UUID/SHA-1 y aplica la prioridad de la pila.
 external-packs:
   enabled: true
+
+# Publicación externa: el manifiesto se sube a R2 con tools/vspack_publish.py.
+# Nunca guardes claves o secretos de R2 en este archivo ni en el JAR.
+# El plugin consulta solamente el JSON público por HTTPS y ofrece las capas.
+publication:
+  enabled: false
+  manifest-url: 'https://packs.example.org/virgoland/current.json'
+  check-seconds: 300

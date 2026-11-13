@@ -78,7 +78,8 @@ Sin empaquetado de JAR/ZIP/release durante el desarrollo.
 VSPack ya expone el catálogo y la descarga de fuentes por ID,
 un inventario paginado de recursos de interfaz, resolución de colisiones
 por archivo y descargas de assets individuales. Las decisiones
-se aplican a la compilación final. La API es local y de sesión,
+se aplican a la compilación final. La API es local y conserva las
+selecciones entre reinicios cuando se ejecuta VSCore normalmente,
 independiente de las clases CSS del editor, y está documentada en
 [Contrato de recursos e interfaces](docs/VSPACK-INTERFACES-API.md).
 
@@ -97,8 +98,10 @@ idiomas y otros). Se preservan sidecars PNG.mcmeta.
 [Contrato API del gestor](docs/VSPACK-MANAGER-API.md) ·
 [API de recursos e interfaces](docs/VSPACK-INTERFACES-API.md).
 
-La persistencia de fuentes en CAS, el proxy autenticado y la instalación
-automática en VSClient se conectarán posteriormente. No se ha integrado
+Los ZIPs originales importados ahora se guardan de forma privada en disco
+con SHA-256 y se restauran al iniciar VSCore; el gestor usa cuotas y archivos
+atómicos. La autenticación remota y la instalación automática en VSClient
+siguen pendientes. No se ha integrado
 una página nueva ni se ha publicado un Resource Pack a Minecraft.
 
 VSPack también prepara un inspector de referencias y la selección conjunta de PNG/.png.mcmeta para tooltips y animaciones. Véase docs/VSPACK-MANAGER-API.md.
@@ -109,8 +112,10 @@ Las recetas de fusión se guardan ahora en
 `VSMEDIA_DATA_DIR/vspack-projects/` (por defecto,
 `./.vsmedia-data/vspack-projects/`). Es un almacenamiento local
 duradero que permite recuperar los perfiles al reiniciar el backend,
-con revisión para evitar sobrescrituras accidentales. Las fuentes ZIP
-siguen siendo efímeras y hay que reimportarlas al recuperar una receta.
+con revisión para evitar sobrescrituras accidentales. Los ZIPs originales
+y elecciones manuales sobreviven reinicios en `vspack-sources/` cuando se
+usa la ejecución normal del backend; un archivo dañado se descarta al
+comprobar SHA-256. Las sesiones de prueba aisladas continúan en memoria.
 La exportación del gestor incluye SHA-1, SHA-256 y ETag para
 comprobar la integridad. Más detalles:
 [VSPACK-MANAGER-API.md](docs/VSPACK-MANAGER-API.md).

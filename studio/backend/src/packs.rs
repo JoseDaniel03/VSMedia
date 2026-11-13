@@ -13,7 +13,7 @@ use serde_json::{json,Value};
 use tokio::sync::{Mutex,Semaphore};
 use vsmedia_pack::{archive::{self,ArchiveLimits},structured,PackAsset,MergeOutput};
 
-use crate::{ApiError,authorize_origin,bad};
+use crate::{ApiError,authorize_origin,bad,pack_sources::SourceStore};
 
 // Account for multiple large GUI/audio packs without removing ZIP-bomb protections.
 const MAX_ZIP_BYTES:usize=96*1024*1024;
@@ -30,22 +30,37 @@ pub struct PackHub(
     pub(crate) Arc<Mutex<Vec<LoadedPack>>>,
     pub(crate) Arc<Mutex<BTreeMap<String,String>>>,
     // Shared CPU budget across imports, merges and manager previews.
-    pub(crate) Arc<Semaphore>
+    pub(crate) Arc<Semaphore>,
+    pub(crate) Option<Arc<SourceStore>>
 );
+impl PackHub {
+    pub(crate) fn from_source_dir(folder:std::path::PathBuf)->Result<Self,ApiError>{
+        let source=Arc::new(SourceStore::new(folder));
+        let (restored,warnings)=source.restore()?;
+        for warning in warnings {eprintln!("VSPack startup: {warning}");}
+        let choices=source.load_choices(&restored).unwrap_or_else(|problem|{
+            eprintln!("VSPack startup: opciones manuales ignoradas: {}",problem.1);
+            BTreeMap::new()
+        });
+        Ok(Self(Arc::new(Mutex::new(restored)),
+            Arc::new(Mutex::new(choices)),
+            Arc::new(Semaphore::new(2)),Some(source)))
+    }
+}
 impl Default for PackHub {
     fn default()->Self{
         Self(Arc::new(Mutex::new(Vec::new())),
             Arc::new(Mutex::new(BTreeMap::new())),
-            Arc::new(Semaphore::new(2)))
+            Arc::new(Semaphore::new(2)),None)
     }
 }
 #[derive(Clone)]
 pub(crate) struct LoadedPack {
     pub(crate) id:String,
-    name:String,
+    pub(crate) name:String,
     pub(crate) priority:i32,
     pub(crate) files:Arc<Vec<PackAsset>>,
-    bytes:usize,
+    pub(crate) bytes:usize,
     pub(crate) fingerprint:String,
 }
 #[derive(Serialize,Debug)]
@@ -76,7 +91,8 @@ pub async fn list(Extension(hub):Extension<PackHub>)->Json<Value>{
         "packs":packs.iter().map(PackInfo::from).collect::<Vec<_>>(),
         "total_bytes":packs.iter().map(|pack|pack.bytes).sum::<usize>(),
         "max_packs":MAX_PACKS,"max_ram_bytes":MAX_RAM_BYTES,
-        "max_zip_bytes":MAX_ZIP_BYTES,"session_only":true,
+        "max_zip_bytes":MAX_ZIP_BYTES,"session_only":hub.3.is_none(),
+        "zip_sources_persisted":hub.3.is_some(),
         "minecraft_delivery":false}))
 }
 pub async fn import(
@@ -113,6 +129,7 @@ pub async fn import(
         }
         if saved.len()>=MAX_PACKS {return Err(bad("Máximo 24 packs por sesión"));}
     }
+    let original=bytes.clone();
     let source_id=id.clone();
     let permit=hub.2.clone().acquire_owned().await
         .map_err(|_|bad("Motor ZIP cerrado"))?;
@@ -137,6 +154,12 @@ pub async fn import(
     let pack=LoadedPack{id,name:label,priority:next_priority,files:Arc::new(imported),
         bytes:used,fingerprint};
     let out=PackInfo::from(&pack);
+    if let Some(store)=&hub.3 {
+        let store=store.clone();
+        let disk_pack=pack.clone();
+        tokio::task::spawn_blocking(move||store.save(&disk_pack,&original))
+            .await.map_err(|e|bad(format!("Persistencia de ZIP interrumpida: {e}")))??;
+    }
     saved.push(pack);
     Ok(Json(out))
 }
@@ -188,6 +211,11 @@ pub async fn priority(
     let mut packs=hub.0.lock().await;
     let item=packs.iter_mut().find(|p|p.id==id)
         .ok_or_else(||ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()))?;
+    if let Some(store)=&hub.3 {
+        let store=store.clone();let id=id.clone();let value=change.priority;
+        tokio::task::spawn_blocking(move||store.priority(&id,value))
+            .await.map_err(|e|bad(format!("Guardar prioridad interrumpido: {e}")))??;
+    }
     item.priority=change.priority;
     Ok(Json(PackInfo::from(&*item)))
 }
@@ -197,12 +225,26 @@ pub async fn remove(
     authorize_origin(&headers)?;
     let mut packs=hub.0.lock().await;
     let len=packs.len();
+    if len==0 || !packs.iter().any(|p|p.id==id){
+        return Err(ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()));
+    }
+    if let Some(store)=&hub.3 {
+        let store=store.clone();let id=id.clone();
+        tokio::task::spawn_blocking(move||store.remove(&id))
+            .await.map_err(|e|bad(format!("Eliminar ZIP interrumpido: {e}")))??;
+    }
     packs.retain(|p|p.id!=id);
     if len==packs.len(){
         return Err(ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()));
     }
     drop(packs);
-    hub.1.lock().await.retain(|_,source|source!=&id);
+    let mut choices=hub.1.lock().await;
+    choices.retain(|_,source|source!=&id);
+    if let Some(store)=&hub.3 {
+        let store=store.clone();let copy=choices.clone();
+        tokio::task::spawn_blocking(move||store.save_choices(&copy))
+            .await.map_err(|e|bad(format!("Guardar decisiones interrumpido: {e}")))??;
+    }
     Ok(Json(json!({"deleted":true,"id":id})))
 }
 /// Clone only small Arc handles under lock. CPU-heavy structured merge/ZIP
@@ -412,7 +454,14 @@ pub async fn choose_resource(
     if choices.len()>=MAX_SOURCE_CHOICES && !choices.contains_key(&choice.path){
         return Err(bad("Máximo 256 selecciones manuales por sesión"));
     }
-    choices.insert(choice.path.clone(),choice.source_id.clone());
+    let mut updated=choices.clone();
+    updated.insert(choice.path.clone(),choice.source_id.clone());
+    if let Some(store)=&hub.3 {
+        let store=store.clone();let copy=updated.clone();
+        tokio::task::spawn_blocking(move||store.save_choices(&copy))
+            .await.map_err(|e|bad(format!("Guardar elección interrumpido: {e}")))??;
+    }
+    *choices=updated;
     Ok(Json(json!({"path":choice.path,"chosen_source":choice.source_id,
         "override":true})))
 }
@@ -445,13 +494,19 @@ pub async fn choose_texture_bundle(
     if overrides.len().saturating_add(new_entries)>MAX_SOURCE_CHOICES{
         return Err(bad("Límite de selecciones manuales alcanzado"));
     }
-    overrides.insert(choice.path.clone(),choice.source_id.clone());
+    let mut updated=overrides.clone();
+    updated.insert(choice.path.clone(),choice.source_id.clone());
     if has_companion{
-        overrides.insert(companion.clone(),choice.source_id.clone());
+        updated.insert(companion.clone(),choice.source_id.clone());
     }else{
-        // Never leave an older, conflicting explicit choice for .png.mcmeta.
-        overrides.remove(&companion);
+        updated.remove(&companion);
     }
+    if let Some(store)=&hub.3 {
+        let store=store.clone();let copy=updated.clone();
+        tokio::task::spawn_blocking(move||store.save_choices(&copy))
+            .await.map_err(|e|bad(format!("Guardar texturas interrumpido: {e}")))??;
+    }
+    *overrides=updated;
     Ok(Json(json!({
         "schema":"vspack-texture-selection-v1",
         "path":choice.path,
@@ -468,7 +523,17 @@ pub async fn clear_resource_choice(
 )->Result<Json<Value>,ApiError>{
     authorize_origin(&headers)?;
     vsmedia_pack::validate_path(&q.path).map_err(friendly_error)?;
-    let removed=hub.1.lock().await.remove(&q.path).is_some();
+    let mut choices=hub.1.lock().await;
+    let mut updated=choices.clone();
+    let removed=updated.remove(&q.path).is_some();
+    if removed {
+        if let Some(store)=&hub.3 {
+            let store=store.clone();let copy=updated.clone();
+            tokio::task::spawn_blocking(move||store.save_choices(&copy))
+                .await.map_err(|e|bad(format!("Eliminar elección interrumpido: {e}")))??;
+        }
+        *choices=updated;
+    }
     Ok(Json(json!({"path":q.path,"removed":removed})))
 }
 pub async fn resource_choices(
@@ -1004,6 +1069,38 @@ mod tests{
             .await.is_err());
         assert!(download_source(Extension(hub),Path("missing".into()))
             .await.is_err());
+    }
+    #[tokio::test]
+    async fn imported_zip_is_restored_with_priority_and_can_be_deleted_permanently(){
+        use std::sync::atomic::{AtomicUsize,Ordering};
+        static NEXT:AtomicUsize=AtomicUsize::new(0);
+        let dir=std::env::temp_dir().join(format!("vspack-bridge-import-{}-{}",
+            std::process::id(),NEXT.fetch_add(1,Ordering::Relaxed)));
+        let hub=PackHub::from_source_dir(dir.clone()).unwrap();
+        let original=fixture(&[("assets/demo/textures/gui/icon.png",b"persisted")]);
+        let first=import(Extension(hub.clone()),Path("gui".into()),headers(),
+            Bytes::from(original)).await.unwrap().0;
+        assert_eq!(first.id,"gui");
+        priority(Extension(hub.clone()),Path("gui".into()),headers(),
+            Json(PriorityInput{priority:42})).await.unwrap();
+        choose_resource(Extension(hub.clone()),headers(),Json(OverrideInput{
+            path:"assets/demo/textures/gui/icon.png".into(),source_id:"gui".into()
+        })).await.unwrap();
+        drop(hub);
+        let reloaded=PackHub::from_source_dir(dir.clone()).unwrap();
+        let restored=list(Extension(reloaded.clone())).await.0;
+        assert_eq!(restored["zip_sources_persisted"],true);
+        assert_eq!(restored["packs"][0]["priority"],42);
+        assert_eq!(restored["packs"][0]["fingerprint"],first.fingerprint);
+        assert_eq!(reloaded.1.lock().await.get("assets/demo/textures/gui/icon.png"),
+            Some(&"gui".to_string()));
+        let merged=composed(&reloaded).await.unwrap();
+        assert_eq!(merged.files["assets/demo/textures/gui/icon.png"],b"persisted");
+        remove(Extension(reloaded.clone()),Path("gui".into()),headers()).await.unwrap();
+        drop(reloaded);
+        let empty=PackHub::from_source_dir(dir.clone()).unwrap();
+        assert!(empty.0.lock().await.is_empty());
+        let _=std::fs::remove_dir_all(dir);
     }
     #[test]
     fn pack_id_and_category_boundaries(){

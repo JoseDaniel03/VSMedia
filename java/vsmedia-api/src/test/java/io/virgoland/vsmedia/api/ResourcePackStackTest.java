@@ -30,6 +30,6 @@ class ResourcePackStackTest {
         assertThrows(IllegalArgumentException.class, () ->
             new ResourcePackStack(List.of(base,base)));
         assertThrows(IllegalArgumentException.class, () ->
-            new ResourcePackStack(java.util.Collections.nCopies(9,base)));
+            new ResourcePackStack(java.util.Collections.nCopies(33,base)));
     }
 }

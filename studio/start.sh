@@ -7,6 +7,7 @@ for command in cargo trunk; do
     exit 1
   fi
 done
+bash ../scripts/build-browser-vorbis.sh
 cargo run --manifest-path backend/Cargo.toml &
 bridge_pid=$!
 cleanup() { kill "$bridge_pid" 2>/dev/null || true; wait "$bridge_pid" 2>/dev/null || true; }

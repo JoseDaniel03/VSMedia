@@ -593,7 +593,7 @@ fn RadioStudio(assets: RwSignal<Vec<AudioAsset>>,folders: RwSignal<Vec<Folder>>,
                             key=|(i,id)|format!("{}-{}",i,id) children=move |(i,file_id)|{
                             let file_for_play=file_id.clone();
                             let file_name=media::asset_by_id(assets,&file_id).map(|a|a.name).unwrap_or("Archivo no disponible".to_owned());
-                            view!{<div class="playlist-row">
+                            view!{<div class="playlist-row" data-radio-file-url=media::asset_by_id(assets,&file_id).map(|asset|asset.url).unwrap_or_default()>
                                 <span class="playlist-order">{format!("{:02}",i+1)}</span>
                                 <button type="button" class="playlist-song" on:click=move |_|{
                                     if let Some(a)=media::asset_by_id(assets,&file_for_play){

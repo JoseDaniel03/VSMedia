@@ -180,14 +180,14 @@ async fn from_recipe(hub:PackHub,recipe:PackRecipe)
     }).await.map_err(|e|bad(format!("No se completó la fusión: {e}")))?
 }
 
-pub async fn capabilities()->Json<Value>{
+pub async fn capabilities(Extension(hub):Extension<PackHub>)->Json<Value>{
     Json(json!({
         "schema":"vspack-manager-capabilities-v1",
         "recipe_schema":SCHEMA,
         "source_matching":"original_zip_sha256",
         "profiles":"portable_json_and_local_saved",
         "profiles_persisted_on_server":true,
-        "source_zip_files_persisted_on_server":false,
+        "source_zip_files_persisted_on_server":hub.3.is_some(),
         "project_store":"vspack-saved-project-v1",
         "max_saved_projects":32,
         "split_groups":split::GROUPS,
