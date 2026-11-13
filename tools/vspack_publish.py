@@ -349,8 +349,27 @@ def verify(directory: Path) -> dict:
     if len(manifest["packs"]) >= 32:
         raise PackError("Minecraft/VSMedia admite hasta 31 capas remotas por publicación")
     seen: set[str] = set()
-    for pack in manifest["packs"]:
+    logical_ids: set[str] = set()
+    pack_uuids: set[str] = set()
+    for position, pack in enumerate(manifest["packs"]):
         name = pack["filename"]
+        logical = pack.get("logical_id")
+        if not isinstance(logical, str) or not logical or not (
+                any(logical.startswith(group + "-") for group in ORDER)):
+            raise PackError("ID de capa inválido en el manifest")
+        expected_uuid = str(uuid.uuid5(PACK_UUID_NAMESPACE, logical))
+        if (logical in logical_ids or pack.get("uuid") != expected_uuid
+                or pack["uuid"] in pack_uuids):
+            raise PackError("UUID o ID de capa duplicado/inconsistente")
+        logical_ids.add(logical)
+        pack_uuids.add(pack["uuid"])
+        if pack.get("priority") != position:
+            raise PackError("Orden de capas inválido en el manifest")
+        if pack.get("category") not in ORDER:
+            raise PackError("Categoría de pack inválida")
+        if pack.get("url") not in (None, "") and not (
+                isinstance(pack["url"], str) and pack["url"].startswith("https://")):
+            raise PackError("URL pública inválida en el manifest")
         if not valid_path(name) or "/" in name or name in seen:
             raise PackError("Nombre de pack duplicado o inseguro")
         seen.add(name)
