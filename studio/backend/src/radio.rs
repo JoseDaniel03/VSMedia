@@ -71,9 +71,29 @@ pub async fn upload_track(State(store):State<Store>,Path(id):Path<String>,
     if total.saturating_sub(previous).saturating_add(body.len() as u64)>384*1024*1024 {
         return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE,"Radio supera 384 MiB".into()));
     }
+    let sha256=format!("{:x}",Sha256::digest(&body));
+    if let Ok(existing)=store.metadata(&key) {
+        if existing.sha256==sha256 && existing.kind==AssetKind::Sound {
+            return Ok(Json(json!({"id":id,"sha256":existing.sha256,
+                "duration_ms":duration_ms,"bytes":existing.size,"stored":true,
+                "unchanged":true,"transmitting":false})));
+        }
+        // Never mutate an in-use immutable radio track; interrupted updates
+        // must leave the old station and all its listener streams intact.
+        return Err(ApiError(StatusCode::CONFLICT,
+            "Pista existente con contenido distinto: usá un ID por hash".into()));
+    }
     let record=store.publish(key,AssetKind::Sound,&body).map_err(not_found)?;
     Ok(Json(json!({"id":id,"sha256":record.sha256,"duration_ms":duration_ms,
-        "bytes":record.size,"stored":true,"transmitting":false})))
+        "bytes":record.size,"stored":true,"unchanged":false,"transmitting":false})))
+}
+
+pub async fn track_metadata(State(store):State<Store>,Path(id):Path<String>)
+    ->Result<Json<Value>,ApiError>{
+    let record=store.metadata(&track_key(&id)?).map_err(not_found)?;
+    if record.kind!=AssetKind::Sound {return Err(bad("La pista no es audio"));}
+    Ok(Json(json!({"id":id,"sha256":record.sha256,
+        "bytes":record.size,"stored":true})))
 }
 
 pub async fn track_pcm(State(store):State<Store>,Path(id):Path<String>)->Result<Response,ApiError>{
