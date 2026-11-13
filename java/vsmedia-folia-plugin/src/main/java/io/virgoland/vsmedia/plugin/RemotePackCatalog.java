@@ -106,10 +106,40 @@ final class RemotePackCatalog implements AutoCloseable {
             List<ResourcePackDelivery> next = parseManifest(
                     new String(payload, StandardCharsets.UTF_8), manifestUrl);
             if (!next.equals(current)) {
+                verifyPublicZipAvailability(next);
                 onChange.accept(next);
                 current = next;
                 logger.info("VSPack actualizado desde CDN: " + next.size() + " capas");
             }
+        }
+    }
+
+    /**
+     * A manifest is not ready for Minecraft until all immutable ZIP URLs
+     * are actually served by the CDN. R2 is checked by HEAD when the
+     * revision changes, never on Folia's global/entity scheduler.
+     */
+    private void verifyPublicZipAvailability(List<ResourcePackDelivery> layers)
+            throws IOException, InterruptedException {
+        for (ResourcePackDelivery layer : layers) {
+            HttpRequest head = HttpRequest.newBuilder(layer.downloadUrl())
+                    .timeout(Duration.ofSeconds(10))
+                    .method("HEAD",HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<Void> response = client.send(head, HttpResponse.BodyHandlers.discarding());
+            long size = response.headers().firstValueAsLong("Content-Length").orElse(-1L);
+            validateZipAvailability(response.statusCode(),size,layer.sizeBytes());
+        }
+    }
+
+    static void validateZipAvailability(int status, long contentLength, long expected)
+            throws IOException {
+        if (status != 200) {
+            throw new IOException("ZIP remoto no disponible, HTTP " + status);
+        }
+        if (expected > 0 && contentLength != expected) {
+            throw new IOException("CDN devolvió tamaño distinto del ZIP publicado: "
+                    + contentLength + " frente a " + expected);
         }
     }
 
