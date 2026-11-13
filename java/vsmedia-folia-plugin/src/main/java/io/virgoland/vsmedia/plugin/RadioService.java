@@ -324,6 +324,9 @@ final class RadioService implements AutoCloseable {
         if(seq<=audio.lastLiveSeq)return;
         int count=(packet.length-8)/2;
         if(count>6*9600)throw new IOException("Exceso de frames DJ");
+        // Buffer 400 ms before starting Opus so the producer's 200-ms HTTP
+        // batches don't starve the Plasmo audio thread between radio polls.
+        if(audio.sender==null && count<2*9600)return;
         short[] samples=new short[count];
         for(int i=0;i<count;i++){
             int at=8+i*2;
