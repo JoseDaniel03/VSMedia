@@ -277,6 +277,120 @@ def fitted(units: list[Unit], metadata: dict[str, bytes], cap: int) -> list[byte
     return fitted(a, metadata, cap) + fitted(b, metadata, cap)
 
 
+
+def inventory(entries: dict[str, bytes]) -> dict[str, int]:
+    """Grounded totals of Minecraft assets in the published resource graph."""
+    counts = {
+        "textures": 0, "models": 0, "item_definitions": 0,
+        "blockstates": 0, "animations": 0, "fonts": 0,
+        "sounds": 0, "sound_events": 0, "particles": 0,
+        "equipment": 0, "atlases": 0, "shaders": 0,
+        "languages": 0, "other": 0,
+    }
+    for name, content in entries.items():
+        if name in ("pack.mcmeta", "pack.png"):
+            continue
+        sub = "/".join(name.split("/")[2:]) if name.startswith("assets/") else ""
+        key = "other"
+        if sub.startswith("textures/") and name.endswith(".png"):
+            key = "textures"
+        elif sub.startswith(("models/", "entity/")) and name.endswith(".json"):
+            key = "models"
+        elif sub.startswith("items/") and name.endswith(".json"):
+            key = "item_definitions"
+        elif sub.startswith("blockstates/") and name.endswith(".json"):
+            key = "blockstates"
+        elif name.endswith(".png.mcmeta"):
+            key = "animations"
+        elif sub.startswith("font/"):
+            key = "fonts"
+        elif sub.startswith("sounds/") and name.endswith(".ogg"):
+            key = "sounds"
+        elif sub == "sounds.json":
+            try:
+                counts["sound_events"] += len(json.loads(content))
+            except (ValueError, TypeError):
+                pass
+        elif sub.startswith(("particles/", "textures/particle/")):
+            key = "particles"
+        elif sub.startswith("equipment/"):
+            key = "equipment"
+        elif sub.startswith("atlases/"):
+            key = "atlases"
+        elif sub.startswith(("shaders/", "post_effect/")):
+            key = "shaders"
+        elif sub.startswith("lang/"):
+            key = "languages"
+        if sub != "sounds.json":
+            counts[key] += 1
+    return counts
+
+
+def resource_fingerprint(entries: dict[str, bytes]) -> str:
+    """The semantic graph hash. Sound event JSON can be split then rejoined."""
+    hashes = {}
+    for name, content in entries.items():
+        if name in ("pack.mcmeta", "pack.png"):
+            continue
+        if name.startswith("assets/") and name.endswith("/sounds.json"):
+            try:
+                content = json.dumps(json.loads(content), ensure_ascii=False,
+                    sort_keys=True, separators=(",", ":")).encode("utf-8")
+            except (ValueError, UnicodeDecodeError) as exc:
+                raise PackError("Sonidos JSON inválidos: " + name) from exc
+        hashes[name] = digest(content, "sha256")
+    return digest(json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode(), "sha256")
+
+
+def reassemble(archives: list[bytes]) -> dict[str, bytes]:
+    """Reconstruct every Minecraft asset from ALL layers, rejecting divergences.
+
+    Shared sounds may occur in multiple layers, but their data must agree.
+    The original sounds.json is deliberately spread across event units, so
+    merging its keys semantically is required before comparing graph hashes.
+    """
+    collected: dict[str, bytes] = {}
+    sound_events: dict[str, dict] = {}
+    for raw in archives:
+        files = inspect_zip(raw)
+        for name, content in files.items():
+            if name in ("pack.mcmeta", "pack.png"):
+                continue
+            if name.startswith("assets/") and name.endswith("/sounds.json"):
+                doc = json.loads(content)
+                if not isinstance(doc, dict):
+                    raise PackError("sounds.json de capa no es un objeto: " + name)
+                events = sound_events.setdefault(name, {})
+                for event, value in doc.items():
+                    if event in events and events[event] != value:
+                        raise PackError("Capas contienen eventos incompatibles: " + name + "/" + event)
+                    events[event] = value
+            elif name in collected and collected[name] != content:
+                raise PackError("Capas contienen bytes incompatibles: " + name)
+            else:
+                collected[name] = content
+    for name, doc in sound_events.items():
+        collected[name] = json.dumps(doc, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":")).encode("utf-8")
+    return collected
+
+
+def check_coverage(original: dict[str, bytes], archives: list[bytes]) -> str:
+    expected = resource_fingerprint(original)
+    delivered = reassemble(archives)
+    actual = resource_fingerprint(delivered)
+    if expected != actual:
+        missing = sorted(set(original) - set(delivered) - {"pack.mcmeta", "pack.png"})
+        extra = sorted(set(delivered) - set(original))
+        altered = sorted(name for name in set(delivered) & set(original)
+                         if not name.endswith("/sounds.json")
+                         and delivered[name] != original[name])
+        raise PackError("Publicación incompleta: recursos faltantes="
+                        + str(missing[:6]) + "; extras=" + str(extra[:6])
+                        + "; alterados=" + str(altered[:6]))
+    return expected
+
+
 def build(input_zip: Path, destination: Path, limit_mib: int,
           profile: str, packsquash: str | None, require_optimizer: bool) -> dict:
     cap = limit_mib * 1024 * 1024
@@ -323,11 +437,19 @@ def build(input_zip: Path, destination: Path, limit_mib: int,
     if len(packs) >= 32:
         raise PackError("Más de 31 packs en una publicación; aumentá el límite por módulo "
                         "o reducí contenido para que Folia pueda ofrecerlos juntos")
+    # A successful ZIP build is not enough: ensure the entire Minecraft
+    # resource graph survives splitting into layers, not only pack hashes.
+    fingerprint = check_coverage(optimized, [
+        (directory / p["filename"]).read_bytes() for p in packs
+    ])
     report = {
         "schema": "vspack-publication-v1", "status": "built_not_published",
         "profile": profile, "max_pack_mib": limit_mib,
         "original_zip_bytes": input_zip.stat().st_size,
         "published_zip_bytes": sum(pack["bytes"] for pack in packs),
+        "resource_graph_sha256": fingerprint,
+        "resource_count": len(optimized) - len(set(optimized) & {"pack.mcmeta", "pack.png"}),
+        "inventory": inventory(optimized),
         "original_uncompressed_bytes": sum(map(len, source.values())),
         "optimized_uncompressed_bytes": sum(map(len, optimized.values())),
         "notes": notes,
@@ -382,6 +504,15 @@ def verify(directory: Path) -> dict:
         if len(payload) > manifest["max_pack_mib"] * 1024 * 1024:
             raise PackError("Pack excede límite: " + name)
         inspect_zip(payload)
+    if "resource_graph_sha256" in manifest:
+        bundled = [(directory / pack["filename"]).read_bytes() for pack in manifest["packs"]]
+        actual = resource_fingerprint(reassemble(bundled))
+        if actual != manifest["resource_graph_sha256"]:
+            raise PackError("El conjunto de capas perdió o modificó recursos respecto del manifest")
+        if manifest.get("resource_count") != len(reassemble(bundled)):
+            raise PackError("Inventario de archivos inconsistente con los ZIP publicados")
+        if manifest.get("inventory") != inventory(reassemble(bundled)):
+            raise PackError("Inventario de modelos, texturas y audio inconsistente")
     return manifest
 
 
