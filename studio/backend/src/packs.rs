@@ -13,7 +13,7 @@ use serde_json::{json,Value};
 use tokio::sync::{Mutex,Semaphore};
 use vsmedia_pack::{archive::{self,ArchiveLimits},structured,PackAsset,MergeOutput};
 
-use crate::{ApiError,authorize_origin,bad};
+use crate::{ApiError,authorize_origin,bad,pack_sources::SourceStore};
 
 // Account for multiple large GUI/audio packs without removing ZIP-bomb protections.
 const MAX_ZIP_BYTES:usize=96*1024*1024;
@@ -30,19 +30,30 @@ pub struct PackHub(
     pub(crate) Arc<Mutex<Vec<LoadedPack>>>,
     pub(crate) Arc<Mutex<BTreeMap<String,String>>>,
     // Shared CPU budget across imports, merges and manager previews.
-    pub(crate) Arc<Semaphore>
+    pub(crate) Arc<Semaphore>,
+    pub(crate) Option<Arc<SourceStore>>
 );
+impl PackHub {
+    pub(crate) fn from_source_dir(folder:std::path::PathBuf)->Result<Self,ApiError>{
+        let source=Arc::new(SourceStore::new(folder));
+        let (restored,warnings)=source.restore()?;
+        for warning in warnings {eprintln!("VSPack startup: {warning}");}
+        Ok(Self(Arc::new(Mutex::new(restored)),
+            Arc::new(Mutex::new(BTreeMap::new())),
+            Arc::new(Semaphore::new(2)),Some(source)))
+    }
+}
 impl Default for PackHub {
     fn default()->Self{
         Self(Arc::new(Mutex::new(Vec::new())),
             Arc::new(Mutex::new(BTreeMap::new())),
-            Arc::new(Semaphore::new(2)))
+            Arc::new(Semaphore::new(2)),None)
     }
 }
 #[derive(Clone)]
 pub(crate) struct LoadedPack {
     pub(crate) id:String,
-    name:String,
+    pub(crate) name:String,
     pub(crate) priority:i32,
     pub(crate) files:Arc<Vec<PackAsset>>,
     bytes:usize,
@@ -76,7 +87,8 @@ pub async fn list(Extension(hub):Extension<PackHub>)->Json<Value>{
         "packs":packs.iter().map(PackInfo::from).collect::<Vec<_>>(),
         "total_bytes":packs.iter().map(|pack|pack.bytes).sum::<usize>(),
         "max_packs":MAX_PACKS,"max_ram_bytes":MAX_RAM_BYTES,
-        "max_zip_bytes":MAX_ZIP_BYTES,"session_only":true,
+        "max_zip_bytes":MAX_ZIP_BYTES,"session_only":hub.3.is_none(),
+        "zip_sources_persisted":hub.3.is_some(),
         "minecraft_delivery":false}))
 }
 pub async fn import(
@@ -113,6 +125,7 @@ pub async fn import(
         }
         if saved.len()>=MAX_PACKS {return Err(bad("Máximo 24 packs por sesión"));}
     }
+    let original=bytes.clone();
     let source_id=id.clone();
     let permit=hub.2.clone().acquire_owned().await
         .map_err(|_|bad("Motor ZIP cerrado"))?;
@@ -137,6 +150,12 @@ pub async fn import(
     let pack=LoadedPack{id,name:label,priority:next_priority,files:Arc::new(imported),
         bytes:used,fingerprint};
     let out=PackInfo::from(&pack);
+    if let Some(store)=&hub.3 {
+        let store=store.clone();
+        let disk_pack=pack.clone();
+        tokio::task::spawn_blocking(move||store.save(&disk_pack,&original))
+            .await.map_err(|e|bad(format!("Persistencia de ZIP interrumpida: {e}")))??;
+    }
     saved.push(pack);
     Ok(Json(out))
 }
@@ -188,6 +207,11 @@ pub async fn priority(
     let mut packs=hub.0.lock().await;
     let item=packs.iter_mut().find(|p|p.id==id)
         .ok_or_else(||ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()))?;
+    if let Some(store)=&hub.3 {
+        let store=store.clone();let id=id.clone();let value=change.priority;
+        tokio::task::spawn_blocking(move||store.priority(&id,value))
+            .await.map_err(|e|bad(format!("Guardar prioridad interrumpido: {e}")))??;
+    }
     item.priority=change.priority;
     Ok(Json(PackInfo::from(&*item)))
 }
@@ -197,6 +221,14 @@ pub async fn remove(
     authorize_origin(&headers)?;
     let mut packs=hub.0.lock().await;
     let len=packs.len();
+    if len==0 || !packs.iter().any(|p|p.id==id){
+        return Err(ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()));
+    }
+    if let Some(store)=&hub.3 {
+        let store=store.clone();let id=id.clone();
+        tokio::task::spawn_blocking(move||store.remove(&id))
+            .await.map_err(|e|bad(format!("Eliminar ZIP interrumpido: {e}")))??;
+    }
     packs.retain(|p|p.id!=id);
     if len==packs.len(){
         return Err(ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()));
