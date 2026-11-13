@@ -455,6 +455,51 @@ mod tests {
             .body(Body::from(body)).unwrap()
     }
     #[tokio::test]
+    async fn radio_track_publication_is_immutable_idempotent_and_probeable() {
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let frames=48000u32;
+        let mut wav=Vec::new();
+        wav.extend(b"RIFF");wav.extend((frames*2+36).to_le_bytes());
+        wav.extend(b"WAVEfmt ");wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());wav.extend(1u16.to_le_bytes());
+        wav.extend(48000u32.to_le_bytes());wav.extend(96000u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");wav.extend((frames*2).to_le_bytes());
+        wav.resize(44+frames as usize*2,0);
+        let url="/api/v1/radio/tracks/demo_content_sha";
+        let first=app.clone().oneshot(request(Method::POST,url,wav.clone())).await.unwrap();
+        assert_eq!(first.status(),StatusCode::OK);
+        let a:Value=serde_json::from_slice(&to_bytes(first.into_body(),4096)
+            .await.unwrap()).unwrap();
+        assert_eq!(a["unchanged"],false);
+        let previous=db.metadata(&AssetKey::new("studio",
+            "radio/tracks/demo_content_sha.wav").unwrap()).unwrap();
+        let second=app.clone().oneshot(request(Method::POST,url,wav.clone())).await.unwrap();
+        assert_eq!(second.status(),StatusCode::OK);
+        let b:Value=serde_json::from_slice(&to_bytes(second.into_body(),4096)
+            .await.unwrap()).unwrap();
+        assert_eq!(b["unchanged"],true);
+        let stable=db.metadata(&AssetKey::new("studio",
+            "radio/tracks/demo_content_sha.wav").unwrap()).unwrap();
+        assert_eq!(previous.revision,stable.revision);
+        let metadata=app.clone().oneshot(request(Method::GET,
+            "/api/v1/radio/tracks/demo_content_sha/metadata",vec![])).await.unwrap();
+        assert_eq!(metadata.status(),StatusCode::OK);
+        let c:Value=serde_json::from_slice(&to_bytes(metadata.into_body(),4096)
+            .await.unwrap()).unwrap();
+        assert_eq!(a["sha256"],c["sha256"]);
+        // Modifying the referenced track requires a NEW content ID.
+        wav[44]=1;
+        let collided=app.clone().oneshot(request(Method::POST,url,wav)).await.unwrap();
+        assert_eq!(collided.status(),StatusCode::CONFLICT);
+        let preserved=db.metadata(&AssetKey::new("studio",
+            "radio/tracks/demo_content_sha.wav").unwrap()).unwrap();
+        assert_eq!(previous.revision,preserved.revision);
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn radio_emisora_publishes_and_reconnects_at_shared_live_position() {
         let (db,dir)=store();
         let app=router(db.clone());
