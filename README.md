@@ -126,8 +126,15 @@ en Linux x86_64, escuchando solamente en `127.0.0.1:3061`. Si ya existe una
 instancia activa, la reutiliza y **no** ejecuta otra. Si falta el binario o no
 se está ejecutando en una plataforma compatible, la web sigue activa y se
 registra un aviso; no se declara una integración de fuentes/pack operativa.
+Si un proceso Rust iniciado por el plugin termina inesperadamente, un
+supervisor intenta reiniciarlo con retroceso progresivo y máximo cinco
+intentos por hora; una instancia externa no se reinicia ni se destruye.
 
 Los ajustes existentes en `plugins/VSMedia/config.yml` no se sobrescriben.
 Si una instalación anterior ya tenía `studio-core.autostart: false`, cambiarlo a
 `true` y reiniciar para activar el nuevo valor. Para instalaciones nuevas
-`true` es el valor por defecto. El puerto 3061 **no** debe exponerse a Internet.
+`true` es el valor por defecto. El puerto 3061 **no** debe exponerse a Internet. El backend guarda los
+ZIPs fuente originales de VSPack en `vsmedia-data/vspack-sources` y restaura
+sus prioridades y elecciones manuales tras reinicios, previa verificación
+SHA-256. La web aplica comprobación de origen a los cambios HTTP; VSRadio
+transfiere su token efímero a Rust a través del proxy local.
