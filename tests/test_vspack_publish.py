@@ -228,5 +228,106 @@ class VSPackPublishTests(unittest.TestCase):
                                     90, "lossless", None, False, False, "virgoland")
 
 
+    def test_watch_rebuilds_when_compression_settings_change(self):
+        payload = fixture({"assets/demo/lang/es_ar.json": b'{"radio":"ok"}'})
+        root = self.directory / "settings"
+        with patch.object(tool, "download_studio_export", return_value=payload):
+            first = tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                    90, "lossless", None, False, False, "virgoland")
+            changed = tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                      95, "lossless", None, False, False, "virgoland")
+            same = tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                   95, "lossless", None, False, False, "virgoland")
+        self.assertTrue(first["changed"])
+        self.assertTrue(changed["changed"])
+        self.assertFalse(same["changed"])
+        self.assertNotEqual(first["revision"], changed["revision"])
+        self.assertEqual(len(list(root.glob("revision-*"))), 2)
+
+    def test_watch_republishes_when_cdn_target_changes(self):
+        payload = fixture({"assets/demo/lang/es_ar.json": b'{}'})
+        root = self.directory / "cdn-target"
+        def fake_publish(folder, prefix):
+            tool.verify(folder)
+            return {"status": "uploaded_to_r2"}
+        with patch.object(tool, "download_studio_export", return_value=payload), \
+             patch.object(tool, "publish_r2", side_effect=fake_publish) as uploader:
+            first = tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                    90, "lossless", None, False, True, "virgoland")
+            cached = tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                     90, "lossless", None, False, True, "virgoland")
+            changed = tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                      90, "lossless", None, False, True, "another")
+        self.assertTrue(first["changed"])
+        self.assertFalse(cached["changed"])
+        self.assertTrue(changed["changed"])
+        self.assertEqual(uploader.call_count, 2)
+
+    def test_r2_reuses_verified_immutable_objects_without_uploading_again(self):
+        report, out = self.build({"assets/demo/lang/en_us.json": b'{"message":"abc"}'})
+        cloud = {}
+        writes = []
+        class MissingObject(Exception):
+            def __init__(self):
+                self.response = {"Error": {"Code": "404"}}
+        class Client:
+            def head_object(self, **kwargs):
+                if kwargs["Key"] not in cloud:
+                    raise MissingObject()
+                body, metadata = cloud[kwargs["Key"]]
+                return {"ContentLength": len(body), "Metadata": metadata}
+            def put_object(self, **kwargs):
+                body = kwargs["Body"]
+                if hasattr(body, "read"):
+                    if isinstance(body, bytes):
+                        raise AssertionError("Expected streaming body instead of in-memory bytes")
+                    body = body.read()
+                cloud[kwargs["Key"]] = (body, kwargs.get("Metadata", {}))
+                writes.append(kwargs["Key"])
+        client = Client()
+        # This fake only reads from the source; real boto3 streams it.
+        fake = types.SimpleNamespace(client=lambda *args, **kwargs: client)
+        env = {"VSPACK_R2_ENDPOINT":"https://example.r2.cloudflarestorage.com",
+               "VSPACK_R2_BUCKET":"packs", "VSPACK_R2_PUBLIC_URL":"https://packs.example.org",
+               "VSPACK_R2_ACCESS_KEY_ID":"test", "VSPACK_R2_SECRET_ACCESS_KEY":"test"}
+        with patch.dict(os.environ, env), patch.dict(sys.modules, {"boto3": fake}):
+            tool.publish_r2(out, "virgoland")
+            tool.publish_r2(out, "virgoland")
+        keys = [x for x in writes if "/versions/" in x]
+        self.assertEqual(len(keys), len(report["packs"]))
+        self.assertEqual(writes[-1], "virgoland/current.json")
+        self.assertEqual(writes.count("virgoland/current.json"), 2)
+
+    def test_r2_collision_never_promotes_manifest(self):
+        report, out = self.build({"assets/demo/lang/en_us.json": b'{}'})
+        writes = []
+        class Client:
+            def head_object(self, **kwargs):
+                return {"ContentLength": 1, "Metadata": {"sha256":"other", "sha1":"bad"}}
+            def put_object(self, **kwargs):
+                writes.append(kwargs["Key"])
+        fake = types.SimpleNamespace(client=lambda *args, **kwargs: Client())
+        env = {"VSPACK_R2_ENDPOINT":"https://example.r2.cloudflarestorage.com",
+               "VSPACK_R2_BUCKET":"packs", "VSPACK_R2_PUBLIC_URL":"https://packs.example.org",
+               "VSPACK_R2_ACCESS_KEY_ID":"test", "VSPACK_R2_SECRET_ACCESS_KEY":"test"}
+        with patch.dict(os.environ, env), patch.dict(sys.modules, {"boto3": fake}):
+            with self.assertRaisesRegex(tool.PackError, "Colisión"):
+                tool.publish_r2(out, "virgoland")
+        self.assertEqual(writes, [])
+
+    def test_watch_verifies_cached_zip_before_skipping(self):
+        payload = fixture({"assets/demo/lang/en_us.json": b'{}'})
+        root = self.directory / "corrupt"
+        with patch.object(tool, "download_studio_export", return_value=payload):
+            first = tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                    90, "lossless", None, False, False, "virgoland")
+            rev=root / first["revision"]
+            manifest=tool.verify(rev)
+            (rev / manifest["packs"][0]["filename"]).write_bytes(b"tampered")
+            with self.assertRaises(tool.PackError):
+                tool.watch_once(root, "http://127.0.0.1:3061/api/v1/packs/export",
+                                90, "lossless", None, False, False, "virgoland")
+
+
 if __name__ == "__main__":
     unittest.main()
