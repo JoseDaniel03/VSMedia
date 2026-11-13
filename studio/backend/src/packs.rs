@@ -56,7 +56,7 @@ pub(crate) struct LoadedPack {
     pub(crate) name:String,
     pub(crate) priority:i32,
     pub(crate) files:Arc<Vec<PackAsset>>,
-    bytes:usize,
+    pub(crate) bytes:usize,
     pub(crate) fingerprint:String,
 }
 #[derive(Serialize,Debug)]
