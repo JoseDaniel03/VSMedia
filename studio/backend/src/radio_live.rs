@@ -121,8 +121,11 @@ pub async fn drain(Extension(hub):Extension<DjHub>,
     let Some(dj)=map.get(&id).filter(|x|x.last_packet.elapsed()<STALE) else{
         return Ok(StatusCode::NO_CONTENT.into_response());
     };
-    let chunks=dj.chunks.iter().filter(|(seq,_)|*seq>after)
-        .take(6).collect::<Vec<_>>();
+    // Select the newest 600ms rather than replaying old buffered voice.
+    // A listener that was disconnected should rejoin near LIVE, not hear stale audio.
+    let mut chunks=dj.chunks.iter().rev().filter(|(seq,_)|*seq>after)
+        .take(3).collect::<Vec<_>>();
+    chunks.reverse();
     if chunks.is_empty(){return Ok(StatusCode::NO_CONTENT.into_response());}
     let seq=chunks.last().unwrap().0;
     let mut out=Vec::with_capacity(8+chunks.iter().map(|x|x.1.len()).sum::<usize>());
