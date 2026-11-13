@@ -66,7 +66,7 @@ python3 tools/vspack_publish.py studio ./publicaciones/v003 \
   --max-mib 90 --profile balanced --publish-r2 --prefix virgoland
 ~~~
 
-Se cargan primero los ZIPs bajo virgoland/versions/ y al final el manifiesto público virgoland/current.json. Archivar las carpetas publicaciones/vNNN para poder restaurar versiones anteriores.
+Se cargan primero los ZIPs bajo virgoland/versions/ y al final el manifiesto público virgoland/current.json. La subida lee cada ZIP desde disco (sin duplicarlo entero en RAM), consulta los metadatos remotos para no repetir cargas idénticas y verifica tamaño y SHA antes de actualizar el puntero. Si un archivo remoto tiene el mismo nombre pero metadatos incompatibles, **la publicación se detiene** para proteger las versiones anteriores. Archivar las carpetas publicaciones/vNNN para poder restaurar versiones anteriores.
 
 ~~~bash
 python3 tools/vspack_publish.py rollback-r2 ./publicaciones/v002 --prefix virgoland
