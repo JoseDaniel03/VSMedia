@@ -142,15 +142,30 @@ async function upload(zip,name){
 }
 async function diagnose(){
   status("Revisando conflictos y referencias…");
+  const catalog=await (await api("/packs")).json();
+  const soundCatalog=await (await api("/sounds")).json();
+  const fontCatalog=await (await api("/fonts")).json();
+  const importedFonts=(fontCatalog.fonts||[]).filter(f=>f.persistent).length;
+  const publishedSounds=(soundCatalog.sounds||[]).length;
+  if(!(catalog.packs||[]).length){
+    $("[data-vspack-diagnostics]").textContent=
+      "Fuentes ZIP: 0\nSonidos persistentes: "+publishedSounds+
+      "\nTipografías importadas: "+importedFonts+
+      "\nPack final: los sonidos y fuentes también se exportan, aun sin ZIPs adicionales.";
+    status("Biblioteca persistente revisada. Podés exportar directamente.",false);
+    return;
+  }
   const p=await (await api("/packs/preview")).json();
   const d=await (await api("/packs/diagnostics")).json();
   $("[data-vspack-diagnostics]").textContent=
-    "Recursos: "+p.file_count+" | "+(p.bytes/1048576).toFixed(2)+" MiB\n"+
-    "Categorías: "+JSON.stringify(p.categories)+"\n"+
+    "Recursos de ZIPs: "+p.file_count+" | "+(p.bytes/1048576).toFixed(2)+" MiB\n"+
+    "Sonidos persistentes adicionales: "+publishedSounds+
+    "\nTipografías adicionales: "+importedFonts+
+    "\nCategorías: "+JSON.stringify(p.categories)+"\n"+
     "Namespaces: "+JSON.stringify(p.namespaces)+"\n"+
     "Conflictos: "+p.conflicts_count+"\n"+
     "Dependencias: "+JSON.stringify(d,null,2).slice(0,3000);
-  status(p.ready?"Analizado: comprobá dependencias antes de distribuir.":
+  status(p.ready?"Pack analizado. Comprobá referencias antes de distribuir.":
     "El pack no supera las comprobaciones previas.",!p.ready);
 }
 async function exportPack(){
