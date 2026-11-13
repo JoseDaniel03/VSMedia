@@ -28,6 +28,8 @@ import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import su.plo.voice.api.server.audio.provider.ArrayAudioFrameProvider;
+import su.plo.voice.api.server.audio.provider.QueueAudioFrameProvider;
+import java.util.concurrent.atomic.AtomicBoolean;
 import su.plo.voice.api.server.audio.source.AudioSender;
 import su.plo.voice.api.server.audio.source.ServerBroadcastSource;
 import su.plo.voice.api.server.player.VoicePlayer;
@@ -70,11 +72,16 @@ final class RadioService implements AutoCloseable {
         ServerBroadcastSource source;
         AudioSender sender;
         long lastWarning;
+        boolean live;
+        long lastLiveSeq;
+        QueueAudioFrameProvider liveProvider;
+        AtomicBoolean liveStopped = new AtomicBoolean();
         StationAudio(String station) {this.station = station;}
     }
 
     private record Now(String station, String displayName, String track, String revision,
-                       long positionMs, long trackStartedMs, long serverUnixMs) {}
+                       long positionMs, long trackStartedMs, long serverUnixMs,
+                       boolean playing) {}
 
     RadioService(VSMediaPlugin plugin,RadioVoiceAddon addon) {
         this.plugin=Objects.requireNonNull(plugin);
@@ -147,7 +154,7 @@ final class RadioService implements AutoCloseable {
                 try{
                     Now now=fetchNow(station);
                     tell(player,ChatColor.GOLD+"◉ "+now.displayName+" · "+now.track
-                        +" · "+(now.positionMs/1000)+" s (en directo)");
+                        +" · "+(now.positionMs/1000)+" s "+(now.playing?"(en directo)":"(pausada)"));
                 }catch(Exception error){tell(player,ChatColor.RED+"No se pudo consultar la emisora: "+error.getMessage());}
             });
             case "emisoras" -> tasks.execute(() -> {
@@ -235,6 +242,21 @@ final class RadioService implements AutoCloseable {
     }
 
     private void refresh(StationAudio audio,Now now) throws IOException,InterruptedException {
+        JsonObject liveStatus=requestJson("/api/v1/radio/stations/"+audio.station+"/live/status");
+        if(liveStatus.get("active").getAsBoolean()) {
+            refreshLive(audio);
+            return;
+        }
+        if(audio.live) {
+            closeStream(audio);
+            audio.live=false;
+            audio.lastLiveSeq=0;
+            logger.info("VSRadio: DJ desconectado, playlist retomada: "+audio.station);
+        }
+        if(!now.playing) {
+            if(audio.sender!=null)closeStream(audio);
+            return;
+        }
         if(audio.sender!=null && audio.trackStarted==now.trackStartedMs
             && audio.revision.equals(now.revision)&&audio.track.equals(now.track)) {
             updateListeners(audio);
@@ -283,11 +305,69 @@ final class RadioService implements AutoCloseable {
         if(previous!=null)previous.stop();
     }
 
+
+    private void refreshLive(StationAudio audio) throws IOException,InterruptedException {
+        if(!audio.live||audio.liveStopped.get()){
+            closeStream(audio);
+            audio.live=true;
+            audio.lastLiveSeq=0;
+            audio.liveStopped=new AtomicBoolean(false);
+        }
+        byte[] packet=getBytes("/api/v1/radio/stations/"+audio.station
+            +"/live/drain/"+audio.lastLiveSeq);
+        if(packet.length==0){updateListeners(audio);return;}
+        if(packet.length<=8 || (packet.length-8)%1920!=0) {
+            throw new IOException("Paquete DJ PCM inválido");
+        }
+        long seq=0;
+        for(int i=0;i<8;i++)seq|=(long)(packet[i]&0xff)<<(8*i);
+        if(seq<=audio.lastLiveSeq)return;
+        int count=(packet.length-8)/2;
+        if(count>6*9600)throw new IOException("Exceso de frames DJ");
+        short[] samples=new short[count];
+        for(int i=0;i<count;i++){
+            int at=8+i*2;
+            samples[i]=(short)((packet[at]&0xff)|((packet[at+1]&0xff)<<8));
+        }
+        if(audio.sender==null){
+            ServerBroadcastSource newSource=addon.line().createBroadcastSource(false);
+            QueueAudioFrameProvider provider=new QueueAudioFrameProvider(addon.voiceServer(),false);
+            AtomicBoolean stopped=audio.liveStopped;
+            AudioSender sender;
+            try{
+                newSource.setPlayers(new HashSet<>(audio.players.values().stream()
+                    .map(username -> addon.voiceServer().getPlayerManager().getPlayerByName(username))
+                    .filter(java.util.Optional::isPresent)
+                    .map(java.util.Optional::get).toList()));
+                sender=newSource.createAudioSender(provider);
+                sender.onStop(() -> {
+                    stopped.set(true);
+                    provider.close();
+                    newSource.remove();
+                });
+                provider.addSamples(samples);
+                sender.start();
+            }catch(RuntimeException e){
+                provider.close();
+                newSource.remove();
+                throw e;
+            }
+            audio.source=newSource;
+            audio.sender=sender;
+            audio.liveProvider=provider;
+        }else{
+            audio.liveProvider.addSamples(samples);
+            updateListeners(audio);
+        }
+        audio.lastLiveSeq=seq;
+    }
+
     private void closeStream(StationAudio audio) {
         AudioSender sender=audio.sender;
         audio.sender=null;
         audio.source=null;
         audio.trackStarted=Long.MIN_VALUE;
+        audio.liveProvider=null;
         if(sender!=null)sender.stop();
     }
 
@@ -296,7 +376,8 @@ final class RadioService implements AutoCloseable {
         return new Now(station,data.get("display_name").getAsString(),
             data.get("track").getAsString(),data.get("revision").getAsString(),
             data.get("position_ms").getAsLong(),data.get("track_started_unix_ms").getAsLong(),
-            data.get("server_unix_ms").getAsLong());
+            data.get("server_unix_ms").getAsLong(),
+            data.get("playing").getAsBoolean());
     }
 
     private JsonObject requestJson(String path) throws IOException,InterruptedException {
@@ -312,6 +393,7 @@ final class RadioService implements AutoCloseable {
         HttpRequest request=HttpRequest.newBuilder(CORE.resolve(path))
             .GET().timeout(Duration.ofSeconds(8)).build();
         HttpResponse<byte[]> result=http.send(request,HttpResponse.BodyHandlers.ofByteArray());
+        if(result.statusCode()==204)return new byte[0];
         if(result.statusCode()!=200) {
             if(result.statusCode()==404)throw new IOException("Emisora o audio no publicados");
             throw new IOException("VSCore devolvió HTTP "+result.statusCode());
