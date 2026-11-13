@@ -46,6 +46,7 @@ jobs:
       - run: node --check studio/assets/pack.js
       - run: node --check studio/assets/minecraft.js
       - run: node --check studio/assets/vspack-publish.js
+      - run: node tests/test_vspack_browser.mjs
       - run: node --check studio/assets/radio-sync.js
       - run: node --check studio/assets/radio-dj.js
       - run: node --check studio/assets/radio-dj-worklet.js
