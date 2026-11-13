@@ -420,5 +420,37 @@ class VSPackPublishTests(unittest.TestCase):
             tool.verify(out)
 
 
+    def test_model_preflight_distinguishes_external_and_missing_assets(self):
+        entries = {
+            "pack.mcmeta": b'{"pack":{"description":"demo","pack_format":15}}',
+            "assets/demo/models/item/rifle.json":
+                b'{"parent":"item/generated","textures":{"layer0":"demo:item/rifle"}}',
+            "assets/demo/textures/item/rifle.png": b"\x89PNG\r\n\x1a\nfixture",
+            "assets/demo/items/rifle.json":
+                b'{"model":{"type":"minecraft:model","model":"demo:item/rifle"}}',
+            "assets/demo/models/item/unfinished.json":
+                b'{"parent":"demo:item/missing"}',
+            "assets/demo/models/item/bad.json": b'not json',
+            "assets/demo/models/item/source.bbmodel": b"not a Minecraft runtime model",
+        }
+        report = tool.lint_assets(entries)
+        self.assertEqual(report["issues"]["external_or_missing_refs"], 1)
+        self.assertEqual(report["issues"]["invalid_json"], 1)
+        self.assertEqual(report["issues"]["unconverted_models"], 1)
+        self.assertFalse(report["truncated"])
+
+    def test_preflight_manifest_shows_3d_asset_warnings_without_dropping_models(self):
+        report, out = self.build({
+            "assets/demo/models/item/source.bbmodel": b"Blockbench source",
+            "assets/demo/models/item/native.json": b'{"parent":"minecraft:item/generated"}',
+            "assets/demo/textures/item/icon.png": b"not a png",
+            "assets/demo/textures/item/icon.png.mcmeta":
+                b'{"animation":{"frametime":2}}',
+        })
+        self.assertEqual(report["preflight"]["issues"]["unconverted_models"], 1)
+        self.assertEqual(report["preflight"]["issues"]["invalid_png"], 1)
+        self.assertEqual(tool.verify(out)["preflight"], report["preflight"])
+
+
 if __name__ == "__main__":
     unittest.main()
