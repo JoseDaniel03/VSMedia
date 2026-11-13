@@ -36,6 +36,10 @@ function release(dj){
     try{node?.disconnect();}catch(_){}
   }
   dj.mic?.getTracks().forEach(track=>track.stop());
+  if(dj.player && dj.reattachMusic) {
+    dj.player.removeEventListener("playing",dj.reattachMusic);
+    dj.player.removeEventListener("loadedmetadata",dj.reattachMusic);
+  }
   if(dj.context)dj.context.close().catch(()=>{});
 }
 async function stop(){
@@ -109,7 +113,7 @@ async function start(){
       echoCancellation:true,noiseSuppression:true,autoGainControl:true
     },video:false});
     stream={station,mode,mic,context:null,node:null,script:null,micNode:null,
-      musicNode:null,micGain:null,musicGain:null,outGain:null,
+      musicNode:null,micGain:null,musicGain:null,outGain:null,player:null,reattachMusic:null,
       chunks:[],inFlight:0,chain:Promise.resolve(),token:null,
       errors:0,muted:false,levelTimer:null,lastSeq:0};
     const Ctx=window.AudioContext||window.webkitAudioContext;
@@ -128,21 +132,27 @@ async function start(){
     if(mode==="mix"){
       // captureStream avoids creating a second MediaElementSource on an element
       // that is also used by the optional WebRTC P2P radio mixer.
-      if(typeof player.captureStream==="function"){
-        const capture=player.captureStream();
-        if(capture.getAudioTracks().length===0)
-          throw Error("Reproducí primero la playlist para capturar su pista.");
-        stream.musicNode=context.createMediaStreamSource(capture);
-      }else if(typeof player.mozCaptureStream==="function"){
-        const capture=player.mozCaptureStream();
-        stream.musicNode=context.createMediaStreamSource(capture);
-      }else {
-        throw Error("Tu navegador no puede capturar el reproductor. Probá Chromium o Zen con captureStream.");
-      }
+      const capture=player.captureStream?.bind(player)||player.mozCaptureStream?.bind(player);
+      if(!capture)throw Error("El navegador no soporta captura del reproductor.");
       stream.musicGain=context.createGain();
       stream.musicGain.gain.value=clamp(field("music")?.value||90,0,150)/100;
-      stream.musicNode.connect(stream.musicGain);
       stream.musicGain.connect(outGain);
+      stream.player=player;
+      stream.reattachMusic=()=>{
+        if(dj!==stream && stream.token) return;
+        const captured=capture();
+        const track=captured.getAudioTracks()[0];
+        if(!track) return;
+        if(stream.musicTrackId===track.id && stream.musicNode)return;
+        try{stream.musicNode?.disconnect();}catch(_){}
+        stream.musicNode=context.createMediaStreamSource(captured);
+        stream.musicNode.connect(stream.musicGain);
+        stream.musicTrackId=track.id;
+      };
+      stream.reattachMusic();
+      if(!stream.musicNode)throw Error("Reproducí primero la playlist para capturar su pista.");
+      player.addEventListener("playing",stream.reattachMusic);
+      player.addEventListener("loadedmetadata",stream.reattachMusic);
       const analyser=context.createAnalyser();
       analyser.fftSize=512;
       stream.micNode.connect(analyser);
