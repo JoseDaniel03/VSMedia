@@ -93,18 +93,41 @@
     const decoder = new (window.AudioContext || window.webkitAudioContext)();
     try {
       const tracks = [], durations = [];
+      const uploaded = new Map();
       const fileUrls = rows.map(row => row.dataset.radioFileUrl);
       const local = document.getElementById("radio-player");
       const oldPlayback = local && !local.paused && fileUrls.includes(local.currentSrc || local.src);
       const currentIndex = oldPlayback ? fileUrls.indexOf(local.currentSrc || local.src) : -1;
       for (let index = 0; index < rows.length; ++index) {
-        const number = String(index + 1).padStart(3, "0");
-        const track = (id.slice(0, 34) + "_" + number).slice(0, 48);
         status("Preparando " + name + " · pista " + (index + 1) + "/" + rows.length + "…");
         const blob = await encodeUrl(fileUrls[index], decoder);
-        const result = await (await request("/tracks/" + track, {
-          method: "POST", headers: {"Content-Type": "audio/wav"}, body: blob
-        })).json();
+        if (!crypto.subtle) throw Error("La publicación segura necesita localhost/HTTPS (WebCrypto).");
+        const buffer = await blob.arrayBuffer();
+        const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer));
+        const sha256 = Array.from(digest, v=>v.toString(16).padStart(2,"0")).join("");
+        // The filename is content-addressed: never overwrite an old on-air
+        // recording while clients still listen to the previous station.
+        const track = id.slice(0, 23) + "_" + sha256.slice(0, 24);
+        let result = uploaded.get(track);
+        if (!result) {
+          let exists = false;
+          try {
+            const remote = await (await request("/tracks/" + track + "/metadata")).json();
+            if (remote.sha256 !== sha256) {
+              throw Error("Colisión de hash al publicar " + track);
+            }
+            exists = true;
+          } catch (error) {
+            if (String(error.message||"").includes("Colisión")) throw error;
+            // Older VSCore or a missing file: POST is idempotent server-side.
+          }
+          result = exists
+            ? {id: track, duration_ms: Math.floor((blob.size-44)*1000/96000)}
+            : await (await request("/tracks/" + track, {
+                method: "POST", headers: {"Content-Type": "audio/wav"}, body: blob
+              })).json();
+          uploaded.set(track, result);
+        }
         tracks.push(result.id);
         durations.push(result.duration_ms);
       }
