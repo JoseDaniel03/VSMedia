@@ -349,5 +349,76 @@ class VSPackPublishTests(unittest.TestCase):
 
 
 
+    def test_texture_models_item_definitions_and_animation_are_in_published_graph(self):
+        assets = {
+            "assets/demo/textures/item/helmet.png": b"\x89PNG\r\n\x1a\nTEST",
+            "assets/demo/textures/item/helmet.png.mcmeta":
+                b'{"animation":{"frametime":2}}',
+            "assets/demo/models/item/helmet.json":
+                b'{"parent":"item/generated","textures":{"layer0":"demo:item/helmet"}}',
+            "assets/demo/items/helmet.json":
+                b'{"model":{"type":"minecraft:model","model":"demo:item/helmet"}}',
+            "assets/demo/blockstates/test.json":
+                b'{"variants":{"":{"model":"demo:block/test"}}}',
+            "assets/demo/font/custom.json":
+                b'{"providers":[{"type":"bitmap","file":"demo:font/glyph.png","ascent":8,"height":8,"chars":["A"]}]}',
+            "assets/demo/textures/font/glyph.png": b"\x89PNG\r\n\x1a\nGLYPH",
+            "assets/demo/atlases/blocks.json": b'{"sources":[]}',
+            "assets/demo/particles/test.json": b'{"textures":["demo:particle/smoke"]}',
+            "assets/demo/textures/particle/smoke.png": b"\x89PNG\r\n\x1a\nPARTICLE",
+        }
+        report, out = self.build(assets)
+        self.assertEqual(report["inventory"]["models"], 1)
+        self.assertEqual(report["inventory"]["item_definitions"], 1)
+        self.assertEqual(report["inventory"]["blockstates"], 1)
+        self.assertEqual(report["inventory"]["animations"], 1)
+        self.assertEqual(report["inventory"]["textures"], 3)
+        self.assertEqual(report["inventory"]["fonts"], 1)
+        self.assertEqual(report["inventory"]["atlases"], 1)
+        self.assertEqual(report["inventory"]["particles"], 1)
+        self.assertEqual(report["resource_count"], len(assets))
+        self.assertEqual(tool.verify(out)["resource_graph_sha256"],
+                         report["resource_graph_sha256"])
+        archives = [(out / p["filename"]).read_bytes() for p in report["packs"]]
+        collected = tool.reassemble(archives)
+        for path, content in assets.items():
+            self.assertIn(path, collected)
+            self.assertEqual(json.loads(collected[path]), json.loads(content)) \
+                if path.endswith((".json", ".mcmeta")) else self.assertEqual(collected[path], content)
+
+    def test_missing_model_or_texture_layer_fails_coverage_even_if_other_zip_valid(self):
+        src = {
+            "pack.mcmeta": b'{"pack":{"pack_format":15,"description":"demo"}}',
+            "assets/demo/textures/item/icon.png": b"\x89PNG\r\n\x1a\nICON",
+            "assets/demo/models/item/icon.json":
+                b'{"parent":"item/generated","textures":{"layer0":"demo:item/icon"}}'
+        }
+        incomplete = tool.archive_for(
+            [tool.Unit("items", {"assets/demo/textures/item/icon.png":
+                                 src["assets/demo/textures/item/icon.png"]})],
+            {"pack.mcmeta": src["pack.mcmeta"]})
+        with self.assertRaisesRegex(tool.PackError, "incompleta"):
+            tool.check_coverage(src, [incomplete])
+
+    def test_conflicting_duplicate_layer_bytes_never_pass_graph_integrity(self):
+        metadata = {"pack.mcmeta": b'{"pack":{"pack_format":15,"description":"demo"}}'}
+        name = "assets/demo/models/item/radio.json"
+        a = tool.archive_for([tool.Unit("items", {name: b'{"model":"a"}'})], metadata)
+        b = tool.archive_for([tool.Unit("items", {name: b'{"model":"b"}'})], metadata)
+        with self.assertRaisesRegex(tool.PackError, "bytes incompatibles"):
+            tool.reassemble([a, b])
+
+    def test_forged_model_inventory_does_not_validate(self):
+        report, out = self.build({
+            "assets/demo/models/item/icon.json": b'{"parent":"minecraft:item/generated"}'
+        })
+        manifest = out / "manifest.json"
+        data = json.loads(manifest.read_text("utf-8"))
+        data["inventory"]["models"] = 999
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+        with self.assertRaisesRegex(tool.PackError, "Inventario"):
+            tool.verify(out)
+
+
 if __name__ == "__main__":
     unittest.main()
