@@ -110,6 +110,22 @@ Ver [integración Studio](docs/STUDIO-INTEGRATION.md) y
 [manual técnico](studio/docs/INTEGRATION.md).
 
 
+## VSPack: publicación de texturas, modelos y Resource Packs
+
+El panel **✦ Minecraft · Publicar → Recursos / VSPack** de la web
+FullCanvas admite ZIPs y carpetas que contienen `pack.mcmeta` y `assets/`.
+Permite importar texturas PNG, modelos Minecraft JSON, definiciones de ítems,
+GUI/HUD, fuentes, sonidos, animaciones `.png.mcmeta` y otros recursos.
+Los ZIPs originales, prioridades y elecciones manuales se guardan en VSCore.
+El exportador del pack unificado integra los OGG y las fuentes persistentes.
+
+La distribución externa usa `vspack_publish.py`: divide según tamaño,
+verifica la cobertura total del grafo de modelos/texturas/sonidos,
+publica ZIPs inmutables a R2 y promociona `current.json` al final.
+Los modelos `.bbmodel` de Blockbench necesitan exportarse a JSON Minecraft.
+**La publicación HTTPS real sigue pendiente de configurar y probar.**
+Ver [manual de publicación de recursos](docs/VSPACK-RESOURCE-PUBLICATION.md).
+
 ## VSMedia Web v11 y comando `vsmedia web`
 
 La web 2026 v11 se puede incorporar en `web/` sin reemplazar Rust Core ni el plugin Folia. Ver [guía de arranque](docs/WEB-V11.md).
