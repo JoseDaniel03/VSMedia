@@ -46,6 +46,8 @@ jobs:
       - run: node --check studio/assets/pack.js
       - run: node --check studio/assets/minecraft.js
       - run: node --check studio/assets/radio-sync.js
+      - run: node --check studio/assets/radio-dj.js
+      - run: node --check studio/assets/radio-dj-worklet.js
       - name: Prepare browser OGG/Vorbis codec
         run: |
           bash scripts/build-browser-vorbis.sh
@@ -56,6 +58,8 @@ jobs:
           grep -F "data-radio-file-url" studio/src/app.rs
           grep -F 'minecraft.js' studio/index.html
           grep -F 'radio-sync.js' studio/index.html
+          grep -F 'radio-dj.js' studio/index.html
+          grep -F 'radio-dj-worklet.js' studio/index.html
           test -s studio/assets/minecraft.js
           grep -F 'vs-ogg-vorbis.js' studio/index.html
           test "$(git hash-object studio/src/studio_api.rs)" = "17315d3ce1900b84ab115d1f94f7d3339472824a"
