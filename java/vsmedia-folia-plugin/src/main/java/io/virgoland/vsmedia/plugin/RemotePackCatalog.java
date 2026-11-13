@@ -42,6 +42,8 @@ final class RemotePackCatalog implements AutoCloseable {
     private final ScheduledExecutorService poller;
     private final long intervalSeconds;
     private volatile List<ResourcePackDelivery> current = List.of();
+    private volatile String lastResult = "pendiente de primera consulta";
+    private volatile long lastCheckedMillis;
 
     RemotePackCatalog(URI manifestUrl, long intervalSeconds, Logger logger,
                       Consumer<List<ResourcePackDelivery>> onChange) {
@@ -83,10 +85,21 @@ final class RemotePackCatalog implements AutoCloseable {
     private void safeRefresh() {
         try {
             refresh();
+            lastCheckedMillis=System.currentTimeMillis();
+            lastResult="OK · "+current.size()+" capas verificadas";
         } catch (Exception error) {
+            lastCheckedMillis=System.currentTimeMillis();
+            lastResult="ERROR · "+error.getClass().getSimpleName()+" · "
+                    + String.valueOf(error.getMessage()).substring(
+                        0,Math.min(120,String.valueOf(error.getMessage()).length()));
             logger.warning("VSPack: no se pudo consultar la publicación HTTPS; se conserva la anterior: "
                     + error.getClass().getSimpleName() + ": " + error.getMessage());
         }
+    }
+
+    String diagnosticSummary() {
+        if (lastCheckedMillis==0L)return "CDN: pendiente de primera consulta";
+        return "CDN: "+lastResult;
     }
 
     void refresh() throws IOException, InterruptedException {
