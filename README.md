@@ -11,6 +11,11 @@ La playlist local del editor VSRadio puede publicarse mediante **◉ Emitir en
 Minecraft**. VSCore guarda pistas PCM16 mono 48 kHz y un reloj UTC de emisora.
 El nuevo comando `/vsradio emisora LatinSabroso` sintoniza la fuente compartida
 Plasmo Voice donde se encuentre la canción; `/vsradio apagar` la desconecta.
+La web también incluye **◉ Abrir DJ**: micrófono solo o playlist + DJ,
+volúmenes independientes, reducción de música por voz (ducking), mute y
+corte con retorno a la playlist. El reloj se controla con pausa/reanudar,
+anterior/siguiente y búsqueda desde la interfaz. El micrófono viaja en lotes
+PCM temporales por localhost, sin grabarse en CAS.
 
 Requiere PlasmoVoice en servidor y clientes, y una futura compilación del
 plugin autorizado para desplegar los cambios. El audio de micrófono WebRTC
