@@ -9,6 +9,20 @@
   de Minecraft**. No crea salas de voz alternativas ni pide micrófono.
   La integración administrativa con VSEngine se realizará después.
 
+## VSRadio dentro de Minecraft (música y DJ en directo)
+
+La web FullCanvas ahora también incluye **◉ Emitir en Minecraft** para
+publicar playlists persistentes en VSCore, y **◉ Abrir DJ** para transmitir
+el micrófono o música + micrófono con ducking automático. El audio se envía
+al addon Plasmo Voice instalado en el servidor mediante una cola PCM temporal
+y acotada; los jugadores sintonizan con `/vsradio emisora <nombre>`.
+La programación se controla desde la misma web con pausa, reanudar, saltar
+y aplicar posición; afecta a todos los oyentes. El micrófono no se guarda.
+Esta integración **no** es WebRTC P2P: la emisión P2P de navegador sigue
+siendo una función distinta, explicada a continuación.
+Se requieren pruebas in-game con dos clientes y no se han generado JARs.
+Ver `docs/VSRADIO-LIVE.md` en la raíz del repositorio.
+
 ## VSRadio: funciones implementadas
 
 - Playlists persistentes en **localStorage** (hasta 32 listas de 512 entradas).
