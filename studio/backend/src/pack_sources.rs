@@ -4,8 +4,8 @@
 //! Source ZIPs are stored separately from project recipes so they survive restarts.
 use std::{
     collections::BTreeSet,
-    fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    fs::{self, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
 };
 use serde::{Deserialize, Serialize};
