@@ -40,6 +40,41 @@ oyentes**: al sintonizar más tarde, se busca la canción que corresponde al
 tiempo transcurrido desde el inicio de la programación, incluso después de un
 reinicio del puente Rust, siempre que el catálogo SQLite se conserve.
 
+## Modo DJ en directo (micrófono o playlist + micrófono)
+
+La web FullCanvas original tiene ahora botones adicionales, sin reemplazar
+VSRadio. Primero crear y emitir la playlist desde «◉ Emitir en Minecraft».
+A continuación elegir **Micrófono DJ** o **Playlist + DJ** y pulsar
+**◉ Abrir DJ**. El navegador solicita permiso al micrófono y mezcla a
+48 kHz mono; **no almacena la voz**.
+
+- **Micrófono DJ:** la radio transmite solo la voz del operador. La
+  programación de la playlist sigue teniendo un reloj compartido, y
+  vuelve a oírse al cerrar el DJ.
+- **Playlist + DJ:** la radio transmite música y locución juntas.
+  Los deslizadores Música, DJ y Ducking permiten equilibrar niveles.
+  Ducking atenúa la música cuando detecta voz y la recupera lentamente
+  tras una pausa en la locución.
+- **Silenciar** pone el nivel del DJ a cero sin desconectar a los oyentes;
+  **■ Cortar DJ** termina la sesión y devuelve a todos los oyentes a
+  la playlist compartida.
+- Los controles **Ⅱ Pausar emisión**, **▶ Reanudar**, **⏮ Anterior**,
+  **⏭ Siguiente** y **⏱ Aplicar posición** editan el reloj de la emisora
+  persistido en VSCore. Esto afecta a todos los oyentes, no solo a la
+  vista local.
+
+La captura usa AudioWorklet preferentemente y ScriptProcessor como fallback.
+En ambos casos forma lotes de **200 ms (10 bloques de 20 ms)** de PCM16
+mono/48k, sin generar archivos en el servidor. El puente Rust conserva
+únicamente una cola temporal acotada; Java lee los bloques nuevos y los
+entrega al proveedor de cola de Plasmo Voice. Si el operador cierra la
+pestaña o pierde la conexión durante más de 3 segundos, la sesión
+caduca y el servidor recupera automáticamente la playlist.
+
+**Importante:** la radio para jugadores de Minecraft depende del mod
+Plasmo Voice en cada cliente. El modo P2P WebRTC de la web es independiente
+y no es el transporte de la radio dentro del juego.
+
 ## Diseño técnico
 
 - \`studio/assets/radio-sync.js\`: mejora aditiva del editor existente,
@@ -60,6 +95,13 @@ reinicio del puente Rust, siempre que el catálogo SQLite se conserve.
 - El navegador convierte las pistas a **48 kHz, mono y PCM de 16 bits**.
   Plasmo transmite frames de 20 ms. No se intenta usar \`playSound\` ni
   simular un seek de un sonido de resource pack.
+
+El sistema DJ agrega POST /stations/{id}/live/start, POST /live/push
+(con token efímero x-vsradio-session), POST /live/stop, GET /live/status y
+GET /live/drain/{seq}. La cola está limitada a 24 lotes de hasta 200 ms
+por emisora, con máximo 8 sesiones DJ. Solo el publicador que obtuvo el
+token puede empujar o detener su sesión; expira sin audio. Java recibe
+solo PCM por localhost; los usuarios remotos no acceden a estos endpoints.
 
 ### Endpoints VSCore (solo localhost)
 
@@ -90,10 +132,11 @@ al navegador de un jugador: se envían por la red de voz instalada.
 - Cuando se termina un tema, la transición usa un monitor periódico;
   el reloj es compartido, pero pueden existir pequeñas demoras de
   red/decodificación. No se promete sincronía sin error de milisegundos.
-- La radio **de playlist** está implementada. La entrada directa del
-  micrófono o una mezcla WebRTC en tiempo real del DJ todavía necesita
-  un capturador PCM en continuo y no está conectada a este broadcaster.
-  No debe confundirse el emisor WebRTC del navegador con la radio del juego.
+- **Playlist y DJ en directo** ya tienen ruta de código: web → Rust →
+  Plasmo Voice. Quedan pendientes la validación manual en navegadores
+  reales, la estabilidad de la cola de Plasmo bajo carga y la comprobación
+  de escucha en al menos dos clientes Minecraft. No se afirma sincronía
+  exacta de milisegundos.
 - El addon depende del plugin \`PlasmoVoice\` y de su mod cliente compatible.
   Al cambiar de versión de Plasmo Voice, revisar compatibilidad de API.
 
