@@ -103,7 +103,7 @@ pub struct StationRequest {
     /// When Studio is currently playing a playlist, preserve its position.
     #[serde(default)]pub elapsed_ms:Option<u64>,
 }
-fn load(store:&Store,id:&str)->Result<Station,ApiError>{
+pub(crate) fn load(store:&Store,id:&str)->Result<Station,ApiError>{
     let data=store.read(&station_key(id)?).map_err(not_found)?;
     serde_json::from_slice(&data).map_err(bad)
 }
