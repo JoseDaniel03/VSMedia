@@ -11,6 +11,7 @@ mod radio;
 mod radio_live;
 mod pack_manager;
 mod pack_projects;
+mod pack_sources;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
 use sha2::{Digest,Sha256};
 use axum::{
@@ -64,7 +65,7 @@ async fn health() -> Json<Value> {
     Json(json!({"status":"ready","api_version":"v1",
         "storage_connected":true,"plugin_connected":false}))
 }
-async fn capabilities() -> Json<Value> {
+async fn capabilities(axum::Extension(hub):axum::Extension<packs::PackHub>) -> Json<Value> {
     Json(json!({"api_version":"v1","audio_process":true,
         "audio_render_formats":["wav"],"minecraft_sound_upload":"ogg_vorbis", "minecraft_sound_pack_export":true,
         "audio_render_output":"wav_pcm16_48000_stereo",
@@ -75,7 +76,7 @@ async fn capabilities() -> Json<Value> {
         "vsstreams_moderation":false,
         "asset_storage":true,"audio_projects":true,
         "vspack_editor":true,"vspack_merge":"structured_priority",
-        "vspack_zip_export":true,"vspack_session_only":true,
+        "vspack_zip_export":true,"vspack_session_only":hub.3.is_none(),
         "vspack_resource_catalog":"vspack-resources-v1",
         "vspack_ui_catalog":true,"vspack_path_overrides":true,
         "vspack_texture_metadata_pairing":true,
@@ -86,7 +87,7 @@ async fn capabilities() -> Json<Value> {
         "vspack_category_splitting":true,
         "vspack_profiles_portable_json":true,
         "vspack_saved_recipes_local":true,
-        "vspack_zip_sources_persisted":false,
+        "vspack_zip_sources_persisted":hub.3.is_some(),
         "accepted_formats":["wav","flac","mp3","ogg","webm","opus"]}))
 }
 /// Real read-only integration state. This backend deliberately does not
@@ -328,10 +329,15 @@ fn router(store:Store)->Router {
     router_with_projects(store,folder.join("vspack-projects"))
 }
 fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
-    let projects=pack_projects::ProjectHub::new(project_dir);
+    let projects=pack_projects::ProjectHub::new(project_dir.clone());
     let hub=live::LiveHub::default();
     let dj_hub=radio_live::DjHub::default();
-    let pack_hub=packs::PackHub::default();
+    // Production loads verified original ZIPs once, before accepting requests.
+    // In-memory unit tests keep independent isolated catalogues.
+    let pack_hub=if cfg!(test) {packs::PackHub::default()} else {
+        packs::PackHub::from_source_dir(project_dir.with_file_name("vspack-sources"))
+            .expect("No se pudo restaurar la carpeta segura de fuentes VSPack")
+    };
     let cors=CorsLayer::new()
         .allow_origin(AllowOrigin::list([
             HeaderValue::from_static("http://127.0.0.1:3060"),
