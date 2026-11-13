@@ -68,7 +68,8 @@ async function folderZip(files){
   }
   if(!names.has("pack.mcmeta"))throw Error("Falta pack.mcmeta en la raíz de la carpeta.");
   if(fileset.length>12000)throw Error("Exceso de archivos (máximo 12.000).");
-  fileset.sort((a,b)=>a.name.localeCompare(b.name));
+  // Byte-order stable across machines and language locales: same folder => same ZIP.
+  fileset.sort((a,b)=>a.name<b.name?-1:(a.name>b.name?1:0));
   const chunks=[],central=[];let position=0,centralBytes=0;
   for(const {name,file} of fileset){
     if(file.size>32*1024*1024)throw Error("Archivo supera 32 MiB: "+name);
