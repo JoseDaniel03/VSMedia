@@ -38,8 +38,12 @@ impl PackHub {
         let source=Arc::new(SourceStore::new(folder));
         let (restored,warnings)=source.restore()?;
         for warning in warnings {eprintln!("VSPack startup: {warning}");}
+        let choices=source.load_choices(&restored).unwrap_or_else(|problem|{
+            eprintln!("VSPack startup: opciones manuales ignoradas: {}",problem.1);
+            BTreeMap::new()
+        });
         Ok(Self(Arc::new(Mutex::new(restored)),
-            Arc::new(Mutex::new(BTreeMap::new())),
+            Arc::new(Mutex::new(choices)),
             Arc::new(Semaphore::new(2)),Some(source)))
     }
 }
@@ -234,7 +238,13 @@ pub async fn remove(
         return Err(ApiError(StatusCode::NOT_FOUND,"Pack no encontrado".into()));
     }
     drop(packs);
-    hub.1.lock().await.retain(|_,source|source!=&id);
+    let mut choices=hub.1.lock().await;
+    choices.retain(|_,source|source!=&id);
+    if let Some(store)=&hub.3 {
+        let store=store.clone();let copy=choices.clone();
+        tokio::task::spawn_blocking(move||store.save_choices(&copy))
+            .await.map_err(|e|bad(format!("Guardar decisiones interrumpido: {e}")))??;
+    }
     Ok(Json(json!({"deleted":true,"id":id})))
 }
 /// Clone only small Arc handles under lock. CPU-heavy structured merge/ZIP
@@ -444,7 +454,14 @@ pub async fn choose_resource(
     if choices.len()>=MAX_SOURCE_CHOICES && !choices.contains_key(&choice.path){
         return Err(bad("Máximo 256 selecciones manuales por sesión"));
     }
-    choices.insert(choice.path.clone(),choice.source_id.clone());
+    let mut updated=choices.clone();
+    updated.insert(choice.path.clone(),choice.source_id.clone());
+    if let Some(store)=&hub.3 {
+        let store=store.clone();let copy=updated.clone();
+        tokio::task::spawn_blocking(move||store.save_choices(&copy))
+            .await.map_err(|e|bad(format!("Guardar elección interrumpido: {e}")))??;
+    }
+    *choices=updated;
     Ok(Json(json!({"path":choice.path,"chosen_source":choice.source_id,
         "override":true})))
 }
@@ -477,13 +494,19 @@ pub async fn choose_texture_bundle(
     if overrides.len().saturating_add(new_entries)>MAX_SOURCE_CHOICES{
         return Err(bad("Límite de selecciones manuales alcanzado"));
     }
-    overrides.insert(choice.path.clone(),choice.source_id.clone());
+    let mut updated=overrides.clone();
+    updated.insert(choice.path.clone(),choice.source_id.clone());
     if has_companion{
-        overrides.insert(companion.clone(),choice.source_id.clone());
+        updated.insert(companion.clone(),choice.source_id.clone());
     }else{
-        // Never leave an older, conflicting explicit choice for .png.mcmeta.
-        overrides.remove(&companion);
+        updated.remove(&companion);
     }
+    if let Some(store)=&hub.3 {
+        let store=store.clone();let copy=updated.clone();
+        tokio::task::spawn_blocking(move||store.save_choices(&copy))
+            .await.map_err(|e|bad(format!("Guardar texturas interrumpido: {e}")))??;
+    }
+    *overrides=updated;
     Ok(Json(json!({
         "schema":"vspack-texture-selection-v1",
         "path":choice.path,
@@ -500,7 +523,17 @@ pub async fn clear_resource_choice(
 )->Result<Json<Value>,ApiError>{
     authorize_origin(&headers)?;
     vsmedia_pack::validate_path(&q.path).map_err(friendly_error)?;
-    let removed=hub.1.lock().await.remove(&q.path).is_some();
+    let mut choices=hub.1.lock().await;
+    let mut updated=choices.clone();
+    let removed=updated.remove(&q.path).is_some();
+    if removed {
+        if let Some(store)=&hub.3 {
+            let store=store.clone();let copy=updated.clone();
+            tokio::task::spawn_blocking(move||store.save_choices(&copy))
+                .await.map_err(|e|bad(format!("Eliminar elección interrumpido: {e}")))??;
+        }
+        *choices=updated;
+    }
     Ok(Json(json!({"path":q.path,"removed":removed})))
 }
 pub async fn resource_choices(
