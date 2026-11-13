@@ -7,6 +7,7 @@ and verify; boto3 is only needed when actually publishing to Cloudflare R2.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 import argparse
 import hashlib
 import io
@@ -443,7 +444,7 @@ def resource_fingerprint(entries: dict[str, bytes]) -> str:
     return digest(json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode(), "sha256")
 
 
-def reassemble(archives: list[bytes]) -> dict[str, bytes]:
+def reassemble(archives: Iterable[bytes]) -> dict[str, bytes]:
     """Reconstruct every Minecraft asset from ALL layers, rejecting divergences.
 
     Shared sounds may occur in multiple layers, but their data must agree.
@@ -476,7 +477,7 @@ def reassemble(archives: list[bytes]) -> dict[str, bytes]:
     return collected
 
 
-def check_coverage(original: dict[str, bytes], archives: list[bytes]) -> str:
+def check_coverage(original: dict[str, bytes], archives: Iterable[bytes]) -> str:
     expected = resource_fingerprint(original)
     delivered = reassemble(archives)
     actual = resource_fingerprint(delivered)
@@ -540,9 +541,8 @@ def build(input_zip: Path, destination: Path, limit_mib: int,
                         "o reducí contenido para que Folia pueda ofrecerlos juntos")
     # A successful ZIP build is not enough: ensure the entire Minecraft
     # resource graph survives splitting into layers, not only pack hashes.
-    fingerprint = check_coverage(optimized, [
-        (directory / p["filename"]).read_bytes() for p in packs
-    ])
+    fingerprint = check_coverage(optimized,
+        ((directory / p["filename"]).read_bytes() for p in packs))
     report = {
         "schema": "vspack-publication-v1", "status": "built_not_published",
         "profile": profile, "max_pack_mib": limit_mib,
@@ -607,13 +607,15 @@ def verify(directory: Path) -> dict:
             raise PackError("Pack excede límite: " + name)
         inspect_zip(payload)
     if "resource_graph_sha256" in manifest:
-        bundled = [(directory / pack["filename"]).read_bytes() for pack in manifest["packs"]]
-        actual = resource_fingerprint(reassemble(bundled))
+        merged = reassemble(
+            (directory / pack["filename"]).read_bytes() for pack in manifest["packs"]
+        )
+        actual = resource_fingerprint(merged)
         if actual != manifest["resource_graph_sha256"]:
             raise PackError("El conjunto de capas perdió o modificó recursos respecto del manifest")
-        if manifest.get("resource_count") != len(reassemble(bundled)):
+        if manifest.get("resource_count") != len(merged):
             raise PackError("Inventario de archivos inconsistente con los ZIP publicados")
-        if manifest.get("inventory") != inventory(reassemble(bundled)):
+        if manifest.get("inventory") != inventory(merged):
             raise PackError("Inventario de modelos, texturas y audio inconsistente")
     return manifest
 
