@@ -75,6 +75,19 @@ caduca y el servidor recupera automáticamente la playlist.
 Plasmo Voice en cada cliente. El modo P2P WebRTC de la web es independiente
 y no es el transporte de la radio dentro del juego.
 
+## Publicación segura de nuevas playlists
+
+Al volver a pulsar **Emitir en Minecraft**, cada pista utiliza un ID formado
+por el nombre de emisora y su hash SHA-256. Antes de transferir el audio,
+Studio consulta el catálogo de VSCore: si los bytes ya están presentes,
+reutiliza ese recurso sin volver a subirlo. Si la pista cambió, utiliza
+un ID nuevo y mantiene intacta la versión anterior hasta publicar la
+nueva programación. VSCore rechaza sobrescrituras incompatibles con HTTP 409.
+Así, un fallo durante la importación no reemplaza silenciosamente una canción
+que está escuchando otro jugador. Para mantener acotado el espacio, todavía
+hay que preparar una limpieza segura de versiones antiguas cuando ya no las
+utilicen las emisoras ni los oyentes.
+
 ## Diseño técnico
 
 - \`studio/assets/radio-sync.js\`: mejora aditiva del editor existente,
