@@ -1083,12 +1083,17 @@ mod tests{
         assert_eq!(first.id,"gui");
         priority(Extension(hub.clone()),Path("gui".into()),headers(),
             Json(PriorityInput{priority:42})).await.unwrap();
+        choose_resource(Extension(hub.clone()),headers(),Json(OverrideInput{
+            path:"assets/demo/textures/gui/icon.png".into(),source_id:"gui".into()
+        })).await.unwrap();
         drop(hub);
         let reloaded=PackHub::from_source_dir(dir.clone()).unwrap();
         let restored=list(Extension(reloaded.clone())).await.0;
         assert_eq!(restored["zip_sources_persisted"],true);
         assert_eq!(restored["packs"][0]["priority"],42);
         assert_eq!(restored["packs"][0]["fingerprint"],first.fingerprint);
+        assert_eq!(reloaded.1.lock().await.get("assets/demo/textures/gui/icon.png"),
+            Some(&"gui".to_string()));
         let merged=composed(&reloaded).await.unwrap();
         assert_eq!(merged.files["assets/demo/textures/gui/icon.png"],b"persisted");
         remove(Extension(reloaded.clone()),Path("gui".into()),headers()).await.unwrap();
