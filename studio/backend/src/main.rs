@@ -358,6 +358,7 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .route("/api/v1/radio/stations/{id}/live/status",get(radio_live::status))
         .route("/api/v1/radio/stations/{id}/live/drain/{after}",get(radio_live::drain))
         .route("/api/v1/radio/stations/{id}",post(radio::publish_station))
+        .route("/api/v1/radio/stations/{id}/control",post(radio::control_station))
         .route("/api/v1/radio/stations/{id}/now",get(radio::now))
         .route("/api/v1/radio/tracks/{id}",post(radio::upload_track)
             .layer(DefaultBodyLimit::max(32*1024*1024)))
