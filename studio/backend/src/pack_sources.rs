@@ -3,7 +3,7 @@
 //! are accepted from request bodies; names are derived from validated pack IDs.
 //! Source ZIPs are stored separately from project recipes so they survive restarts.
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap,BTreeSet},
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -156,6 +156,45 @@ impl SourceStore {
         }
         Ok(())
     }
+    pub(crate) fn load_choices(&self,sources:&[LoadedPack])
+        ->Result<BTreeMap<String,String>,ApiError>{
+        let path=self.folder.join("resource-choices.json");
+        ensure_regular(&path)?;
+        let bytes=match fs::read(&path){
+            Ok(v)=>v,
+            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>return Ok(BTreeMap::new()),
+            Err(e)=>return Err(err("leer selecciones VSPack",e)),
+        };
+        if bytes.len()>128*1024{return Err(bad("Selecciones guardadas demasiado grandes"));}
+        let parsed:BTreeMap<String,String>=serde_json::from_slice(&bytes)
+            .map_err(|e|bad(format!("Selecciones guardadas dañadas: {e}")))?;
+        if parsed.len()>256{return Err(bad("Demasiadas selecciones persistidas"));}
+        // Never reinstate choices for a missing, removed or altered source.
+        let mut result=BTreeMap::new();
+        for (path,id) in parsed{
+            if vsmedia_pack::validate_path(&path).is_ok() && path.starts_with("assets/")
+                && sources.iter().any(|source|source.id==id
+                    && source.files.iter().any(|file|file.path==path)){
+                result.insert(path,id);
+            }
+        }
+        Ok(result)
+    }
+    pub(crate) fn save_choices(&self,choices:&BTreeMap<String,String>)
+        ->Result<(),ApiError>{
+        self.prepare()?;
+        if choices.len()>256 {return Err(bad("Máximo 256 selecciones guardadas"));}
+        for (path,id) in choices {
+            vsmedia_pack::validate_path(path).map_err(bad)?;
+            if !path.starts_with("assets/")||!valid_id(id){
+                return Err(bad("Selección VSPack insegura"));
+            }
+        }
+        let bytes=serde_json::to_vec(choices).map_err(bad)?;
+        if bytes.len()>128*1024{return Err(bad("Selecciones superan 128 KiB"));}
+        write_atomic(&self.folder,&self.folder.join("resource-choices.json"),&bytes)
+    }
+
     pub(crate) fn priority(&self,id:&str,value:i32)->Result<(),ApiError>{
         let (_,path)=self.paths(id)?;
         let mut meta=self.meta(id)?;
