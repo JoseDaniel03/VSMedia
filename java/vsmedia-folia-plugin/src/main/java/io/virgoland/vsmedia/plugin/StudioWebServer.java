@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.FilterInputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -254,6 +255,47 @@ public final class StudioWebServer implements AutoCloseable {
         }
     }
 
+    static boolean trustedOrigin(Headers headers,int port) {
+        String origin=headers.getFirst("Origin");
+        return ("http://127.0.0.1:"+port).equals(origin)
+                || ("http://localhost:"+port).equals(origin);
+    }
+
+    static void forwardRadioToken(HttpRequest.Builder builder,Headers incoming) {
+        // Rust validates the ephemeral session token; proxy must forward it
+        // unchanged, never log or expose it in responses.
+        String token=incoming.getFirst("X-VSRadio-Session");
+        if (token!=null && token.matches("[0-9a-fA-F-]{36}")) {
+            builder.header("X-VSRadio-Session", token);
+        }
+    }
+
+    private static final class LimitedRequestStream extends FilterInputStream {
+        private long remaining;
+        LimitedRequestStream(InputStream stream,long maxBytes){
+            super(stream);remaining=maxBytes;
+        }
+        @Override public int read() throws IOException {
+            if (remaining==0) {
+                if (in.read()!=-1)throw new IOException("Upload exceeds Studio quota");
+                return -1;
+            }
+            int b=in.read();
+            if(b!=-1)remaining--;
+            return b;
+        }
+        @Override public int read(byte[] bytes,int offset,int length)throws IOException {
+            if (length==0)return 0;
+            if (remaining==0) {
+                if (in.read()!=-1)throw new IOException("Upload exceeds Studio quota");
+                return -1;
+            }
+            int count=in.read(bytes,offset,(int)Math.min((long)length,remaining));
+            if(count>0)remaining-=count;
+            return count;
+        }
+    }
+
     private void proxy(HttpExchange exchange, String path)
             throws IOException, InterruptedException {
         String method = exchange.getRequestMethod();
@@ -261,6 +303,12 @@ public final class StudioWebServer implements AutoCloseable {
                 && !"DELETE".equals(method)) {
             fail(exchange, 405, "Method not allowed");
             return;
+        }
+        // Mutations must come from our loopback Studio web origin; otherwise
+        // a malicious website could send cross-origin form POSTs to localhost.
+        if (("POST".equals(method) || "DELETE".equals(method))
+                && !trustedOrigin(exchange.getRequestHeaders(),server.getAddress().getPort())) {
+            fail(exchange,403,"Local Studio origin required");return;
         }
         // The Rust API is only reachable on the same machine; external
         // browser access is through an operator-controlled SSH tunnel.
@@ -286,17 +334,21 @@ public final class StudioWebServer implements AutoCloseable {
             fail(exchange, 413, "Upload too large");
             return;
         }
-        byte[] body;
-        try (InputStream source = exchange.getRequestBody()) {
-            body = source.readNBytes((int) MAX_BODY + 1);
-        }
-        if (body.length > MAX_BODY) {
-            fail(exchange, 413, "Upload too large");
-            return;
-        }
+        // Stream large pack uploads to Rust instead of holding ~96 MiB in
+        // a second JVM heap allocation. Bound unannounced/chunked bodies too.
+        HttpRequest.BodyPublisher publisher = "POST".equals(method)
+            ? HttpRequest.BodyPublishers.ofInputStream(
+                () -> new LimitedRequestStream(exchange.getRequestBody(),MAX_BODY))
+            : HttpRequest.BodyPublishers.noBody();
         HttpRequest.Builder builder = HttpRequest.newBuilder(backend)
                 .timeout(Duration.ofSeconds(90))
-                .method(method, HttpRequest.BodyPublishers.ofByteArray(body));
+                .method(method, publisher);
+        if ("POST".equals(method) || "DELETE".equals(method)) {
+            // Normalize origin after validating browser's actual local web port:
+            // the VSCore Rust backend trusts only the proxy's canonical origin.
+            builder.header("Origin","http://127.0.0.1:3060");
+        }
+        forwardRadioToken(builder,exchange.getRequestHeaders());
         String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
         if (contentType != null && contentType.length() <= 180
                 && !contentType.contains("\r") && !contentType.contains("\n")) {
