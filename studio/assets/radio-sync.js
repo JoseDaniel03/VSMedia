@@ -197,7 +197,18 @@
         key.addEventListener("click",()=>control(action).catch(e=>status(e.message,true)));
         toolbar.append(key);
       }
-      toolbar.append(button, label);
+      const seek=document.createElement("button");
+      seek.type="button";seek.className="toolbar-button";seek.textContent="⏱ Aplicar posición";
+      seek.title="Mueve la emisión de TODOS los oyentes al tema y segundo elegidos en el reproductor";
+      seek.addEventListener("click",()=>{
+        if(!active){status("Publicá una playlist antes de cambiar su posición.",true);return;}
+        const player=document.getElementById("radio-player");
+        const index=active.urls.indexOf(player?.currentSrc||player?.src||"");
+        if(index<0){status("Reproducí una canción válida para elegir el punto.",true);return;}
+        control("seek",{index,position_ms:Math.max(0,Math.round(player.currentTime*1000))})
+          .catch(e=>status(e.message,true));
+      });
+      toolbar.append(seek,button,label);
     }
   }
   function start() {
