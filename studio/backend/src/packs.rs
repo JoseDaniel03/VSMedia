@@ -1037,6 +1037,33 @@ mod tests{
         assert!(download_source(Extension(hub),Path("missing".into()))
             .await.is_err());
     }
+    #[tokio::test]
+    async fn imported_zip_is_restored_with_priority_and_can_be_deleted_permanently(){
+        use std::sync::atomic::{AtomicUsize,Ordering};
+        static NEXT:AtomicUsize=AtomicUsize::new(0);
+        let dir=std::env::temp_dir().join(format!("vspack-bridge-import-{}-{}",
+            std::process::id(),NEXT.fetch_add(1,Ordering::Relaxed)));
+        let hub=PackHub::from_source_dir(dir.clone()).unwrap();
+        let original=fixture(&[("assets/demo/textures/gui/icon.png",b"persisted")]);
+        let first=import(Extension(hub.clone()),Path("gui".into()),headers(),
+            Bytes::from(original)).await.unwrap().0;
+        assert_eq!(first.id,"gui");
+        priority(Extension(hub.clone()),Path("gui".into()),headers(),
+            Json(PriorityInput{priority:42})).await.unwrap();
+        drop(hub);
+        let reloaded=PackHub::from_source_dir(dir.clone()).unwrap();
+        let restored=list(Extension(reloaded.clone())).await.0;
+        assert_eq!(restored["zip_sources_persisted"],true);
+        assert_eq!(restored["packs"][0]["priority"],42);
+        assert_eq!(restored["packs"][0]["fingerprint"],first.fingerprint);
+        let merged=composed(&reloaded).await.unwrap();
+        assert_eq!(merged.files["assets/demo/textures/gui/icon.png"],b"persisted");
+        remove(Extension(reloaded.clone()),Path("gui".into()),headers()).await.unwrap();
+        drop(reloaded);
+        let empty=PackHub::from_source_dir(dir.clone()).unwrap();
+        assert!(empty.0.lock().await.is_empty());
+        let _=std::fs::remove_dir_all(dir);
+    }
     #[test]
     fn pack_id_and_category_boundaries(){
         assert!(valid_id("pack_base"));
