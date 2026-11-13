@@ -363,6 +363,9 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                         + (active == null ? "NO" : active.logicalId()));
                 sender.sendMessage(ChatColor.GRAY + "Capas publicadas por CDN: "
                         + published.size());
+                sender.sendMessage(ChatColor.GRAY + (remoteCatalog == null
+                        ? "CDN: desactivado en config.yml"
+                        : remoteCatalog.diagnosticSummary()));
                 sender.sendMessage(ChatColor.GRAY + "Fuentes externas activas: "
                         + external.values().stream().mapToInt(Map::size).sum());
                 sender.sendMessage(ChatColor.GRAY + "Ofertas rastreadas: "
