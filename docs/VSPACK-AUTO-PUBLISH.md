@@ -97,11 +97,12 @@ publicaciones/revision-<SHA256> y publication-state.json en la carpeta raíz.
 
 **Nota**: la detección consulta el ZIP completo, así que no conviene
 establecer un intervalo muy corto, especialmente con packs grandes.
-Los ZIPs de terceros importados en VSPack actualmente son **solo de sesión**.
-Si VSCore reinicia y desaparecen las fuentes importadas, el watcher bloquea
-la publicación cuando detecta que antes había packs cargados; hay que reimportarlos
-para evitar publicar accidentalmente una versión incompleta. No se debe
-interpretar el mecanismo como persistencia automática de los ZIPs originales.
+Los ZIPs originales importados se guardan ahora en
+`VSMEDIA_DATA_DIR/vspack-sources/` con hash SHA-256, cuotas de disco y
+revisión de integridad en cada arranque de VSCore. Las decisiones de recursos
+y prioridades también se recuperan. El watcher **bloquea** publicaciones si
+antes había fuentes importadas pero, por corrupción o pérdida de archivos,
+ninguna pudo recuperarse. Conservá backups de esa carpeta.
 
 ## Plugin de servidor Folia
 
