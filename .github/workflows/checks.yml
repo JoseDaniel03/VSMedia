@@ -45,6 +45,7 @@ jobs:
       - run: node --check studio/assets/live.js
       - run: node --check studio/assets/pack.js
       - run: node --check studio/assets/minecraft.js
+      - run: node --check studio/assets/vspack-publish.js
       - run: node --check studio/assets/radio-sync.js
       - run: node --check studio/assets/radio-dj.js
       - run: node --check studio/assets/radio-dj-worklet.js
@@ -57,6 +58,7 @@ jobs:
         run: |
           grep -F "data-radio-file-url" studio/src/app.rs
           grep -F 'minecraft.js' studio/index.html
+          grep -F 'vspack-publish.js' studio/index.html
           grep -F 'radio-sync.js' studio/index.html
           grep -F 'radio-dj.js' studio/index.html
           grep -F 'radio-dj-worklet.js' studio/index.html
