@@ -50,6 +50,15 @@ class RemotePackCatalogTest {
     }
 
     @Test
+    void adminStatusDoesNotPretendThatUnpolledCDNIsConnected() {
+        try(RemotePackCatalog monitor=new RemotePackCatalog(SOURCE,300,
+                java.util.logging.Logger.getLogger("vspack-test"),layers -> {})) {
+            assertTrue(monitor.diagnosticSummary().contains("pendiente"));
+            assertTrue(monitor.current().isEmpty());
+        }
+    }
+
+    @Test
     void cdnMustServeEveryImmutableZipBeforeManifestCanGoLive() throws Exception {
         assertDoesNotThrow(() -> RemotePackCatalog.validateZipAvailability(200, 184320, 184320));
         assertThrows(java.io.IOException.class,
