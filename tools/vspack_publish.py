@@ -326,6 +326,105 @@ def inventory(entries: dict[str, bytes]) -> dict[str, int]:
     return counts
 
 
+
+def lint_assets(entries: dict[str, bytes]) -> dict:
+    """Bounded, nonfatal Minecraft resource-graph lint.
+
+    Absence in a pack is not proof of an error: missing references can be
+    provided by vanilla Minecraft or another plugin. Validate local
+    syntax/packaging, report unresolved references without inventing assets.
+    """
+    issues: list[str] = []
+    count = {"invalid_json": 0, "invalid_png": 0, "external_or_missing_refs": 0,
+             "unconverted_models": 0, "animation_without_texture": 0}
+    def warn(kind: str, path: str, detail: str):
+        count[kind] += 1
+        if len(issues) < 24:
+            issues.append(path[:150] + ": " + detail[:160])
+    def reference(namespace: str, value: object, kind: str, source: str):
+        if not isinstance(value, str) or value.startswith("#") or not value:
+            return
+        if ":" in value:
+            namespace, value = value.split(":", 1)
+        if value.startswith("builtin/") or namespace == "minecraft":
+            return  # Minecraft builtins/vanilla resource, not necessarily a defect.
+        if not namespace or not value or not all(
+                c.isascii() and (c.isalnum() or c in "_-./") for c in namespace + value):
+            warn("external_or_missing_refs", source, "Referencia insegura o mal formada")
+            return
+        target = "assets/" + namespace + "/" + kind + "/" + value
+        target += ".png" if kind == "textures" else ".json"
+        if target not in entries:
+            warn("external_or_missing_refs", source, "No incluida (puede ser externa): " + target)
+    for path, data in sorted(entries.items()):
+        if path.endswith(".bbmodel") or path.endswith((".blend", ".obj", ".fbx", ".gltf", ".glb")):
+            warn("unconverted_models", path,
+                 "No es modelo Minecraft JSON. Exportar desde Blockbench para el pack.")
+        if path.endswith(".png"):
+            if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                warn("invalid_png", path, "La textura no tiene firma PNG")
+        if path.endswith(".png.mcmeta") and path[:-7] not in entries:
+            warn("animation_without_texture", path,
+                 "Animación sin textura local; comprobar si existe en vanilla/otro pack")
+        tokens = path.split("/")
+        if len(tokens) < 4 or tokens[0] != "assets" or not path.endswith(".json"):
+            continue
+        namespace = tokens[1]
+        family = tokens[2]
+        if family not in ("models", "items", "blockstates", "font",
+                          "particles", "equipment", "atlases", "sounds"):
+            continue
+        try:
+            doc = json.loads(data)
+        except (ValueError, UnicodeDecodeError):
+            warn("invalid_json", path, "JSON de recurso no válido")
+            continue
+        if not isinstance(doc, dict):
+            warn("invalid_json", path, "Se esperaba un objeto JSON")
+            continue
+        if family == "models":
+            reference(namespace, doc.get("parent"), "models", path)
+            for texture in doc.get("textures", {}).values() if isinstance(doc.get("textures"), dict) else []:
+                reference(namespace, texture, "textures", path)
+        elif family == "blockstates":
+            def scan(obj):
+                if isinstance(obj, dict):
+                    if "model" in obj and isinstance(obj["model"], str):
+                        reference(namespace, obj["model"], "models", path)
+                    for item in obj.values(): scan(item)
+                elif isinstance(obj, list):
+                    for item in obj: scan(item)
+            scan(doc)
+        elif family == "items":
+            def scan_model(obj):
+                if isinstance(obj, dict):
+                    # 1.21+ item definition "model": "namespace:item/model".
+                    if obj.get("type") == "minecraft:model":
+                        reference(namespace, obj.get("model"), "models", path)
+                    for item in obj.values(): scan_model(item)
+                elif isinstance(obj, list):
+                    for item in obj: scan_model(item)
+            scan_model(doc)
+        elif family == "font":
+            for provider in doc.get("providers", []) if isinstance(doc.get("providers"), list) else []:
+                if not isinstance(provider, dict):continue
+                file = provider.get("file")
+                if not isinstance(file, str):continue
+                nsp, _, rel = file.partition(":")
+                if not rel:nsp,rel=namespace,file
+                ext = ".png" if provider.get("type") == "bitmap" else ".ttf"
+                target = "assets/" + nsp + "/textures/" + rel if ext == ".png" else "assets/" + nsp + "/font/" + rel
+                if not target.endswith(ext): target += ext
+                if nsp != "minecraft" and target not in entries:
+                    warn("external_or_missing_refs", path,
+                         "Proveedor de fuentes sin archivo local: " + target)
+        elif family == "particles":
+            for texture in doc.get("textures", []) if isinstance(doc.get("textures"), list) else []:
+                reference(namespace, texture, "textures", path)
+    return {"schema": "vspack-asset-preflight-v1", "issues": count,
+            "warnings": issues, "truncated": len(issues) >= 24}
+
+
 def resource_fingerprint(entries: dict[str, bytes]) -> str:
     """The semantic graph hash. Sound event JSON can be split then rejoined."""
     hashes = {}
@@ -450,6 +549,7 @@ def build(input_zip: Path, destination: Path, limit_mib: int,
         "resource_graph_sha256": fingerprint,
         "resource_count": len(optimized) - len(set(optimized) & {"pack.mcmeta", "pack.png"}),
         "inventory": inventory(optimized),
+        "preflight": lint_assets(optimized),
         "original_uncompressed_bytes": sum(map(len, source.values())),
         "optimized_uncompressed_bytes": sum(map(len, optimized.values())),
         "notes": notes,
