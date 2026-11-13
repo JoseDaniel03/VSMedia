@@ -503,6 +503,127 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn radio_control_pause_seek_next_and_resume_preserves_shared_clock(){
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let frames=48000u32;
+        let mut wav=Vec::new();
+        wav.extend(b"RIFF");wav.extend((frames*2+36).to_le_bytes());
+        wav.extend(b"WAVEfmt ");wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());wav.extend(1u16.to_le_bytes());
+        wav.extend(48000u32.to_le_bytes());wav.extend(96000u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");wav.extend((frames*2).to_le_bytes());
+        wav.resize(44+frames as usize*2,0);
+        for id in ["radio_001","radio_002"]{
+            let uploaded=app.clone().oneshot(request(Method::POST,
+                &format!("/api/v1/radio/tracks/{id}"),wav.clone())).await.unwrap();
+            assert_eq!(uploaded.status(),StatusCode::OK);
+        }
+        let published=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/stations/radio",
+            serde_json::to_vec(&json!({"display_name":"Radio",
+                "playlist":["radio_001","radio_002"],"elapsed_ms":180})).unwrap()
+        )).await.unwrap();
+        assert_eq!(published.status(),StatusCode::OK);
+        let base="/api/v1/radio/stations/radio/control";
+        let paused=app.clone().oneshot(request(Method::POST,base,
+            serde_json::to_vec(&json!({"action":"pause"})).unwrap())).await.unwrap();
+        assert_eq!(paused.status(),StatusCode::OK);
+        let at:Value=serde_json::from_slice(
+            &to_bytes(paused.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(at["playing"],false);
+        let next=app.clone().oneshot(request(Method::POST,base,
+            serde_json::to_vec(&json!({"action":"next"})).unwrap())).await.unwrap();
+        let item:Value=serde_json::from_slice(
+            &to_bytes(next.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(item["track"],"radio_002");
+        assert_eq!(item["position_ms"],0);
+        assert_eq!(item["playing"],false);
+        let seek=app.clone().oneshot(request(Method::POST,base,
+            serde_json::to_vec(&json!({"action":"seek","index":0,
+                "position_ms":670})).unwrap())).await.unwrap();
+        let item:Value=serde_json::from_slice(
+            &to_bytes(seek.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(item["track"],"radio_001");
+        assert_eq!(item["position_ms"],670);
+        assert_eq!(item["playing"],false);
+        let resumed=app.clone().oneshot(request(Method::POST,base,
+            serde_json::to_vec(&json!({"action":"resume"})).unwrap())).await.unwrap();
+        let item:Value=serde_json::from_slice(
+            &to_bytes(resumed.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(item["playing"],true);
+        assert!(item["position_ms"].as_u64().unwrap()>=670);
+        let after_restart=router(db.clone()).oneshot(request(Method::GET,
+            "/api/v1/radio/stations/radio/now",vec![])).await.unwrap();
+        assert_eq!(after_restart.status(),StatusCode::OK);
+        drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn radio_dj_live_requires_owner_token_and_drops_frames_after_stop(){
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let frames=48000u32;
+        let mut wav=Vec::new();
+        wav.extend(b"RIFF");wav.extend((frames*2+36).to_le_bytes());
+        wav.extend(b"WAVEfmt ");wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());wav.extend(1u16.to_le_bytes());
+        wav.extend(48000u32.to_le_bytes());wav.extend(96000u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");wav.extend((frames*2).to_le_bytes());
+        wav.resize(44+frames as usize*2,0);
+        let uploaded=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/tracks/demo_001",wav)).await.unwrap();
+        assert_eq!(uploaded.status(),StatusCode::OK);
+        let posted=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/stations/demo",
+            serde_json::to_vec(&json!({"display_name":"Demo",
+                "playlist":["demo_001"]})).unwrap())).await.unwrap();
+        assert_eq!(posted.status(),StatusCode::OK);
+        let prefix="/api/v1/radio/stations/demo/live";
+        let started=app.clone().oneshot(request(Method::POST,
+            &format!("{prefix}/start"),
+            serde_json::to_vec(&json!({"mode":"mix"})).unwrap())).await.unwrap();
+        assert_eq!(started.status(),StatusCode::OK);
+        let created:Value=serde_json::from_slice(
+            &to_bytes(started.into_body(),4096).await.unwrap()).unwrap();
+        let token=created["token"].as_str().unwrap();
+        assert_eq!(token.len(),36);
+        let unauthorized=app.clone().oneshot(request(Method::POST,
+            &format!("{prefix}/push"),vec![1u8;1920])).await.unwrap();
+        assert_eq!(unauthorized.status(),StatusCode::FORBIDDEN);
+        let push=Request::builder().method(Method::POST)
+            .uri(format!("{prefix}/push"))
+            .header(header::ORIGIN,"http://127.0.0.1:3060")
+            .header("x-vsradio-session",token)
+            .header(header::CONTENT_TYPE,"application/octet-stream")
+            .body(Body::from(vec![1u8;19200])).unwrap();
+        let accepted=app.clone().oneshot(push).await.unwrap();
+        assert_eq!(accepted.status(),StatusCode::OK);
+        let state=app.clone().oneshot(request(Method::GET,
+            &format!("{prefix}/status"),vec![])).await.unwrap();
+        let summary:Value=serde_json::from_slice(
+            &to_bytes(state.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(summary["active"],true);
+        assert_eq!(summary["mode"],"mix");
+        let chunk=app.clone().oneshot(request(Method::GET,
+            &format!("{prefix}/drain/0"),vec![])).await.unwrap();
+        assert_eq!(chunk.status(),StatusCode::OK);
+        assert_eq!(to_bytes(chunk.into_body(),20000).await.unwrap().len(),19208);
+        let stopping=Request::builder().method(Method::POST)
+            .uri(format!("{prefix}/stop"))
+            .header(header::ORIGIN,"http://127.0.0.1:3060")
+            .header("x-vsradio-session",token)
+            .body(Body::empty()).unwrap();
+        assert_eq!(app.clone().oneshot(stopping).await.unwrap().status(),StatusCode::OK);
+        assert_eq!(app.clone().oneshot(request(Method::GET,
+            &format!("{prefix}/drain/0"),vec![])).await.unwrap().status(),
+            StatusCode::NO_CONTENT);
+        drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn published_sound_is_persistent_and_included_in_unified_pack() {
         use std::io::Read;
         let (db,dir)=store();
