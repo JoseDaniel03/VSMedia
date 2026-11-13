@@ -326,6 +326,8 @@ def build(input_zip: Path, destination: Path, limit_mib: int,
     report = {
         "schema": "vspack-publication-v1", "status": "built_not_published",
         "profile": profile, "max_pack_mib": limit_mib,
+        "original_zip_bytes": input_zip.stat().st_size,
+        "published_zip_bytes": sum(pack["bytes"] for pack in packs),
         "original_uncompressed_bytes": sum(map(len, source.values())),
         "optimized_uncompressed_bytes": sum(map(len, optimized.values())),
         "notes": notes,
@@ -678,6 +680,15 @@ def main(argv: list[str] | None = None) -> int:
             report = build(args.source, args.destination, args.max_mib,
                            args.profile, args.packsquash, args.require_packsquash)
             print("OK:", len(report["packs"]), "packs, perfil", report["profile"])
+            initial = report["original_zip_bytes"]
+            output = report["published_zip_bytes"]
+            difference = (100.0 * (1.0 - output / initial)) if initial else 0
+            print(" Tamaño original:", round(initial / 1048576, 2), "MiB;"
+                  " tamaño total publicado:", round(output / 1048576, 2), "MiB;"
+                  " variación:", f"{difference:+.1f}%")
+            if output > initial:
+                print(" Advertencia: los packs separados son más grandes en total;"
+                      " revisá recursos repetidos y metadata de capas.")
             for pack in report["packs"]:
                 print(" ", pack["filename"], round(pack["bytes"] / 1048576, 2), "MiB", pack["sha1"])
             for note in report["notes"]:
