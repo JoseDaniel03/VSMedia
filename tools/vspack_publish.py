@@ -346,6 +346,8 @@ def lint_assets(entries: dict[str, bytes]) -> dict:
             return
         if ":" in value:
             namespace, value = value.split(":", 1)
+        else:
+            namespace = "minecraft"  # unqualified resource locations use vanilla namespace
         if value.startswith("builtin/") or namespace == "minecraft":
             return  # Minecraft builtins/vanilla resource, not necessarily a defect.
         if not namespace or not value or not all(
