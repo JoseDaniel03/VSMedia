@@ -121,6 +121,7 @@
         method: "POST", headers: {"Content-Type":"application/json"}, body:JSON.stringify(body)
       })).json();
       active = {id, name, urls:fileUrls, tracks};
+      window.dispatchEvent(new CustomEvent("vsradio:published",{detail:{id,name}}));
       status("● " + name + " emitiendo · /vsradio emisora " + name + " · "
         + Math.floor(now.position_ms / 1000) + " s");
       if (timer !== null) clearInterval(timer);
@@ -146,7 +147,7 @@
       status("Playlist editada: volvé a emitir para actualizar la programación.", true);
       return;
     }
-    const desired = Math.max(0, (response.position_ms + (Date.now() - response.server_unix_ms)) / 1000);
+    const desired = Math.max(0, (response.position_ms + (response.playing ? Math.max(0,Date.now() - response.server_unix_ms) : 0)) / 1000);
     const source = active.urls[rowIndex];
     if (audio.currentSrc !== source && audio.src !== source) {
       // Click the existing song button to update the Leptos play_index as well.
@@ -157,9 +158,22 @@
     } else if (audio.readyState >= 1 && Math.abs(audio.currentTime - desired) > 0.7) {
       audio.currentTime = Math.min(desired, audio.duration || desired);
     }
-    status("● " + active.name + " en emisión · " + response.track
+    if (!response.playing && !audio.paused) audio.pause();
+    if (response.playing && audio.paused) audio.play().catch(() => {});
+    status("● " + active.name + (response.playing?" en emisión":" en pausa") + " · " + response.track
       + " · " + Math.floor(response.position_ms / 1000) + " s · /vsradio emisora " + active.name);
   }
+  async function control(action, extra={}) {
+    if (!active) throw Error("Primero publicá una playlist como emisora.");
+    const response=await (await request("/stations/"+active.id+"/control",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action,...extra})
+    })).json();
+    await syncPreview();
+    window.dispatchEvent(new CustomEvent("vsradio:control",{detail:{action,...extra,now:response}}));
+    return response;
+  }
+  window.VSMediaRadio={get active(){return active;},control, syncPreview};
   function mount() {
     for (const toolbar of document.querySelectorAll(".studio-toolbar")) {
       if (toolbar.querySelector("[data-vsradio-publish]")) continue;
@@ -174,6 +188,15 @@
       label.dataset.vsradioPublisherStatus = "1";
       label.className = "toolbar-caption";
       label.textContent = "Sin emisora Minecraft";
+      const toolbarControls=[["pause","Ⅱ Pausar emisión"],["resume","▶ Reanudar"],
+        ["previous","⏮ Anterior"],["next","⏭ Siguiente"]];
+      for(const [action,title] of toolbarControls){
+        const key=document.createElement("button");
+        key.type="button";key.className="toolbar-button";key.textContent=title;
+        key.dataset.vsradioAction=action;
+        key.addEventListener("click",()=>control(action).catch(e=>status(e.message,true)));
+        toolbar.append(key);
+      }
       toolbar.append(button, label);
     }
   }
