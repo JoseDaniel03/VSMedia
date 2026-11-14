@@ -290,6 +290,14 @@
     else message("Se encontraron "+result.problems.length+" archivos modificados o dañados: "+
       result.problems.slice(0,3).map(i=>i.path).join(", "),true);
   }
+  async function rescan(){
+    if(!state.project)throw Error("Elegí un proyecto.");
+    if(!confirm("¿Sincronizar los archivos actuales en disco y aceptar sus nuevas versiones SHA-256? No se publican a Minecraft."))return;
+    message("Leyendo archivos locales, tamaños y SHA-256…");
+    const result=await json("/"+encode(state.project)+"/rescan",{method:"POST"});
+    await refresh();
+    message("Sincronizado desde disco: "+result.files+" archivos. Resource Pack sin cambios.");
+  }
   async function exportProject(){
     if(!state.project)throw Error("Elegí un proyecto.");
     message("Empaquetando originales y project.json, sin generar un Resource Pack…");
@@ -351,6 +359,7 @@
       '<input data-assets-folder-input type="file" webkitdirectory multiple></label>',
       '<button data-assets-export type="button" class="action-secondary">↓ Exportar proyecto ZIP</button>',
       '<button data-assets-verify type="button" class="action-secondary">Verificar integridad</button>',
+      '<button data-assets-rescan type="button" class="action-secondary">Sincronizar carpeta del disco</button>',
       '</div>',
       '<div class="assets-drop-zone" data-assets-drop tabindex="0">',
       'Soltá archivos acá · se guardan en la carpeta seleccionada, sin publicar a Minecraft</div>',
@@ -371,6 +380,7 @@
     $("[data-assets-refresh]").onclick=()=>task(loadProjects);
     $("[data-assets-add-folder]").onclick=()=>task(createFolder);
     $("[data-assets-verify]").onclick=()=>task(verify);
+    $("[data-assets-rescan]").onclick=()=>task(rescan);
     $("[data-assets-export]").onclick=()=>task(exportProject);
     $("[data-assets-search]").oninput=e=>{state.filter=e.target.value;render();};
     $("[data-assets-file-input]").onchange=e=>task(async()=>{
