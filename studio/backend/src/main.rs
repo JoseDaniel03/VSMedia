@@ -2,6 +2,7 @@
 //! native document parser, project revisions and non-destructive Studio editor.
 //! Only listens on loopback. VSRadio stores a shared playlist clock; the
 //! optional Plasmo Voice server addon provides game audio outside this process.
+#![recursion_limit = "256"]
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 mod live;
 mod packs;
