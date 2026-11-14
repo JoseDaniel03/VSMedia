@@ -393,6 +393,60 @@ impl WorkspaceHub {
         self.save(&project)?;
         Ok(json!({"moved":true,"from":source,"to":target}))
     }
+    /// Explicitly adopt changes made by VSRender, Blender or another LOCAL
+    /// editor that saves into the physical project assets directory.
+    /// Never silently trust an unknown file as an already verified revision.
+    fn rescan(&self,id:&str)->Result<Value,ApiError>{
+        let mut project=self.load(id)?;
+        let root=self.root(id)?;
+        let mut registered=Vec::<FileEntry>::new();
+        let mut bytes=0u64;
+        fn walk(root:&FsPath,dir:&FsPath,depth:usize,out:&mut Vec<FileEntry>,
+            total:&mut u64,previous:&[FileEntry])->Result<(),ApiError>{
+            if depth>16 {return Err(bad("Carpetas del proyecto demasiado profundas"));}
+            ensure_regular(dir)?;
+            for child in fs::read_dir(dir).map_err(|e|failed("examinar carpeta",e))?{
+                let child=child.map_err(|e|failed("examinar entrada",e))?;
+                let path=child.path();ensure_regular(&path)?;
+                let kind=child.file_type().map_err(|e|failed("leer tipo",e))?;
+                if kind.is_dir(){
+                    walk(root,&path,depth+1,out,total,previous)?;
+                } else if kind.is_file(){
+                    let rel=path.strip_prefix(root)
+                        .map_err(|_|forbidden("El archivo salió del proyecto"))?
+                        .to_str().ok_or_else(||bad("Nombre de archivo no UTF-8"))?
+                        .replace('\\',"/");
+                    segments(&rel,false)?;
+                    let size=fs::metadata(&path).map_err(|e|failed("leer tamaño",e))?.len();
+                    if size==0 || size>MAX_FILE_BYTES as u64 {
+                        return Err(bad("El archivo supera 96 MiB o está vacío: ".to_string()+&rel));
+                    }
+                    *total=total.saturating_add(size);
+                    if *total>MAX_PROJECT_BYTES || out.len()>=MAX_FILES {
+                        return Err(bad("Los assets externos superan las cuotas del proyecto"));
+                    }
+                    let data=fs::read(&path).map_err(|e|failed("leer asset externo",e))?;
+                    let sha=fingerprint(&data);
+                    let modified=previous.iter().find(|f|f.path==rel
+                        && f.sha256==sha && f.bytes==size)
+                        .map(|f|f.updated_unix).unwrap_or_else(timestamp);
+                    out.push(FileEntry{path:rel,bytes:size,
+                        sha256:sha,updated_unix:modified});
+                }else{
+                    return Err(forbidden("Archivo externo de tipo inseguro"));
+                }
+            }
+            Ok(())
+        }
+        walk(&root,&root.join("assets"),0,&mut registered,&mut bytes,&project.files)?;
+        registered.sort_by(|a,b|a.path.cmp(&b.path));
+        let previous=project.files.len();
+        let now=registered.len();
+        project.files=registered;
+        self.save(&project)?;
+        Ok(json!({"synced":true,"files":now,"previous_files":previous,
+            "bytes":bytes,"resourcepack_unchanged":true}))
+    }
     fn verify(&self,id:&str)->Result<Value,ApiError>{
         let project=self.load(id)?;
         let mut problems=Vec::new();
@@ -483,6 +537,11 @@ pub async fn rename(Extension(hub):Extension<WorkspaceHub>,Path(id):Path<String>
     authorize_origin(&headers)?;
     Ok(Json(run(hub,move|h|h.move_file(&id,&req.from,&req.to)).await?))
 }
+pub async fn rescan(Extension(hub):Extension<WorkspaceHub>,Path(id):Path<String>,
+    headers:HeaderMap)->Result<Json<Value>,ApiError>{
+    authorize_origin(&headers)?;
+    Ok(Json(run(hub,move|h|h.rescan(&id)).await?))
+}
 pub async fn verify(Extension(hub):Extension<WorkspaceHub>,Path(id):Path<String>)
     ->Result<Json<Value>,ApiError>{
     Ok(Json(run(hub,move|h|h.verify(&id)).await?))
@@ -570,6 +629,23 @@ mod tests {
         fs::write(file,b"altered").unwrap();
         assert!(h.download("demo","assets/textures/banner.png").is_err());
         assert_eq!(h.verify("demo").unwrap()["ok"],false);
+        let _=fs::remove_dir_all(h.root);
+    }
+    #[test]
+    fn rescan_external_editor_imports_and_tracks_changes_explicitly(){
+        let h=hub();
+        h.create("demo","Demo").unwrap();
+        let external=h.root.join("demo/assets/models/source.bbmodel");
+        fs::write(&external,b"source v1").unwrap();
+        assert!(h.download("demo","assets/models/source.bbmodel").is_err());
+        let result=h.rescan("demo").unwrap();
+        assert_eq!(result["files"],1);
+        assert_eq!(result["resourcepack_unchanged"],true);
+        assert_eq!(h.download("demo","assets/models/source.bbmodel").unwrap(),b"source v1");
+        fs::write(&external,b"source v2").unwrap();
+        assert!(h.verify("demo").unwrap()["ok"]==false);
+        h.rescan("demo").unwrap();
+        assert_eq!(h.download("demo","assets/models/source.bbmodel").unwrap(),b"source v2");
         let _=fs::remove_dir_all(h.root);
     }
     #[test]
