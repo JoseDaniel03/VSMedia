@@ -92,7 +92,9 @@ async fn composed(store:&Store,hub:&PackHub)->Result<MergeOutput,ApiError>{
         files.insert("pack.mcmeta".into(),serde_json::to_vec(&json!({"pack":{"description":"VSMedia cinematic fonts","min_format":[97,1],"max_format":[97,1]}})).map_err(bad)?);
         MergeOutput{files,conflicts:vec![]}
     }else{packs::composed(hub).await?};
-    add_to_pack(store,&mut pack)?;Ok(pack)
+    add_to_pack(store,&mut pack)?;
+    crate::published_sounds::add_to_pack(store,&mut pack)?;
+    Ok(pack)
 }
 pub async fn export(State(store):State<Store>,Extension(hub):Extension<PackHub>)->Result<Response,ApiError>{
     let pack=composed(&store,&hub).await?;

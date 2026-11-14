@@ -282,10 +282,11 @@ pub async fn get(Extension(hub):Extension<ProjectHub>,
         "id":saved.id,"revision":saved.revision,
         "updated_unix_seconds":saved.updated_unix_seconds,
         "recipe":saved.recipe,"missing_sources":missing,
-        "source_zips_persisted":false
+        "source_zips_persisted":packs.3.is_some()
     })))
 }
 pub async fn save(Extension(hub):Extension<ProjectHub>,
+    Extension(packs):Extension<PackHub>,
     Path(id):Path<String>,headers:HeaderMap,body:Bytes)
     ->Result<Json<Value>,ApiError>{
     authorize_origin(&headers)?;
@@ -300,7 +301,7 @@ pub async fn save(Extension(hub):Extension<ProjectHub>,
     Ok(Json(json!({"schema":SCHEMA,"id":saved.id,
         "revision":saved.revision,
         "updated_unix_seconds":saved.updated_unix_seconds,
-        "source_zips_persisted":false})))
+        "source_zips_persisted":packs.3.is_some()})))
 }
 pub async fn delete(Extension(hub):Extension<ProjectHub>,
     Path(id):Path<String>,Query(query):Query<DeleteQuery>,headers:HeaderMap)

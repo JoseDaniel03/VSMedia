@@ -1,12 +1,17 @@
 //! Development-only VSMedia Studio HTTP bridge. Reuses the actual SQLite CAS,
 //! native document parser, project revisions and non-destructive Studio editor.
-//! Only listens on loopback. No plugin broadcasting or radio transmitters.
+//! Only listens on loopback. VSRadio stores a shared playlist clock; the
+//! optional Plasmo Voice server addon provides game audio outside this process.
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 mod live;
 mod packs;
 mod fonts;
+mod published_sounds;
+mod radio;
+mod radio_live;
 mod pack_manager;
 mod pack_projects;
+mod pack_sources;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
 use sha2::{Digest,Sha256};
 use axum::{
@@ -60,18 +65,18 @@ async fn health() -> Json<Value> {
     Json(json!({"status":"ready","api_version":"v1",
         "storage_connected":true,"plugin_connected":false}))
 }
-async fn capabilities() -> Json<Value> {
+async fn capabilities(axum::Extension(hub):axum::Extension<packs::PackHub>) -> Json<Value> {
     Json(json!({"api_version":"v1","audio_process":true,
-        "audio_render_formats":["wav"],
+        "audio_render_formats":["wav"],"minecraft_sound_upload":"ogg_vorbis", "minecraft_sound_pack_export":true,
         "audio_render_output":"wav_pcm16_48000_stereo",
-        "radio_broadcast":false,"live_monitoring":false,
+        "radio_broadcast":true,"radio_transport":"plasmo_voice_optional", "radio_station_clock":"utc_playlist", "live_monitoring":false,
         "webrtc_signaling":true,"webrtc_voice_rooms":false,
         "webrtc_radio_peer_mesh":true,"max_radio_peers":16,
         "vsstreams_provider":"plasmo_voice","vsstreams_connected":false,
         "vsstreams_moderation":false,
         "asset_storage":true,"audio_projects":true,
         "vspack_editor":true,"vspack_merge":"structured_priority",
-        "vspack_zip_export":true,"vspack_session_only":true,
+        "vspack_zip_export":true,"vspack_session_only":hub.3.is_none(),
         "vspack_resource_catalog":"vspack-resources-v1",
         "vspack_ui_catalog":true,"vspack_path_overrides":true,
         "vspack_texture_metadata_pairing":true,
@@ -82,7 +87,7 @@ async fn capabilities() -> Json<Value> {
         "vspack_category_splitting":true,
         "vspack_profiles_portable_json":true,
         "vspack_saved_recipes_local":true,
-        "vspack_zip_sources_persisted":false,
+        "vspack_zip_sources_persisted":hub.3.is_some(),
         "accepted_formats":["wav","flac","mp3","ogg","webm","opus"]}))
 }
 /// Real read-only integration state. This backend deliberately does not
@@ -324,9 +329,15 @@ fn router(store:Store)->Router {
     router_with_projects(store,folder.join("vspack-projects"))
 }
 fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
-    let projects=pack_projects::ProjectHub::new(project_dir);
+    let projects=pack_projects::ProjectHub::new(project_dir.clone());
     let hub=live::LiveHub::default();
-    let pack_hub=packs::PackHub::default();
+    let dj_hub=radio_live::DjHub::default();
+    // Production loads verified original ZIPs once, before accepting requests.
+    // In-memory unit tests keep independent isolated catalogues.
+    let pack_hub=if cfg!(test) {packs::PackHub::default()} else {
+        packs::PackHub::from_source_dir(project_dir.with_file_name("vspack-sources"))
+            .expect("No se pudo restaurar la carpeta segura de fuentes VSPack")
+    };
     let cors=CorsLayer::new()
         .allow_origin(AllowOrigin::list([
             HeaderValue::from_static("http://127.0.0.1:3060"),
@@ -334,7 +345,8 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         ]))
         .allow_methods([Method::GET,Method::POST,Method::DELETE])
         .allow_headers([header::CONTENT_TYPE,
-            header::HeaderName::from_static("x-vspack-label")])
+            header::HeaderName::from_static("x-vspack-label"),
+            header::HeaderName::from_static("x-vsradio-session")])
         .expose_headers([header::CONTENT_DISPOSITION,header::ETAG,
             header::HeaderName::from_static("x-vspack-sha1"),
             header::HeaderName::from_static("x-vspack-sha256")]);
@@ -342,6 +354,22 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .route("/api/v1/fonts",get(fonts::catalog))
         .route("/api/v1/fonts/import",post(fonts::import))
         .route("/api/v1/fonts/file",get(fonts::file))
+        .route("/api/v1/sounds",get(published_sounds::list))
+        .route("/api/v1/sounds/{name}",post(published_sounds::publish))
+        .route("/api/v1/radio/stations",get(radio::list_stations))
+        .route("/api/v1/radio/stations/{id}/live/start",post(radio_live::start))
+        .route("/api/v1/radio/stations/{id}/live/push",post(radio_live::push)
+            .layer(DefaultBodyLimit::max(19200)))
+        .route("/api/v1/radio/stations/{id}/live/stop",post(radio_live::stop))
+        .route("/api/v1/radio/stations/{id}/live/status",get(radio_live::status))
+        .route("/api/v1/radio/stations/{id}/live/drain/{after}",get(radio_live::drain))
+        .route("/api/v1/radio/stations/{id}",post(radio::publish_station))
+        .route("/api/v1/radio/stations/{id}/control",post(radio::control_station))
+        .route("/api/v1/radio/stations/{id}/now",get(radio::now))
+        .route("/api/v1/radio/tracks/{id}",post(radio::upload_track)
+            .layer(DefaultBodyLimit::max(32*1024*1024)))
+        .route("/api/v1/radio/tracks/{id}/metadata",get(radio::track_metadata))
+        .route("/api/v1/radio/tracks/{id}/pcm",get(radio::track_pcm))
         .route("/api/v1/health",get(health))
         .route("/api/v1/capabilities",get(capabilities))
         .route("/api/v1/live/ws",get(live::socket))
@@ -393,6 +421,7 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .layer(DefaultBodyLimit::max(MAX_UPLOAD))
         .layer(cors)
         .layer(axum::Extension(hub))
+        .layer(axum::Extension(dj_hub))
         .layer(axum::Extension(pack_hub))
         .layer(axum::Extension(projects))
         .with_state(store)
@@ -431,6 +460,257 @@ mod tests {
             .header(header::CONTENT_TYPE,"application/json")
             .body(Body::from(body)).unwrap()
     }
+    #[tokio::test]
+    async fn radio_track_publication_is_immutable_idempotent_and_probeable() {
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let frames=48000u32;
+        let mut wav=Vec::new();
+        wav.extend(b"RIFF");wav.extend((frames*2+36).to_le_bytes());
+        wav.extend(b"WAVEfmt ");wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());wav.extend(1u16.to_le_bytes());
+        wav.extend(48000u32.to_le_bytes());wav.extend(96000u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");wav.extend((frames*2).to_le_bytes());
+        wav.resize(44+frames as usize*2,0);
+        let url="/api/v1/radio/tracks/demo_content_sha";
+        let first=app.clone().oneshot(request(Method::POST,url,wav.clone())).await.unwrap();
+        assert_eq!(first.status(),StatusCode::OK);
+        let a:Value=serde_json::from_slice(&to_bytes(first.into_body(),4096)
+            .await.unwrap()).unwrap();
+        assert_eq!(a["unchanged"],false);
+        let previous=db.metadata(&AssetKey::new("studio",
+            "radio/tracks/demo_content_sha.wav").unwrap()).unwrap();
+        let second=app.clone().oneshot(request(Method::POST,url,wav.clone())).await.unwrap();
+        assert_eq!(second.status(),StatusCode::OK);
+        let b:Value=serde_json::from_slice(&to_bytes(second.into_body(),4096)
+            .await.unwrap()).unwrap();
+        assert_eq!(b["unchanged"],true);
+        let stable=db.metadata(&AssetKey::new("studio",
+            "radio/tracks/demo_content_sha.wav").unwrap()).unwrap();
+        assert_eq!(previous.revision,stable.revision);
+        let metadata=app.clone().oneshot(request(Method::GET,
+            "/api/v1/radio/tracks/demo_content_sha/metadata",vec![])).await.unwrap();
+        assert_eq!(metadata.status(),StatusCode::OK);
+        let c:Value=serde_json::from_slice(&to_bytes(metadata.into_body(),4096)
+            .await.unwrap()).unwrap();
+        assert_eq!(a["sha256"],c["sha256"]);
+        // Modifying the referenced track requires a NEW content ID.
+        wav[44]=1;
+        let collided=app.clone().oneshot(request(Method::POST,url,wav)).await.unwrap();
+        assert_eq!(collided.status(),StatusCode::CONFLICT);
+        let preserved=db.metadata(&AssetKey::new("studio",
+            "radio/tracks/demo_content_sha.wav").unwrap()).unwrap();
+        assert_eq!(previous.revision,preserved.revision);
+        drop(app);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn radio_emisora_publishes_and_reconnects_at_shared_live_position() {
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let count=48000u32;
+        let mut wav=Vec::new();
+        wav.extend(b"RIFF");wav.extend((count*2+36).to_le_bytes());
+        wav.extend(b"WAVEfmt ");wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());wav.extend(1u16.to_le_bytes());
+        wav.extend(48000u32.to_le_bytes());wav.extend(96000u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");wav.extend((count*2).to_le_bytes());
+        wav.resize(44+count as usize*2,0);
+        let upload=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/tracks/latinsabroso_001",wav)).await.unwrap();
+        assert_eq!(upload.status(),StatusCode::OK);
+        let imported:Value=serde_json::from_slice(
+            &to_bytes(upload.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(imported["duration_ms"],1000);
+        let station=json!({"display_name":"LatinSabroso",
+            "playlist":["latinsabroso_001"],"elapsed_ms":430});
+        let posted=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/stations/latinsabroso",
+            serde_json::to_vec(&station).unwrap())).await.unwrap();
+        assert_eq!(posted.status(),StatusCode::OK);
+        let started:Value=serde_json::from_slice(
+            &to_bytes(posted.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(started["track"],"latinsabroso_001");
+        assert_eq!(started["position_ms"],430);
+        let now=app.clone().oneshot(request(Method::GET,
+            "/api/v1/radio/stations/latinsabroso/now",vec![])).await.unwrap();
+        assert_eq!(now.status(),StatusCode::OK);
+        let value:Value=serde_json::from_slice(
+            &to_bytes(now.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(value["display_name"],"LatinSabroso");
+        assert_eq!(value["playing"],true);
+        let audio=app.clone().oneshot(request(Method::GET,
+            "/api/v1/radio/tracks/latinsabroso_001/pcm",vec![])).await.unwrap();
+        assert_eq!(audio.status(),StatusCode::OK);
+        assert_eq!(to_bytes(audio.into_body(),256*1024).await.unwrap().len(),96000);
+        drop(app);
+        let restarted=router(db.clone());
+        let status=restarted.oneshot(request(Method::GET,
+            "/api/v1/radio/stations/latinsabroso/now",vec![])).await.unwrap();
+        assert_eq!(status.status(),StatusCode::OK);
+        drop(db);
+        let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn radio_control_pause_seek_next_and_resume_preserves_shared_clock(){
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let frames=48000u32;
+        let mut wav=Vec::new();
+        wav.extend(b"RIFF");wav.extend((frames*2+36).to_le_bytes());
+        wav.extend(b"WAVEfmt ");wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());wav.extend(1u16.to_le_bytes());
+        wav.extend(48000u32.to_le_bytes());wav.extend(96000u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");wav.extend((frames*2).to_le_bytes());
+        wav.resize(44+frames as usize*2,0);
+        for id in ["radio_001","radio_002"]{
+            let uploaded=app.clone().oneshot(request(Method::POST,
+                &format!("/api/v1/radio/tracks/{id}"),wav.clone())).await.unwrap();
+            assert_eq!(uploaded.status(),StatusCode::OK);
+        }
+        let published=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/stations/radio",
+            serde_json::to_vec(&json!({"display_name":"Radio",
+                "playlist":["radio_001","radio_002"],"elapsed_ms":180})).unwrap()
+        )).await.unwrap();
+        assert_eq!(published.status(),StatusCode::OK);
+        let base="/api/v1/radio/stations/radio/control";
+        let paused=app.clone().oneshot(request(Method::POST,base,
+            serde_json::to_vec(&json!({"action":"pause"})).unwrap())).await.unwrap();
+        assert_eq!(paused.status(),StatusCode::OK);
+        let at:Value=serde_json::from_slice(
+            &to_bytes(paused.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(at["playing"],false);
+        let next=app.clone().oneshot(request(Method::POST,base,
+            serde_json::to_vec(&json!({"action":"next"})).unwrap())).await.unwrap();
+        let item:Value=serde_json::from_slice(
+            &to_bytes(next.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(item["track"],"radio_002");
+        assert_eq!(item["position_ms"],0);
+        assert_eq!(item["playing"],false);
+        let seek=app.clone().oneshot(request(Method::POST,base,
+            serde_json::to_vec(&json!({"action":"seek","index":0,
+                "position_ms":670})).unwrap())).await.unwrap();
+        let item:Value=serde_json::from_slice(
+            &to_bytes(seek.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(item["track"],"radio_001");
+        assert_eq!(item["position_ms"],670);
+        assert_eq!(item["playing"],false);
+        let resumed=app.clone().oneshot(request(Method::POST,base,
+            serde_json::to_vec(&json!({"action":"resume"})).unwrap())).await.unwrap();
+        let item:Value=serde_json::from_slice(
+            &to_bytes(resumed.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(item["playing"],true);
+        assert!(item["position_ms"].as_u64().unwrap()>=670);
+        let after_restart=router(db.clone()).oneshot(request(Method::GET,
+            "/api/v1/radio/stations/radio/now",vec![])).await.unwrap();
+        assert_eq!(after_restart.status(),StatusCode::OK);
+        drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn radio_dj_live_requires_owner_token_and_drops_frames_after_stop(){
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let frames=48000u32;
+        let mut wav=Vec::new();
+        wav.extend(b"RIFF");wav.extend((frames*2+36).to_le_bytes());
+        wav.extend(b"WAVEfmt ");wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());wav.extend(1u16.to_le_bytes());
+        wav.extend(48000u32.to_le_bytes());wav.extend(96000u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");wav.extend((frames*2).to_le_bytes());
+        wav.resize(44+frames as usize*2,0);
+        let uploaded=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/tracks/demo_001",wav)).await.unwrap();
+        assert_eq!(uploaded.status(),StatusCode::OK);
+        let posted=app.clone().oneshot(request(Method::POST,
+            "/api/v1/radio/stations/demo",
+            serde_json::to_vec(&json!({"display_name":"Demo",
+                "playlist":["demo_001"]})).unwrap())).await.unwrap();
+        assert_eq!(posted.status(),StatusCode::OK);
+        let prefix="/api/v1/radio/stations/demo/live";
+        let started=app.clone().oneshot(request(Method::POST,
+            &format!("{prefix}/start"),
+            serde_json::to_vec(&json!({"mode":"mix"})).unwrap())).await.unwrap();
+        assert_eq!(started.status(),StatusCode::OK);
+        let created:Value=serde_json::from_slice(
+            &to_bytes(started.into_body(),4096).await.unwrap()).unwrap();
+        let token=created["token"].as_str().unwrap();
+        assert_eq!(token.len(),36);
+        let unauthorized=app.clone().oneshot(request(Method::POST,
+            &format!("{prefix}/push"),vec![1u8;1920])).await.unwrap();
+        assert_eq!(unauthorized.status(),StatusCode::FORBIDDEN);
+        let push=Request::builder().method(Method::POST)
+            .uri(format!("{prefix}/push"))
+            .header(header::ORIGIN,"http://127.0.0.1:3060")
+            .header("x-vsradio-session",token)
+            .header(header::CONTENT_TYPE,"application/octet-stream")
+            .body(Body::from(vec![1u8;19200])).unwrap();
+        let accepted=app.clone().oneshot(push).await.unwrap();
+        assert_eq!(accepted.status(),StatusCode::OK);
+        let state=app.clone().oneshot(request(Method::GET,
+            &format!("{prefix}/status"),vec![])).await.unwrap();
+        let summary:Value=serde_json::from_slice(
+            &to_bytes(state.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(summary["active"],true);
+        assert_eq!(summary["mode"],"mix");
+        let chunk=app.clone().oneshot(request(Method::GET,
+            &format!("{prefix}/drain/0"),vec![])).await.unwrap();
+        assert_eq!(chunk.status(),StatusCode::OK);
+        assert_eq!(to_bytes(chunk.into_body(),20000).await.unwrap().len(),19208);
+        let stopping=Request::builder().method(Method::POST)
+            .uri(format!("{prefix}/stop"))
+            .header(header::ORIGIN,"http://127.0.0.1:3060")
+            .header("x-vsradio-session",token)
+            .body(Body::empty()).unwrap();
+        assert_eq!(app.clone().oneshot(stopping).await.unwrap().status(),StatusCode::OK);
+        assert_eq!(app.clone().oneshot(request(Method::GET,
+            &format!("{prefix}/drain/0"),vec![])).await.unwrap().status(),
+            StatusCode::NO_CONTENT);
+        drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn published_sound_is_persistent_and_included_in_unified_pack() {
+        use std::io::Read;
+        let (db,dir)=store();
+        let app=router(db.clone());
+        let mut ogg=vec![0;128];
+        ogg[..4].copy_from_slice(b"OggS");
+        ogg[10..17].copy_from_slice(b"\x01vorbis");
+        let upload=app.clone().oneshot(request(Method::POST,
+            "/api/v1/sounds/intro",ogg)).await.unwrap();
+        assert_eq!(upload.status(),StatusCode::OK);
+        let response:Value=serde_json::from_slice(
+            &to_bytes(upload.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(response["id"],"vsmedia:published.intro");
+        assert_eq!(response["deliveredToMinecraft"],false);
+        let listing=app.clone().oneshot(request(Method::GET,
+            "/api/v1/sounds",vec![])).await.unwrap();
+        let listed:Value=serde_json::from_slice(
+            &to_bytes(listing.into_body(),1024*1024).await.unwrap()).unwrap();
+        assert_eq!(listed["sounds"][0]["name"],"intro");
+        let exported=app.clone().oneshot(request(Method::GET,
+            "/api/v1/packs/export",vec![])).await.unwrap();
+        assert_eq!(exported.status(),StatusCode::OK);
+        let bytes=to_bytes(exported.into_body(),32*1024*1024).await.unwrap();
+        let mut zip=zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        assert!(zip.by_name("assets/vsmedia/sounds/published/intro.ogg").is_ok());
+        let mut manifest=String::new();
+        zip.by_name("assets/vsmedia/sounds.json").unwrap()
+            .read_to_string(&mut manifest).unwrap();
+        let data:Value=serde_json::from_str(&manifest).unwrap();
+        assert_eq!(data["published.intro"]["sounds"][0]["name"],
+            "vsmedia:published/intro");
+        drop(zip);drop(app);drop(db);
+        let _=std::fs::remove_dir_all(dir);
+    }
+
     #[tokio::test]
     async fn vspack_saved_project_roundtrip_survives_restart_and_checks_revisions(){
         let (db,dir)=store();
@@ -637,7 +917,7 @@ mod tests {
         assert_eq!(capabilities["vsstreams_provider"],"plasmo_voice");
         assert_eq!(capabilities["vsstreams_connected"],false);
         assert_eq!(capabilities["webrtc_radio_peer_mesh"],true);
-        assert_eq!(capabilities["radio_broadcast"],false);
+        assert_eq!(capabilities["radio_broadcast"],true);
         let integration=app.clone().oneshot(request(Method::GET,
             "/api/v1/streams/integration",vec![])).await.unwrap();
         assert_eq!(integration.status(),StatusCode::OK);

@@ -11,6 +11,9 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.EnumSet;
 import java.util.Locale;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 /**
@@ -22,14 +25,27 @@ public final class StudioCoreProcess implements AutoCloseable {
     private static final String RESOURCE = "/studio-native/vsmedia-studio-bridge";
     private static final int MAX_NATIVE_BYTES = 70 * 1024 * 1024;
     private final Logger logger;
-    private Process process;
-    private boolean externalBridge;
+    private volatile Process process;
+    private volatile boolean externalBridge;
+    private final ScheduledExecutorService watchdog=Executors.newSingleThreadScheduledExecutor(task -> {
+        Thread thread=new Thread(task,"vsmedia-core-supervisor");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private Path restartFolder;
+    private boolean watchdogScheduled;
+    private boolean closed;
+    private int restarts;
+    private long restartWindowStart;
+    private long nextRestartMillis;
 
     public StudioCoreProcess(Logger logger) {
         this.logger = logger;
     }
 
-    public boolean start(Path folder) {
+    public synchronized boolean start(Path folder) {
+        if (closed)return false;
+        if (process!=null && process.isAlive())return true;
         if (isListening()) {
             externalBridge = true;
             logger.info("Found external VSCore on 127.0.0.1:3061; will not start another copy");
@@ -93,11 +109,40 @@ public final class StudioCoreProcess implements AutoCloseable {
                 process = null;
                 return false;
             }
+            restartFolder=folder;
+            if(!watchdogScheduled){
+                watchdogScheduled=true;
+                watchdog.scheduleWithFixedDelay(this::checkHealth,15L,15L,TimeUnit.SECONDS);
+            }
             return true;
         } catch (IOException | SecurityException error) {
             logger.warning("Could not start native VSCore: " + error.getMessage());
             return false;
         }
+    }
+
+    static long restartDelayMillis(int failures){
+        return Math.min(5*60_000L,10_000L << Math.min(5,Math.max(0,failures-1)));
+    }
+
+    private synchronized void checkHealth(){
+        if(closed||externalBridge||restartFolder==null)return;
+        if(process!=null&&process.isAlive())return;
+        long now=System.currentTimeMillis();
+        if(now<nextRestartMillis)return;
+        if(restartWindowStart==0 || now-restartWindowStart>3_600_000L){
+            restartWindowStart=now;restarts=0;
+        }
+        if(restarts>=5){
+            logger.severe("VSCore superó 5 reinicios en una hora; revisar vsmedia-core.log");
+            nextRestartMillis=now+300_000L;
+            return;
+        }
+        restarts++;
+        nextRestartMillis=now+restartDelayMillis(restarts);
+        logger.warning("VSCore terminó inesperadamente: reinicio "+restarts+"/5");
+        try {start(restartFolder);}
+        catch(RuntimeException error){logger.warning("Supervisor de VSCore: "+error.getMessage());}
     }
 
     public boolean isRunning() {
@@ -115,7 +160,9 @@ public final class StudioCoreProcess implements AutoCloseable {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
+        closed=true;
+        watchdog.shutdownNow();
         if (process != null) {
             process.destroy();
             try {

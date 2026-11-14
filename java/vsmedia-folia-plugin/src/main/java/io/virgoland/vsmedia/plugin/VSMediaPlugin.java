@@ -2,7 +2,9 @@ package io.virgoland.vsmedia.plugin;
 
 import io.virgoland.vsmedia.api.ResourcePackDelivery;
 import io.virgoland.vsmedia.api.ResourcePackSessionCoordinator;
+import io.virgoland.vsmedia.api.ResourcePackStack;
 import io.virgoland.vsmedia.folia.FoliaResourcePackController;
+import su.plo.voice.api.server.PlasmoVoiceServer;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,20 +44,48 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
     private final Map<UUID, Map<String, List<ResourcePackDelivery>>> external = new ConcurrentHashMap<>();
     private volatile FoliaResourcePackController controller;
     private volatile ResourcePackDelivery active;
+    private volatile List<ResourcePackDelivery> published = List.of();
+    private RemotePackCatalog remoteCatalog;
     private boolean required;
     private StudioWebServer studioWeb;
     private StudioCoreProcess studioCore;
+    private PlaybackControl playback;
+    private final RadioVoiceAddon voiceAddon = new RadioVoiceAddon();
+    private RadioService radioService;
+
+    @Override
+    public void onLoad() {
+        // PlasmoVoice is declared as a dependency in plugin.yml and is loaded first.
+        PlasmoVoiceServer.getAddonsLoader().load(voiceAddon);
+    }
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         loadConfiguredPack();
         getServer().getPluginManager().registerEvents(this, this);
+        playback = new PlaybackControl(this);
+        getServer().getPluginManager().registerEvents(playback, this);
         startStudioCore();
         startStudioWeb();
+        startRadioService();
+        startRemoteCatalog();
         PluginCommand command = Objects.requireNonNull(getCommand("vsmedia"),
                 "The VSMedia plugin.yml does not declare /vsmedia");
         command.setExecutor(this::command);
+        PluginCommand radioCommand = Objects.requireNonNull(getCommand("vsradio"),
+                "plugin.yml no declara /vsradio");
+        radioCommand.setExecutor((sender, commandLabel, alias, args) -> {
+            if (!sender.hasPermission("vsradio.listen")) {
+                sender.sendMessage(ChatColor.RED + "No tenés permiso para sintonizar VSRadio.");
+                return true;
+            }
+            if (radioService == null) {
+                sender.sendMessage(ChatColor.RED + "VSRadio está desactivada en config.yml.");
+                return true;
+            }
+            return radioService.command(sender, args);
+        });
         getLogger().info("VSMedia 26.3 enabled: web autostart; /vsmedia web muestra la dirección");
         getLogger().info(active == null
                 ? "No resource pack is configured. Studio remains available from this plugin."
@@ -139,12 +169,20 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
 
     private List<ResourcePackDelivery> orderedLayers(
             Map<String, List<ResourcePackDelivery>> sources) {
+        return orderedLayers(sources,published);
+    }
+
+    private List<ResourcePackDelivery> orderedLayers(
+            Map<String, List<ResourcePackDelivery>> sources,
+            List<ResourcePackDelivery> candidate) {
         List<ResourcePackDelivery> layers = new ArrayList<>();
         if (active != null) layers.add(active);
+        layers.addAll(candidate);
         sources.entrySet().stream().sorted(Map.Entry.comparingByKey())
                 .forEach(e -> layers.addAll(e.getValue()));
-        if (layers.size() > 8 || layers.stream().map(ResourcePackDelivery::packId)
-                .distinct().count() != layers.size()) return null;
+        if (layers.size() > ResourcePackStack.MAX_LAYERS
+                || layers.stream().map(ResourcePackDelivery::packId).distinct().count() != layers.size()
+                || layers.stream().map(ResourcePackDelivery::logicalId).distinct().count() != layers.size()) return null;
         return List.copyOf(layers);
     }
 
@@ -170,6 +208,18 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         external.remove(event.getPlayer().getUniqueId());
+        if (radioService != null) radioService.quit(event.getPlayer().getUniqueId());
+    }
+
+    private void startRadioService() {
+        if (radioService == null && getConfig().getBoolean("radio.enabled", true)) {
+            radioService = new RadioService(this, voiceAddon);
+        }
+    }
+    private void stopRadioService() {
+        RadioService current=radioService;
+        radioService=null;
+        if (current != null) current.close();
     }
 
     private void startStudioCore() {
@@ -193,7 +243,9 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         }
         int port=getConfig().getInt("studio-web.port", 3060);
         try {
-            studioWeb=new StudioWebServer(port,getLogger());
+            studioWeb=new StudioWebServer(port,getLogger(), args -> 
+                    getServer().getGlobalRegionScheduler().run(this, task ->
+                            playback.execute(getServer().getConsoleSender(), args[0], args)));
             studioWeb.start();
         } catch (IOException | RuntimeException error) {
             studioWeb=null;
@@ -207,6 +259,64 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
             studioWeb=null;
         }
     }
+    private void startRemoteCatalog() {
+        if (!getConfig().getBoolean("publication.enabled", false)) return;
+        try {
+            String raw = getConfig().getString("publication.manifest-url", "");
+            long seconds = getConfig().getLong("publication.check-seconds", 300);
+            RemotePackCatalog catalog = new RemotePackCatalog(
+                    URI.create(raw), seconds, getLogger(), this::applyPublication);
+            remoteCatalog = catalog;
+            catalog.start();
+        } catch (RuntimeException invalid) {
+            getLogger().severe("No se pudo iniciar publicación automática: " + invalid.getMessage());
+        }
+    }
+
+    private void stopRemoteCatalog() {
+        RemotePackCatalog previous = remoteCatalog;
+        remoteCatalog = null;
+        if (previous != null) previous.close();
+        published = List.of();
+    }
+
+    /** Called by the HTTP worker; all Bukkit interactions run on the global region scheduler. */
+    private void applyPublication(List<ResourcePackDelivery> layers) {
+        // Validate the candidate without mutating the active publication.
+        // Throwing here also makes the watcher retry the same revision later,
+        // rather than marking a rejected manifest as successfully applied.
+        synchronized (packLock) {
+            if (orderedLayers(Map.of(), layers) == null) {
+                throw new IllegalArgumentException("La publicación excede el límite de capas");
+            }
+            for (var current : external.values()) {
+                if (orderedLayers(current,layers) == null) {
+                    throw new IllegalArgumentException(
+                        "La publicación supera las capas con otros plugins activos");
+                }
+            }
+        }
+        try {
+            getServer().getGlobalRegionScheduler().run(this, task -> {
+                if (!isEnabled() || remoteCatalog == null || controller == null) return;
+                List<ResourcePackDelivery> common = orderedLayers(Map.of(),layers);
+                if (common == null || common.isEmpty()) {
+                    getLogger().warning("Publicación rechazada antes de modificar el catálogo");
+                    return;
+                }
+                published = layers;
+                controller.setCurrentStack(new ResourcePackStack(common));
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    List<ResourcePackDelivery> all = orderedLayers(
+                            external.getOrDefault(player.getUniqueId(), Map.of()));
+                    if (all != null) controller.offerLayersTo(player, false, all);
+                }
+            });
+        } catch (IllegalStateException stopped) {
+            // Server is shutting down; no update should outlive the plugin.
+        }
+    }
+
     private void loadConfiguredPack() {
         if (controller != null) {
             HandlerList.unregisterAll(controller);
@@ -251,6 +361,11 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                         + ChatColor.GRAY + " | Folia adapter cargado");
                 sender.sendMessage(ChatColor.GRAY + "Pack configurado: "
                         + (active == null ? "NO" : active.logicalId()));
+                sender.sendMessage(ChatColor.GRAY + "Capas publicadas por CDN: "
+                        + published.size());
+                sender.sendMessage(ChatColor.GRAY + (remoteCatalog == null
+                        ? "CDN: desactivado en config.yml"
+                        : remoteCatalog.diagnosticSummary()));
                 sender.sendMessage(ChatColor.GRAY + "Fuentes externas activas: "
                         + external.values().stream().mapToInt(Map::size).sum());
                 sender.sendMessage(ChatColor.GRAY + "Ofertas rastreadas: "
@@ -268,14 +383,52 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                         + "Acceso remoto: tunel SSH recomendado, no abrir el puerto publicamente.");
             }
             case "reload" -> {
+                stopRemoteCatalog();
+                stopRadioService();
                 reloadConfig();
                 loadConfiguredPack();
                 stopStudioWeb();
                 stopStudioCore();
                 startStudioCore();
                 startStudioWeb();
+                startRadioService();
+                startRemoteCatalog();
                 sender.sendMessage(ChatColor.GREEN + "Configuracion VSMedia recargada. Pack: "
                         + (active == null ? "desactivado/invalido" : active.logicalId()));
+            }
+            case "packs" -> {
+                if (args.length < 2) {
+                    sender.sendMessage(ChatColor.YELLOW + "Uso: /vsmedia packs <jugador>");
+                    return true;
+                }
+                Player target = Bukkit.getPlayerExact(args[1]);
+                if (target == null) {
+                    sender.sendMessage(ChatColor.RED + "Jugador no encontrado.");
+                    return true;
+                }
+                List<ResourcePackDelivery> expected = orderedLayers(
+                        external.getOrDefault(target.getUniqueId(), Map.of()));
+                if (expected == null) {
+                    sender.sendMessage(ChatColor.RED + "Hay demasiados Resource Packs para ese jugador.");
+                    return true;
+                }
+                if (expected.isEmpty()) {
+                    sender.sendMessage(ChatColor.YELLOW + "No hay capas configuradas.");
+                    return true;
+                }
+                sender.sendMessage(ChatColor.GOLD + "[VSMedia] Estado de packs de " + target.getName());
+                for (ResourcePackDelivery delivery : expected) {
+                    String status = controller.coordinator()
+                            .snapshot(target.getUniqueId(), delivery.packId())
+                            .map(item -> item.sha1Hex().equals(delivery.sha1Hex())
+                                    ? item.status().name() : "VERSION_ANTERIOR")
+                            .orElse("NO_OFRECIDO");
+                    sender.sendMessage(ChatColor.GRAY + delivery.logicalId() + " "
+                            + delivery.sha1Hex().substring(0, 8) + " · " + status);
+                }
+                sender.sendMessage(ChatColor.GRAY
+                        + "SUCCESSFULLY_LOADED = Minecraft notificó carga; "
+                        + "no confirma que un sonido específico haya sonado.");
             }
             case "send" -> {
                 Player target;
@@ -302,16 +455,21 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                 controller.offerLayersTo(target, true, layers);
                 sender.sendMessage(ChatColor.GREEN + "Oferta programada para " + target.getName());
             }
+            case "title", "subtitle", "preview", "chatfont", "play", "sound", "stopsound" ->
+                    playback.execute(sender, sub, args);
             default -> sender.sendMessage(ChatColor.YELLOW
-                    + "Uso: /vsmedia <status|web|reload|send [jugador]>");
+                    + "Uso: /vsmedia <status|web|reload|send|packs|title|subtitle|preview|chatfont|play|stopsound>");
         }
         return true;
     }
 
     @Override
     public void onDisable() {
+        stopRadioService();
+        stopRemoteCatalog();
         external.clear();
         HandlerList.unregisterAll((Listener) this);
+        if (playback != null) HandlerList.unregisterAll(playback);
         stopStudioWeb();
         stopStudioCore();
         if (controller != null) {

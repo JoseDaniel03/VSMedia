@@ -13,7 +13,7 @@ import java.util.UUID;
  * the Minecraft client to reuse previously cached base downloads.
  */
 public record ResourcePackStack(List<ResourcePackDelivery> layers) {
-    public static final int MAX_LAYERS = 8;
+    public static final int MAX_LAYERS = 32;
 
     public ResourcePackStack {
         Objects.requireNonNull(layers, "layers");

@@ -5,6 +5,41 @@ Nuevo proyecto en Rust con APIs para productores Java. Los otros plugins **consu
 
 > **Estado: desarrollo activo.** Solo código fuente, pruebas y documentación. No se ha publicado ningún JAR, ZIP final, release ni plugin instalable. Voice Chat y streaming NO están implementados.
 
+## VSRadio: emisoras sincronizadas para Minecraft (rama de desarrollo)
+
+La playlist local del editor VSRadio puede publicarse mediante **◉ Emitir en
+Minecraft**. VSCore guarda pistas PCM16 mono 48 kHz y un reloj UTC de emisora.
+El nuevo comando `/vsradio emisora LatinSabroso` sintoniza la fuente compartida
+Plasmo Voice donde se encuentre la canción; `/vsradio apagar` la desconecta.
+La web también incluye **◉ Abrir DJ**: micrófono solo o playlist + DJ,
+volúmenes independientes, reducción de música por voz (ducking), mute y
+corte con retorno a la playlist. El reloj se controla con pausa/reanudar,
+anterior/siguiente y búsqueda desde la interfaz. El micrófono viaja en lotes
+PCM temporales por localhost, sin grabarse en CAS.
+
+Requiere PlasmoVoice en servidor y clientes, y una futura compilación del
+plugin autorizado para desplegar los cambios. El audio de micrófono WebRTC
+no está enlazado a este sistema. [Manual VSRadio](docs/VSRADIO-LIVE.md).
+
+## VSPack: packs optimizados y publicación CDN (rama de desarrollo)
+
+Se añadió el publicador offline tools/vspack_publish.py: exporta el ZIP de VSCore
+local, optimiza archivos JSON y opcionalmente invoca PackSquash externo, divide
+los ZIPs por módulos bajo un límite configurable (90 MiB predeterminado),
+genera hashes SHA-1/SHA-256, UUID, manifiestos de versiones, permite subir a
+Cloudflare R2 y volver a una versión anterior.
+
+Un watcher HTTPS en el plugin Folia prepara la actualización de capas para los
+jugadores desde un manifiesto público, sin realizar compresión ni descargas
+en los hilos del juego. **No está desplegado ni probado in-game**: primero se
+debe conectar R2 y en otra etapa compilar/instalar el plugin actualizado.
+
+Ver [manual de optimización y publicación](docs/VSPACK-AUTO-PUBLISH.md)
+y [audio y tipografías Minecraft](docs/MINECRAFT-PUBLICATION.md).
+
+**No generar JARs ahora**: CI mantiene el job de empaquetado deshabilitado.
+La publicación de resource packs no recompila el plugin.
+
 ## Arquitectura
 
 | Módulo | Implementado actualmente | Pendiente principal |
@@ -75,6 +110,22 @@ Ver [integración Studio](docs/STUDIO-INTEGRATION.md) y
 [manual técnico](studio/docs/INTEGRATION.md).
 
 
+## VSPack: publicación de texturas, modelos y Resource Packs
+
+El panel **✦ Minecraft · Publicar → Recursos / VSPack** de la web
+FullCanvas admite ZIPs y carpetas que contienen `pack.mcmeta` y `assets/`.
+Permite importar texturas PNG, modelos Minecraft JSON, definiciones de ítems,
+GUI/HUD, fuentes, sonidos, animaciones `.png.mcmeta` y otros recursos.
+Los ZIPs originales, prioridades y elecciones manuales se guardan en VSCore.
+El exportador del pack unificado integra los OGG y las fuentes persistentes.
+
+La distribución externa usa `vspack_publish.py`: divide según tamaño,
+verifica la cobertura total del grafo de modelos/texturas/sonidos,
+publica ZIPs inmutables a R2 y promociona `current.json` al final.
+Los modelos `.bbmodel` de Blockbench necesitan exportarse a JSON Minecraft.
+**La publicación HTTPS real sigue pendiente de configurar y probar.**
+Ver [manual de publicación de recursos](docs/VSPACK-RESOURCE-PUBLICATION.md).
+
 ## VSMedia Web v11 y comando `vsmedia web`
 
 La web 2026 v11 se puede incorporar en `web/` sin reemplazar Rust Core ni el plugin Folia. Ver [guía de arranque](docs/WEB-V11.md).
@@ -91,8 +142,15 @@ en Linux x86_64, escuchando solamente en `127.0.0.1:3061`. Si ya existe una
 instancia activa, la reutiliza y **no** ejecuta otra. Si falta el binario o no
 se está ejecutando en una plataforma compatible, la web sigue activa y se
 registra un aviso; no se declara una integración de fuentes/pack operativa.
+Si un proceso Rust iniciado por el plugin termina inesperadamente, un
+supervisor intenta reiniciarlo con retroceso progresivo y máximo cinco
+intentos por hora; una instancia externa no se reinicia ni se destruye.
 
 Los ajustes existentes en `plugins/VSMedia/config.yml` no se sobrescriben.
 Si una instalación anterior ya tenía `studio-core.autostart: false`, cambiarlo a
 `true` y reiniciar para activar el nuevo valor. Para instalaciones nuevas
-`true` es el valor por defecto. El puerto 3061 **no** debe exponerse a Internet.
+`true` es el valor por defecto. El puerto 3061 **no** debe exponerse a Internet. El backend guarda los
+ZIPs fuente originales de VSPack en `vsmedia-data/vspack-sources` y restaura
+sus prioridades y elecciones manuales tras reinicios, previa verificación
+SHA-256. La web aplica comprobación de origen a los cambios HTTP; VSRadio
+transfiere su token efímero a Rust a través del proxy local.
