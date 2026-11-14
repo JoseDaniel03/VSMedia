@@ -99,8 +99,8 @@ jobs:
       - name: Compile Java sources and run tests without packaging any JAR
         run: mvn -B -f java/pom.xml test
   java-api:
-    # Final requested plugin packaging: assemble the Folia JAR with web and native backend.
-    if: ${{ success() }}
+    # Explicitly disabled: do not package JARs until user authorizes a release.
+    if: ${{ false }}
     needs: [studio-frontend, studio-backend]
     runs-on: ubuntu-latest
     steps:
