@@ -44,6 +44,8 @@ jobs:
           targets: wasm32-unknown-unknown
       - run: node --check studio/assets/live.js
       - run: node --check studio/assets/ui-polish.js
+      - run: node --check studio/assets/workspace-assets.js
+      - run: node tests/test_workspace_assets_ui.mjs
       - run: node tests/test_studio_ui_polish.mjs
       - run: node --check studio/assets/pack.js
       - run: node --check studio/assets/minecraft.js
@@ -62,6 +64,8 @@ jobs:
           grep -F "data-radio-file-url" studio/src/app.rs
           grep -F 'minecraft.js' studio/index.html
           grep -F 'ui-polish.js' studio/index.html
+          grep -F 'workspace-assets.js' studio/index.html
+          grep -F 'workspace-assets.css' studio/index.html
           grep -F 'vspack-publish.js' studio/index.html
           grep -F 'radio-sync.js' studio/index.html
           grep -F 'radio-dj.js' studio/index.html

@@ -2,6 +2,7 @@
 //! native document parser, project revisions and non-destructive Studio editor.
 //! Only listens on loopback. VSRadio stores a shared playlist clock; the
 //! optional Plasmo Voice server addon provides game audio outside this process.
+#![recursion_limit = "256"]
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 mod live;
 mod packs;
@@ -12,6 +13,7 @@ mod radio_live;
 mod pack_manager;
 mod pack_projects;
 mod pack_sources;
+mod workspace_assets;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
 use sha2::{Digest,Sha256};
 use axum::{
@@ -75,6 +77,8 @@ async fn capabilities(axum::Extension(hub):axum::Extension<packs::PackHub>) -> J
         "vsstreams_provider":"plasmo_voice","vsstreams_connected":false,
         "vsstreams_moderation":false,
         "asset_storage":true,"audio_projects":true,
+        "project_workspace_assets":true,"project_workspace_schema":"vsmedia-workspace-v1",
+        "project_assets_resourcepack_isolated":true,"project_workspace_max_file_mib":96,
         "vspack_editor":true,"vspack_merge":"structured_priority",
         "vspack_zip_export":true,"vspack_session_only":hub.3.is_none(),
         "vspack_resource_catalog":"vspack-resources-v1",
@@ -330,6 +334,8 @@ fn router(store:Store)->Router {
 }
 fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
     let projects=pack_projects::ProjectHub::new(project_dir.clone());
+    let workspace=workspace_assets::WorkspaceHub::new(
+        project_dir.with_file_name("workspace-projects"));
     let hub=live::LiveHub::default();
     let dj_hub=radio_live::DjHub::default();
     // Production loads verified original ZIPs once, before accepting requests.
@@ -375,6 +381,18 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .route("/api/v1/live/ws",get(live::socket))
         .route("/api/v1/live/status",get(live::status))
         .route("/api/v1/streams/integration",get(streams_integration))
+        .route("/api/v1/workspace/projects",get(workspace_assets::list))
+        .route("/api/v1/workspace/projects/{id}",get(workspace_assets::inventory)
+            .post(workspace_assets::create))
+        .route("/api/v1/workspace/projects/{id}/folders",post(workspace_assets::folder))
+        .route("/api/v1/workspace/projects/{id}/files",post(workspace_assets::upload)
+            .layer(DefaultBodyLimit::max(96*1024*1024)))
+        .route("/api/v1/workspace/projects/{id}/file",get(workspace_assets::download)
+            .delete(workspace_assets::delete))
+        .route("/api/v1/workspace/projects/{id}/move",post(workspace_assets::rename))
+        .route("/api/v1/workspace/projects/{id}/rescan",post(workspace_assets::rescan))
+        .route("/api/v1/workspace/projects/{id}/verify",get(workspace_assets::verify))
+        .route("/api/v1/workspace/projects/{id}/export",get(workspace_assets::export))
         .route("/api/v1/packs",get(packs::list))
         .route("/api/v1/packs/manager/capabilities",get(pack_manager::capabilities))
         .route("/api/v1/packs/manager/recipe",get(pack_manager::draft))
@@ -424,6 +442,7 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .layer(axum::Extension(dj_hub))
         .layer(axum::Extension(pack_hub))
         .layer(axum::Extension(projects))
+        .layer(axum::Extension(workspace))
         .with_state(store)
 }
 #[tokio::main]
@@ -460,6 +479,59 @@ mod tests {
             .header(header::CONTENT_TYPE,"application/json")
             .body(Body::from(body)).unwrap()
     }
+    #[tokio::test]
+    async fn workspace_http_assets_survive_restart_but_never_become_minecraft_pack(){
+        use std::io::Read as _;
+        let (db,dir)=store();
+        let app=router_with_projects(db.clone(),dir.join("vspack-projects"));
+        let prefix="/api/v1/workspace/projects/virgoland";
+        let created=app.clone().oneshot(request(Method::POST,prefix,
+            serde_json::to_vec(&json!({"name":"Virgoland"})).unwrap()))
+            .await.unwrap();
+        assert_eq!(created.status(),StatusCode::OK);
+        let path="assets/models/escopeta-faro.bbmodel";
+        let upload=app.clone().oneshot(request(Method::POST,
+            &(prefix.to_string()+"/files?path="+path),b"original-bbmodel".to_vec()))
+            .await.unwrap();
+        assert_eq!(upload.status(),StatusCode::OK);
+        let record:Value=serde_json::from_slice(
+            &to_bytes(upload.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(record["resourcepack_published"],false);
+        let asset=app.clone().oneshot(request(Method::GET,
+            &(prefix.to_string()+"/file?path="+path),vec![])).await.unwrap();
+        assert_eq!(asset.status(),StatusCode::OK);
+        assert_eq!(&to_bytes(asset.into_body(),256).await.unwrap()[..],b"original-bbmodel");
+        let zip=app.clone().oneshot(request(Method::GET,
+            &(prefix.to_string()+"/export"),vec![])).await.unwrap();
+        assert_eq!(zip.status(),StatusCode::OK);
+        let bytes=to_bytes(zip.into_body(),1024*1024).await.unwrap();
+        let mut archive=zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut data=Vec::new();
+        archive.by_name(path).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data,b"original-bbmodel");
+        assert!(archive.by_name("project.json").is_ok());
+        drop(app);
+        let reopened=router_with_projects(db.clone(),dir.join("vspack-projects"));
+        let record=reopened.clone().oneshot(request(Method::GET,prefix,vec![]))
+            .await.unwrap();
+        assert_eq!(record.status(),StatusCode::OK);
+        let saved:Value=serde_json::from_slice(
+            &to_bytes(record.into_body(),8192).await.unwrap()).unwrap();
+        assert_eq!(saved["files"][0]["path"],path);
+        let folders=reopened.clone().oneshot(request(Method::POST,
+            &(prefix.to_string()+"/folders"),
+            serde_json::to_vec(&json!({"path":"assets/models/rifles"})).unwrap()))
+            .await.unwrap();
+        assert_eq!(folders.status(),StatusCode::OK);
+        let pack=reopened.clone().oneshot(request(Method::GET,
+            "/api/v1/packs",vec![])).await.unwrap();
+        assert_eq!(pack.status(),StatusCode::OK);
+        let pack:Value=serde_json::from_slice(
+            &to_bytes(pack.into_body(),8192).await.unwrap()).unwrap();
+        assert!(pack["packs"].as_array().unwrap().is_empty());
+        drop(reopened);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
     #[tokio::test]
     async fn radio_track_publication_is_immutable_idempotent_and_probeable() {
         let (db,dir)=store();
