@@ -110,6 +110,23 @@ Ver [integración Studio](docs/STUDIO-INTEGRATION.md) y
 [manual técnico](studio/docs/INTEGRATION.md).
 
 
+## VSAssets: biblioteca de archivos originales por proyecto
+
+FullCanvas ahora incluye **VSAssets**, accesible desde Inicio y la barra
+superior. Crea carpetas reales por proyecto y permite importar archivos o
+carpetas, buscar, mover, previsualizar, descargar, verificar SHA-256 y exportar
+un ZIP con los originales. El botón Sincronizar carpeta del disco incorpora
+cambios hechos directamente por herramientas externas como VSRender.
+
+La ruta de trabajo es VSMEDIA_DATA_DIR/workspace-projects/ (por defecto
+.vsmedia-data/workspace-projects/), con assets/models, textures, audio,
+video, fonts, scripts, documents, other y project.json.
+
+**No se publica automáticamente en VSPack ni Minecraft.** Admiten originales
+como BBModel, PSD, Blender, WAV, scripts y video; el Resource Pack continúa
+siendo una publicación separada y explícita.
+
+Ver [manual de VSAssets](studio/docs/WORKSPACE-ASSETS.md).
 ## VSPack: publicación de texturas, modelos y Resource Packs
 
 El panel **✦ Minecraft · Publicar → Recursos / VSPack** de la web
