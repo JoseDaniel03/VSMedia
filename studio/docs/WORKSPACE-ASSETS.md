@@ -13,7 +13,11 @@ el navegador lo soporte, descargar y exportar una copia ZIP completa.
 Se admiten fuentes originales y archivos arbitrarios (.bbmodel, .blend, .gltf,
 .obj, .psd, .webp, .png, .wav, .ogg, .mp4, .ttf, .json, .js, .py, etc.).
 Los formatos desconocidos se guardan sin ejecutarse: vista previa opcional,
-descarga siempre disponible. No se convierte automáticamente de Blockbench
+descarga siempre disponible. Si otro programa (VSRender, Blockbench,
+Photoshop, Blender) modifica directamente los archivos de la carpeta física,
+el botón **Sincronizar carpeta del disco** vuelve a registrar los nuevos
+archivos y hashes SHA-256, siempre con confirmación explícita. No se convierte
+automáticamente de Blockbench
 a modelos Minecraft.
 
 ## Carpetas persistentes
@@ -63,6 +67,7 @@ como si su revisión fuese válida.
 - DELETE /api/v1/workspace/projects/{id}/file?path=...: eliminar
 - POST /api/v1/workspace/projects/{id}/move: JSON con from y to
 - GET /api/v1/workspace/projects/{id}/verify: comprobar integridad SHA-256
+- POST /api/v1/workspace/projects/{id}/rescan: registrar cambios externos en disco
 - GET /api/v1/workspace/projects/{id}/export: ZIP en streaming
 
 El ZIP de respaldo contiene project.json y originales, **no un Resource Pack**.
