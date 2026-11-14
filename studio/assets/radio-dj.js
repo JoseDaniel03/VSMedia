@@ -200,10 +200,11 @@ async function start(){
 function mount(){
   const radio=[...document.querySelectorAll(".studio-toolbar")].find(
     el=>/^VSRadio$/i.test(el.querySelector("strong")?.textContent?.trim()||""));
-  if(!radio||radio.querySelector("[data-vsradio-dj-start]"))return;
-  const wrap=document.createElement("span");
+  if(!radio||radio.parentElement?.querySelector(".vsradio-live-controls"))return;
+  const wrap=document.createElement("div");
   wrap.className="vsradio-live-controls";
-  wrap.style.cssText="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap";
+  wrap.setAttribute("role","group");
+  wrap.setAttribute("aria-label","Emisión y mezcla DJ de VSRadio");
   const button=(name,label,callback,disabled=false)=>{
     const elem=document.createElement("button");elem.type="button";elem.className="toolbar-button";
     elem.textContent=label;elem.dataset["vsradioDj"+name[0].toUpperCase()+name.slice(1)]="1";
@@ -241,7 +242,9 @@ function mount(){
   note.dataset.vsradioDjStatus="1";note.className="toolbar-caption";
   note.textContent="DJ no conectado";
   wrap.append(note);
-  radio.append(wrap);
+  // Secondary toolbar: prevents controls from pushing the playlist commands
+  // off-screen in smaller desktop windows and touch/tablet layouts.
+  radio.after(wrap);
 }
 function ready(){
   mount();
