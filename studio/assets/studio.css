@@ -44,3 +44,398 @@
 .vs-minecraft-body [data-mc-status][data-error=true]{color:#a2353b;}
 @media(max-width:540px){.vs-minecraft-panel{bottom:10px;right:12px;}
  .vs-minecraft-body{max-height:72vh;}}
+
+
+/* ==========================================================================
+   VSMedia / FullCanvas — final visual consistency and responsive pass.
+   Additive theme overrides: preserve the original layout and module behaviors.
+   Primary violet, secondary slate/blue and muted brass for publish accents.
+   ========================================================================== */
+:root {
+  --bg:#f7f8fc;
+  --panel:#ffffff;
+  --line:#dbe1ed;
+  --sub:#52617b;
+  --violet:#6946bf;
+  --violet-dark:#5435a1;
+  --blue:#365fa3;
+  --soft:#f1f3f9;
+  --ink:#28334c;
+  --gold:#8a6838;
+  --gold-soft:#f7f1e7;
+  --focus:#6243bb;
+  --danger:#a93450;
+  --shadow:0 8px 28px rgba(33,46,80,.07);
+}
+body {color:var(--ink);background:var(--bg)}
+button, input, textarea, select {font-family:inherit}
+button {touch-action:manipulation}
+button:disabled {cursor:not-allowed;opacity:.52}
+:where(button, input, textarea, select, summary, a):focus-visible {
+  outline:3px solid var(--focus);
+  outline-offset:2px;
+}
+input:not([type=checkbox]):not([type=range]),select,textarea {
+  border-color:#cbd4e3;
+  color:var(--ink);
+}
+input::placeholder,textarea::placeholder {color:#687790;opacity:1}
+label {color:#52617b;font-size:12px;letter-spacing:0}
+.field-note,.tree-help,.script-panel>small,.schedule-panel>small,
+.home-library-head>span {color:#66738b;font-size:11px}
+.pane-title {color:#62708c;font-size:11px}
+.toolbar-caption {color:#64718b;font-size:10px;letter-spacing:.06em}
+.connection-badge {color:#52617b}
+.app-topbar {min-width:0;padding:0 15px;gap:12px}
+.app-tabs {min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.app-tabs::-webkit-scrollbar {display:none}
+.app-tabs button {flex-shrink:0;color:#53627d}
+.app-tabs button.active {background:#ece8fa;color:#5b37b1}
+.app-header-right {flex-shrink:0;color:#606f88}
+.workspace-main {min-width:0}
+.home-page {width:100%}
+.home-lead {
+  background:linear-gradient(110deg,#ffffff 36%,#f2eefc 78%,#f9f3e8 100%);
+  border-color:#e3e3ef;
+  box-shadow:var(--shadow);
+}
+.home-lead p {color:#586681}
+.eyebrow {color:var(--gold)}
+.home-module-grid button {
+  box-shadow:0 2px 12px rgba(33,46,80,.035);
+  transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease;
+}
+.home-module-grid button:hover {
+  box-shadow:0 9px 22px rgba(75,57,117,.10);
+  border-color:#bca7df;
+}
+.home-module-grid small {color:#5e6d86;font-size:12px;line-height:1.55}
+.home-module-grid .tile-open {color:var(--blue);font-size:12px}
+.home-library-head h2 {color:var(--ink)}
+.folder-row {color:#4d5e7a}
+.folder-row:hover {background:#eeeff8}
+.asset-select small {color:#61718b}
+.asset-select strong {color:#293751;font-size:12px}
+.asset-tag {color:#576681}
+.asset-row:focus-within {border-color:#a995df;box-shadow:0 0 0 1px #bbaaea}
+.empty-canvas,.empty-canvas p {color:#687793}
+.empty-canvas strong {color:#4c5d77}
+.stage-topline {color:#596985;font-size:11px}
+.clip-title {color:var(--ink);overflow-wrap:anywhere}
+.track-channel {border-color:var(--line)}
+.track-channel.selected {border-color:#a999e1}
+.track-wave-slot span {color:#465879}
+.track-controls button {color:#435672}
+.playlist-order,.playlist-actions {color:#5f6e87}
+.playlist-row button:not(.playlist-song) {min-height:28px}
+.radio-player-block small {color:#62708b}
+.version-row button:first-child {color:#495976}
+.script-controls span {color:#576988}
+
+.toolbar-button,.action-secondary,.action-primary,
+.vs-minecraft-body button {
+  transition:background-color .14s ease,border-color .14s ease,
+    box-shadow .14s ease,color .14s ease;
+}
+.toolbar-button,.action-secondary,.action-primary {min-height:34px}
+.toolbar-button:hover:not(:disabled),.action-secondary:hover:not(:disabled) {
+  border-color:#a999df;background:#f4effe;color:#5331a5;
+}
+.action-primary:hover:not(:disabled),.toolbar-button.accent:hover:not(:disabled) {
+  background:var(--violet-dark);border-color:var(--violet-dark);color:#fff;
+}
+.toolbar-button:active:not(:disabled),.action-primary:active:not(:disabled),
+.action-secondary:active:not(:disabled) {transform:translateY(1px)}
+.studio-toolbar {gap:8px;scrollbar-color:#c0c8d9 transparent}
+.studio-toolbar>strong {flex-shrink:0;color:var(--ink)}
+.toolbar-separator {flex:0 0 1px}
+.editor-menus {min-width:0;overflow:visible}
+.editor-menu summary {color:#4f607d;min-height:34px;display:flex;align-items:center}
+.editor-menu[open] summary {background:#eee9fb;color:var(--violet-dark)}
+/* Position supplied by ui-polish.js from the actual summary rect. */
+.editor-menu-popover {
+  position:fixed;
+  left:0;
+  top:0;
+  width:max-content;
+  min-width:190px;
+  max-width:min(300px,calc(100vw - 20px));
+  max-height:min(440px,calc(100dvh - 24px));
+  overflow:auto;
+  background:var(--panel);
+  border:1px solid #cbd5e5;
+  box-shadow:0 14px 34px rgba(25,37,67,.16);
+  z-index:85;
+}
+.editor-menu-popover button {min-height:36px;color:#384963}
+.editor-menu-popover button:hover {background:#f1edfb;color:#5835a9}
+.editor-menu-popover button:focus-visible {outline-offset:-2px}
+
+/* VSRadio: the live DJ mixer is a dedicated row, not a 51px toolbar overflow. */
+.vsradio-live-controls {
+  display:flex;
+  flex:0 0 auto;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 12px;
+  min-height:49px;
+  padding:8px 14px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(90deg,#f8f6fd 0%,#fcfbff 75%);
+}
+.vsradio-live-controls label {
+  display:inline-flex;
+  flex-direction:row;
+  gap:7px;
+  align-items:center;
+  color:#52627c;
+  white-space:nowrap;
+  font-size:11px;
+  letter-spacing:0;
+}
+.vsradio-live-controls input[type=range] {
+  accent-color:var(--violet);
+  width:76px!important;
+  flex-shrink:0;
+}
+.vsradio-live-controls select {
+  min-height:34px;
+  max-width:175px;
+  padding:6px 9px;
+  font-size:12px;
+}
+.vsradio-live-controls .toolbar-button {min-height:34px}
+.vsradio-live-controls [data-vsradio-dj-start] {
+  color:var(--violet-dark);
+  background:#efeafa;
+  border-color:#c3b1ef;
+}
+.vsradio-live-controls [data-vsradio-dj-start]:hover:not(:disabled) {
+  background:#e3dafa;
+}
+.vsradio-live-controls [data-vsradio-dj-stop]:not(:disabled) {
+  color:var(--danger);border-color:#e7b6c2;
+}
+.vsradio-live-controls [data-vsradio-dj-status] {
+  margin:0 0 0 auto;
+  max-width:280px;
+  min-width:100px;
+  font-size:11px;
+  line-height:1.4;
+  letter-spacing:0;
+  font-weight:650;
+  white-space:normal;
+  color:#556581;
+}
+
+/* One consistent drawer, rather than a disconnected beige mini-application. */
+.vs-minecraft-panel {
+  --publish-border:#cbd4e6;
+  --publish-muted:#596983;
+  --publish-accent:#6946bf;
+  color:var(--ink);
+  right:18px;bottom:18px;
+  max-width:calc(100vw - 24px);
+}
+.vs-minecraft-toggle {
+  min-height:44px;
+  border-color:#756391;
+  border-radius:12px;
+  background:linear-gradient(135deg,#302a47,#473765);
+  color:#fff5e3;
+  padding:11px 16px;
+  font-family:inherit;font-size:13px;font-weight:700;line-height:1.3;
+  box-shadow:0 10px 28px rgba(38,30,68,.24);
+}
+.vs-minecraft-toggle:hover {background:#524273;border-color:#a08ac6}
+.vs-minecraft-body {
+  bottom:calc(100% + 10px);
+  right:0;
+  width:min(490px,calc(100vw - 24px));
+  max-height:min(79dvh,780px);
+  padding:17px;
+  background:#ffffff;
+  color:var(--ink);
+  border-color:var(--publish-border);
+  border-radius:14px;
+  box-shadow:0 22px 65px rgba(30,40,68,.20);
+  overscroll-behavior:contain;
+  scrollbar-color:#c6cbe1 transparent;
+}
+.vs-minecraft-heading {border-color:var(--line)}
+.vs-minecraft-heading strong {color:var(--ink);font-size:15px}
+.vs-minecraft-heading button {width:36px;min-height:36px;font-size:22px}
+.vs-minecraft-tabs {
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin:12px 0 15px;
+}
+.vs-minecraft-tabs button {
+  flex:1 1 112px;
+  min-width:0;
+  min-height:35px;
+  white-space:normal;
+}
+.vs-minecraft-body button {
+  min-height:35px;
+  padding:8px 11px;
+  border-color:#cbd3e3;
+  background:#f7f8fc;
+  color:#374761;
+  font-family:inherit;font-size:12px;font-weight:650;line-height:1.35;
+  overflow-wrap:anywhere;
+}
+.vs-minecraft-body button:hover:not(:disabled) {
+  background:#eeebfa;color:#5935a6;border-color:#b3a4e0;
+}
+.vs-minecraft-body button:disabled {cursor:not-allowed}
+.vs-minecraft-tabs [aria-pressed=true] {
+  background:var(--violet);
+  color:#fff;
+  border-color:var(--violet);
+}
+.vs-minecraft-tabs [aria-pressed=true]:hover:not(:disabled) {
+  background:var(--violet-dark);border-color:var(--violet-dark);color:#fff;
+}
+.vs-minecraft-body [data-mc-page] {gap:12px;min-width:0}
+.vs-minecraft-body p,.vs-minecraft-body small {
+  color:var(--publish-muted);
+  font-size:12px;
+  line-height:1.55;
+  overflow-wrap:anywhere;
+}
+.vs-minecraft-body label {
+  color:#4c5b76;
+  font-size:12px;
+  letter-spacing:0;
+  min-width:0;
+}
+.vs-minecraft-body input,.vs-minecraft-body select {
+  min-height:36px;
+  border-color:#cbd4e4;
+  background:#fff;
+  color:var(--ink);
+  font-family:inherit;
+}
+.vs-minecraft-inline {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.vs-minecraft-inline>* {
+  flex:1 1 110px;
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+.vs-minecraft-inline>span {color:#455670;font-size:12px;line-height:1.4}
+.vs-minecraft-font-preview {border-color:#b4a6dc;background:#faf9fd;color:var(--ink)}
+.vs-minecraft-body [data-mc-status] {border-color:var(--line);color:var(--publish-muted)}
+.vs-minecraft-body [data-error=true] {color:#a52d4a!important}
+.vs-minecraft-body [data-vspack-status] {
+  padding:10px 12px;
+  border-radius:9px;
+  border:1px solid #e4def2;
+  background:#f9f7fd;
+  color:#4d5b75;
+}
+.vs-minecraft-body [data-vspack-status][data-error=true] {
+  border-color:#e9b7c3;
+  background:#fdf1f4;
+  color:#a52d4a;
+}
+.vs-minecraft-body [data-vspack-diagnostics] {
+  margin:0;
+  padding:12px;
+  background:#f4f6fb;
+  color:#40536d;
+  border:1px solid var(--line);
+  border-radius:9px;
+  font-size:11px;
+  line-height:1.6;
+  max-width:100%;
+  overflow:auto;
+  overflow-wrap:anywhere;
+}
+.vs-minecraft-body [data-vspack-list],
+.vs-minecraft-body [data-vspack-conflicts] {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  min-width:0;
+}
+.vs-minecraft-body [data-vspack-list]>.vs-minecraft-inline,
+.vs-minecraft-body [data-vspack-conflicts]>.vs-minecraft-inline {
+  border:1px solid var(--line);
+  border-radius:9px;
+  background:#fcfcfe;
+  padding:9px;
+}
+.vs-minecraft-body [data-vspack-list] input[type=number] {flex:0 0 70px;width:70px}
+.vs-minecraft-body [data-vspack-conflicts] select {flex:1 1 130px}
+.vs-minecraft-body [data-vspack-conflicts] button {flex:0 0 auto}
+.vs-minecraft-body [data-vspack-conflicts] strong {
+  font-size:12px;color:var(--gold);
+}
+
+/* Avoid fixed grids/headers pushing interactive controls outside the viewport. */
+@media (max-width:1180px) {
+  .home-module-grid button {min-width:0}
+  .studio-toolbar {gap:7px}
+}
+@media (max-width:900px) {
+  .app-shell {min-height:100dvh}
+  .studio-screen {min-height:calc(100dvh - 50px)}
+  .vsradio-live-controls {padding:9px 12px}
+  .studio-grid>div,.studio-grid>section,.studio-grid>aside {min-width:0}
+}
+@media (max-width:720px) {
+  .app-topbar {padding:0 9px;gap:0}
+  .app-header-right {display:none}
+  .app-tabs {width:100%;justify-content:space-between}
+  .app-tabs button {min-height:39px;padding:0 12px;font-size:12px}
+  .studio-toolbar .toolbar-button {min-height:36px;font-size:12px}
+  .vsradio-live-controls label {flex:1 1 130px;justify-content:space-between}
+  .vsradio-live-controls [data-vsradio-dj-status] {
+    flex:1 1 100%;max-width:none;margin:0;
+  }
+}
+@media (max-width:540px) {
+  .home-page {padding:14px 12px 24px}
+  .home-lead {padding:23px 20px}
+  .home-lead h1 {font-size:clamp(28px,8vw,42px)}
+  .home-module-grid {grid-template-columns:1fr}
+  .vs-minecraft-panel {bottom:10px;right:10px}
+  .vs-minecraft-body {
+    width:min(460px,calc(100vw - 20px));
+    max-height:min(78dvh,740px);
+    padding:13px;
+  }
+  .vs-minecraft-inline>* {flex-basis:105px}
+  .vs-minecraft-tabs button {flex-basis:100px}
+  .track-channel {grid-template-columns:minmax(105px,38%) minmax(0,1fr)}
+  .track-controls {min-width:0}
+}
+@media (max-width:380px) {
+  .app-tabs button {padding:0 9px;font-size:11px}
+  .vs-minecraft-body {padding:11px}
+  .vs-minecraft-tabs button {flex-basis:45%;font-size:11px}
+  .vsradio-live-controls label {flex-basis:100%}
+  .vs-minecraft-inline>span {flex-basis:100%}
+}
+@media (max-height:600px) {
+  .vs-minecraft-body {max-height:calc(100dvh - 82px)}
+}
+@media (prefers-reduced-motion:reduce) {
+  .home-module-grid button,.toolbar-button,.action-secondary,.action-primary,
+  .vs-minecraft-body button {transition:none}
+  .home-module-grid button:hover {transform:none}
+}
+@media (prefers-contrast:more) {
+  :root {--line:#a9b5c8;--sub:#3a4a66}
+  .toolbar-button,.action-secondary,.action-primary,
+  .vs-minecraft-body button {border-width:2px}
+  .vs-minecraft-body [data-vspack-diagnostics] {color:#253550}
+}
