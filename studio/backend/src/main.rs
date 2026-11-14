@@ -12,6 +12,7 @@ mod radio_live;
 mod pack_manager;
 mod pack_projects;
 mod pack_sources;
+mod workspace_assets;
 use vsmedia_audio::{codec::{decode_wav,encode_wav_pcm16,StereoAudio},timeline::render_project_advanced};
 use sha2::{Digest,Sha256};
 use axum::{
@@ -75,6 +76,8 @@ async fn capabilities(axum::Extension(hub):axum::Extension<packs::PackHub>) -> J
         "vsstreams_provider":"plasmo_voice","vsstreams_connected":false,
         "vsstreams_moderation":false,
         "asset_storage":true,"audio_projects":true,
+        "project_workspace_assets":true,"project_workspace_schema":"vsmedia-workspace-v1",
+        "project_assets_resourcepack_isolated":true,"project_workspace_max_file_mib":96,
         "vspack_editor":true,"vspack_merge":"structured_priority",
         "vspack_zip_export":true,"vspack_session_only":hub.3.is_none(),
         "vspack_resource_catalog":"vspack-resources-v1",
@@ -330,6 +333,8 @@ fn router(store:Store)->Router {
 }
 fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
     let projects=pack_projects::ProjectHub::new(project_dir.clone());
+    let workspace=workspace_assets::WorkspaceHub::new(
+        project_dir.with_file_name("workspace-projects"));
     let hub=live::LiveHub::default();
     let dj_hub=radio_live::DjHub::default();
     // Production loads verified original ZIPs once, before accepting requests.
@@ -375,6 +380,17 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .route("/api/v1/live/ws",get(live::socket))
         .route("/api/v1/live/status",get(live::status))
         .route("/api/v1/streams/integration",get(streams_integration))
+        .route("/api/v1/workspace/projects",get(workspace_assets::list))
+        .route("/api/v1/workspace/projects/{id}",get(workspace_assets::inventory)
+            .post(workspace_assets::create))
+        .route("/api/v1/workspace/projects/{id}/folders",post(workspace_assets::folder))
+        .route("/api/v1/workspace/projects/{id}/files",post(workspace_assets::upload)
+            .layer(DefaultBodyLimit::max(96*1024*1024)))
+        .route("/api/v1/workspace/projects/{id}/file",get(workspace_assets::download)
+            .delete(workspace_assets::delete))
+        .route("/api/v1/workspace/projects/{id}/move",post(workspace_assets::rename))
+        .route("/api/v1/workspace/projects/{id}/verify",get(workspace_assets::verify))
+        .route("/api/v1/workspace/projects/{id}/export",get(workspace_assets::export))
         .route("/api/v1/packs",get(packs::list))
         .route("/api/v1/packs/manager/capabilities",get(pack_manager::capabilities))
         .route("/api/v1/packs/manager/recipe",get(pack_manager::draft))
@@ -424,6 +440,7 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .layer(axum::Extension(dj_hub))
         .layer(axum::Extension(pack_hub))
         .layer(axum::Extension(projects))
+        .layer(axum::Extension(workspace))
         .with_state(store)
 }
 #[tokio::main]
