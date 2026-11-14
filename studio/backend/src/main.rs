@@ -390,6 +390,7 @@ fn router_with_projects(store:Store,project_dir:PathBuf)->Router {
         .route("/api/v1/workspace/projects/{id}/file",get(workspace_assets::download)
             .delete(workspace_assets::delete))
         .route("/api/v1/workspace/projects/{id}/move",post(workspace_assets::rename))
+        .route("/api/v1/workspace/projects/{id}/rescan",post(workspace_assets::rescan))
         .route("/api/v1/workspace/projects/{id}/verify",get(workspace_assets::verify))
         .route("/api/v1/workspace/projects/{id}/export",get(workspace_assets::export))
         .route("/api/v1/packs",get(packs::list))
