@@ -480,6 +480,59 @@ mod tests {
             .body(Body::from(body)).unwrap()
     }
     #[tokio::test]
+    async fn workspace_http_assets_survive_restart_but_never_become_minecraft_pack(){
+        use std::io::Read as _;
+        let (db,dir)=store();
+        let app=router_with_projects(db.clone(),dir.join("vspack-projects"));
+        let prefix="/api/v1/workspace/projects/virgoland";
+        let created=app.clone().oneshot(request(Method::POST,prefix,
+            serde_json::to_vec(&json!({"name":"Virgoland"})).unwrap()))
+            .await.unwrap();
+        assert_eq!(created.status(),StatusCode::OK);
+        let path="assets/models/escopeta-faro.bbmodel";
+        let upload=app.clone().oneshot(request(Method::POST,
+            &(prefix.to_string()+"/files?path="+path),b"original-bbmodel".to_vec()))
+            .await.unwrap();
+        assert_eq!(upload.status(),StatusCode::OK);
+        let record:Value=serde_json::from_slice(
+            &to_bytes(upload.into_body(),4096).await.unwrap()).unwrap();
+        assert_eq!(record["resourcepack_published"],false);
+        let asset=app.clone().oneshot(request(Method::GET,
+            &(prefix.to_string()+"/file?path="+path),vec![])).await.unwrap();
+        assert_eq!(asset.status(),StatusCode::OK);
+        assert_eq!(&to_bytes(asset.into_body(),256).await.unwrap()[..],b"original-bbmodel");
+        let zip=app.clone().oneshot(request(Method::GET,
+            &(prefix.to_string()+"/export"),vec![])).await.unwrap();
+        assert_eq!(zip.status(),StatusCode::OK);
+        let bytes=to_bytes(zip.into_body(),1024*1024).await.unwrap();
+        let mut archive=zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut data=Vec::new();
+        archive.by_name(path).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data,b"original-bbmodel");
+        assert!(archive.by_name("project.json").is_ok());
+        drop(app);
+        let reopened=router_with_projects(db.clone(),dir.join("vspack-projects"));
+        let record=reopened.clone().oneshot(request(Method::GET,prefix,vec![]))
+            .await.unwrap();
+        assert_eq!(record.status(),StatusCode::OK);
+        let saved:Value=serde_json::from_slice(
+            &to_bytes(record.into_body(),8192).await.unwrap()).unwrap();
+        assert_eq!(saved["files"][0]["path"],path);
+        let folders=reopened.clone().oneshot(request(Method::POST,
+            &(prefix.to_string()+"/folders"),
+            serde_json::to_vec(&json!({"path":"assets/models/rifles"})).unwrap()))
+            .await.unwrap();
+        assert_eq!(folders.status(),StatusCode::OK);
+        let pack=reopened.clone().oneshot(request(Method::GET,
+            "/api/v1/packs",vec![])).await.unwrap();
+        assert_eq!(pack.status(),StatusCode::OK);
+        let pack:Value=serde_json::from_slice(
+            &to_bytes(pack.into_body(),8192).await.unwrap()).unwrap();
+        assert!(pack["packs"].as_array().unwrap().is_empty());
+        drop(reopened);drop(db);let _=std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn radio_track_publication_is_immutable_idempotent_and_probeable() {
         let (db,dir)=store();
         let app=router(db.clone());
