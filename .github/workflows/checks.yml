@@ -106,8 +106,7 @@ jobs:
       - name: Compile Java sources and run tests without packaging any JAR
         run: mvn -B -f java/pom.xml test
   java-api:
-    # Explicit release authorized on 2026-11-15. Build one complete Folia JAR
-    # from this branch after the original FullCanvas web and VSCore pass CI.
+    # Explicit one-time release authorization: this feature branch only.
     if: ${{ github.ref == 'refs/heads/feature/vsrender-vsassets-jar-20261115' }}
     needs: [studio-frontend, studio-backend]
     runs-on: ubuntu-latest
@@ -171,7 +170,7 @@ jobs:
           jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web-v11/modules/vspack/vs-model-studio/dist/bundle.js'
       - uses: actions/upload-artifact@v4
         with:
-          name: VSMedia-Folia-26.3-VSAssets-VSRender-JAR
+          name: VSMedia-Folia-26.3-Home-Audio-Studio-JAR
           path: java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar
           if-no-files-found: error
           retention-days: 14
