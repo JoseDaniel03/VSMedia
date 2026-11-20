@@ -236,7 +236,10 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                     true,
                     this::applyPublishedPack);
             if (getConfig().getBoolean("resource-pack-server.publish-on-start", true)) {
-                publishCurrentPack();
+                // Let bundled VSCore finish binding 127.0.0.1:3061 before export.
+                java.util.concurrent.CompletableFuture.delayedExecutor(
+                        3, java.util.concurrent.TimeUnit.SECONDS)
+                    .execute(this::publishCurrentPack);
             }
         } catch (RuntimeException | IOException error) {
             packPublisher = null;
