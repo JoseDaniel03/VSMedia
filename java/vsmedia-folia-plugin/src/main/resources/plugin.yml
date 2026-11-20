@@ -10,7 +10,7 @@ depend: [PlasmoVoice]
 commands:
   vsmedia:
     description: 'Manage resource packs, play published sounds and preview Minecraft fonts'
-    usage: '/vsmedia <status|web|reload|send|packs|title|subtitle|preview|chatfont|play|sound|stopsound>'
+    usage: '/vsmedia <status|web|reload|publish|send|packs|title|subtitle|preview|chatfont|play|sound|stopsound>'
     permission: vsmedia.admin
   vsradio:
     description: "Sintonizar emisoras sincronizadas de VSMedia usando Plasmo Voice"
