@@ -11,7 +11,7 @@ import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
-/** The original Trunk distribution is included in target/classes during Maven verify. */
+/** AutoMic v14 is staged from its original TAR into Maven resources. */
 class StudioWebServerTest {
     private int availablePort() throws Exception {
         try (ServerSocket open=new ServerSocket(0,0,InetAddress.getByName("127.0.0.1"))) {
@@ -33,7 +33,19 @@ class StudioWebServerTest {
             assertEquals(200,home.statusCode());
             assertTrue(home.body().contains("VSMedia"),
                     "The JAR must serve a VSMedia frontend");
-            if (web.usingV11()) {
+            assertTrue(web.usingV14());
+            HttpResponse<String> version = client.send(HttpRequest.newBuilder(
+                    URI.create(root + "/version.json")).GET().build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, version.statusCode());
+            assertTrue(version.body().contains("AutoMic v14"));
+            for (String asset : new String[]{"/assets/js/core.js", "/assets/js/mix.js",
+                    "/modules/vspack/vs-model-studio/dist/bundle.js"}) {
+                assertEquals(200, client.send(HttpRequest.newBuilder(
+                        URI.create(root + asset)).GET().build(),
+                        HttpResponse.BodyHandlers.discarding()).statusCode(), asset);
+            }
+            {
                 HttpResponse<String> caps = client.send(HttpRequest.newBuilder(
                         URI.create(root + "/api/audio/capabilities")).GET().build(),
                         HttpResponse.BodyHandlers.ofString());

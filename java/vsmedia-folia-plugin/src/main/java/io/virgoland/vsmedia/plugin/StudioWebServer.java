@@ -26,7 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 
 /**
- * Read-only packaged Leptos/WASM Studio plus a loopback-only HTTP API proxy.
+ * Read-only packaged VSMedia Studio AutoMic v14 plus a loopback-only HTTP API proxy.
  *
  * No Bukkit API or audio conversion is called on request threads. The Rust
  * bridge at 127.0.0.1:3061 is a separate process. WebSocket features such as
@@ -53,8 +53,16 @@ public final class StudioWebServer implements AutoCloseable {
             throw new IllegalArgumentException("Port must be 1024..65535");
         }
         this.logger = Objects.requireNonNull(logger);
-        this.resourcePrefix = StudioWebServer.class.getResource("/studio-web-v11/index.html") != null
-                ? "/studio-web-v11/" : "/studio-web/";
+        this.resourcePrefix = "/studio-web-v14/";
+        for (String file : new String[]{"index.html", "version.json",
+                "assets/js/core.js", "assets/js/mix.js", "assets/js/radio.js",
+                "modules/vspack/vs-model-studio/dist/bundle.js"}) {
+            if (StudioWebServer.class.getResource(resourcePrefix + file) == null) {
+                throw new IllegalStateException(
+                        "Falta la web completa AutoMic v14 en el JAR: " + file
+                        + ". No se servirá FullCanvas antiguo.");
+            }
+        }
         this.server = HttpServer.create(new InetSocketAddress(
                 InetAddress.getByName("127.0.0.1"), port), 24);
         this.executor = Executors.newFixedThreadPool(4, task -> {
@@ -71,17 +79,15 @@ public final class StudioWebServer implements AutoCloseable {
 
     public void start() {
         server.start();
-        logger.info("VSMedia Web " + (usingV11() ? "v11" : "legacy FullCanvas") + ": " + url);
-        if (!usingV11()) logger.warning("La web v11 todavía no está empaquetada en el JAR. "
-                + "Se sirve el frontend FullCanvas anterior.");
+        logger.info("VSMedia Studio AutoMic v14 completo: " + url);
     }
 
     public String url() {
         return url;
     }
 
-    public boolean usingV11() {
-        return "/studio-web-v11/".equals(resourcePrefix);
+    public boolean usingV14() {
+        return "/studio-web-v14/".equals(resourcePrefix);
     }
 
     private void dispatch(HttpExchange exchange) throws IOException {
@@ -91,7 +97,7 @@ public final class StudioWebServer implements AutoCloseable {
             out.set("Cache-Control", "no-store");
             out.set("Referrer-Policy", "no-referrer");
             String path = exchange.getRequestURI().getPath();
-            if (path.equals("/api/audio/capabilities") && usingV11()) {
+            if (path.equals("/api/audio/capabilities") && usingV14()) {
                 if (!"GET".equals(exchange.getRequestMethod())) {
                     fail(exchange, 405, "Method not allowed");
                 } else {
@@ -102,7 +108,7 @@ public final class StudioWebServer implements AutoCloseable {
                     exchange.sendResponseHeaders(200, payload.length);
                     try (OutputStream body = exchange.getResponseBody()) { body.write(payload); }
                 }
-            } else if (path.startsWith("/api/audio/") && usingV11()) {
+            } else if (path.startsWith("/api/audio/") && usingV14()) {
                 // Deliberately no FFmpeg on the Minecraft server. Use browser encoders.
                 fail(exchange, 501, "Conversion on Folia is disabled; encode in the browser");
             } else if (path.equals("/api/v1/minecraft/action")) {
@@ -235,8 +241,7 @@ public final class StudioWebServer implements AutoCloseable {
         }
         exchange.getResponseHeaders().set("Content-Type", mime(path));
         // Do not keep large Blockbench bundles in the JVM heap.
-        exchange.getResponseHeaders().set("Cache-Control", path.endsWith(".html")
-                ? "no-cache" : "private, max-age=120");
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
         if ("HEAD".equals(method)) {
             exchange.sendResponseHeaders(200, -1);
             return;
@@ -403,6 +408,14 @@ public final class StudioWebServer implements AutoCloseable {
         if (lower.endsWith(".png")) return "image/png";
         if (lower.endsWith(".webp")) return "image/webp";
         if (lower.endsWith(".json")) return "application/json";
+        if (lower.endsWith(".wav")) return "audio/wav";
+        if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".webm")) return "video/webm";
+        if (lower.endsWith(".mp4")) return "video/mp4";
+        if (lower.endsWith(".zip")) return "application/zip";
+        if (lower.endsWith(".glb")) return "model/gltf-binary";
+        if (lower.endsWith(".gltf")) return "model/gltf+json";
         return "application/octet-stream";
     }
 
