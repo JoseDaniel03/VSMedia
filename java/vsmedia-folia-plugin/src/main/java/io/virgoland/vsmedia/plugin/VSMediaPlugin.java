@@ -49,6 +49,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
     private boolean required;
     private StudioWebServer studioWeb;
     private StudioCoreProcess studioCore;
+    private StudioPackPublisher packPublisher;
     private PlaybackControl playback;
     private final RadioVoiceAddon voiceAddon = new RadioVoiceAddon();
     private RadioService radioService;
@@ -67,6 +68,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         playback = new PlaybackControl(this);
         getServer().getPluginManager().registerEvents(playback, this);
         startStudioCore();
+        startResourcePackPublisher();
         startStudioWeb();
         startRadioService();
         startRemoteCatalog();
@@ -211,6 +213,79 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         if (radioService != null) radioService.quit(event.getPlayer().getUniqueId());
     }
 
+    private void startResourcePackPublisher() {
+        stopResourcePackPublisher();
+        if (!getConfig().getBoolean("resource-pack-server.enabled", false)) return;
+        try {
+            String bind = getConfig().getString("resource-pack-server.bind", "0.0.0.0");
+            int port = getConfig().getInt("resource-pack-server.port", 3062);
+            String publicUrl = getConfig().getString(
+                    "resource-pack-server.public-url", "").trim();
+            if (publicUrl.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "resource-pack-server.public-url está vacío");
+            }
+            UUID uuid = UUID.fromString(getConfig().getString(
+                    "resource-pack-server.uuid",
+                    "b1dd63eb-5961-53f1-a58d-6c08532cde6e"));
+            packPublisher = new StudioPackPublisher(
+                    getLogger(),
+                    getDataFolder().toPath(),
+                    bind, port, URI.create(publicUrl), uuid,
+                    getConfig().getString("resource-pack-server.logical-id", "virgoland"),
+                    true,
+                    this::applyPublishedPack);
+            if (getConfig().getBoolean("resource-pack-server.publish-on-start", true)) {
+                // Let bundled VSCore finish binding 127.0.0.1:3061 before export.
+                java.util.concurrent.CompletableFuture.delayedExecutor(
+                        3, java.util.concurrent.TimeUnit.SECONDS)
+                    .execute(this::publishCurrentPack);
+            }
+        } catch (RuntimeException | IOException error) {
+            packPublisher = null;
+            getLogger().severe("No se pudo iniciar el servidor de Resource Pack: "
+                    + error.getMessage());
+        }
+    }
+
+    private void stopResourcePackPublisher() {
+        StudioPackPublisher current = packPublisher;
+        packPublisher = null;
+        if (current != null) current.close();
+    }
+
+    private void publishCurrentPack() {
+        StudioPackPublisher current = packPublisher;
+        if (current == null) {
+            getLogger().warning("Publicación Minecraft desactivada o sin configuración.");
+            return;
+        }
+        current.publishAsync().whenComplete((delivery, error) -> {
+            if (error != null) {
+                getLogger().warning("No se pudo publicar el Resource Pack: "
+                        + error.getMessage());
+                return;
+            }
+            getLogger().info("VSMedia Minecraft pack actualizado: "
+                    + delivery.sha1Hex());
+        });
+    }
+
+    private void applyPublishedPack(ResourcePackDelivery delivery) {
+        try {
+            getServer().getGlobalRegionScheduler().run(this, task -> {
+                if (!isEnabled() || controller == null) return;
+                active = delivery;
+                controller.setCurrent(delivery);
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    controller.offerTo(player, true);
+                }
+            });
+        } catch (IllegalStateException stopped) {
+            // Server shutdown; do not retain a publication task.
+        }
+    }
+
     private void startRadioService() {
         if (radioService == null && getConfig().getBoolean("radio.enabled", true)) {
             radioService = new RadioService(this, voiceAddon);
@@ -245,7 +320,8 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         try {
             studioWeb=new StudioWebServer(port,getLogger(), args -> 
                     getServer().getGlobalRegionScheduler().run(this, task ->
-                            playback.execute(getServer().getConsoleSender(), args[0], args)));
+                            playback.execute(getServer().getConsoleSender(), args[0], args)),
+                    this::publishCurrentPack);
             studioWeb.start();
         } catch (IOException | RuntimeException error) {
             studioWeb=null;
@@ -375,6 +451,10 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                 sender.sendMessage(ChatColor.YELLOW + "VSCore audio Rust: "
                         + (studioCore != null && studioCore.isRunning()
                             ? "activo" : "inactivo (revisar vsmedia-core.log)"));
+                sender.sendMessage(ChatColor.YELLOW + "Minecraft Resource Pack: "
+                        + (packPublisher == null ? "desactivado" :
+                           (packPublisher.current() == null ? "servidor activo / sin publicación" :
+                            packPublisher.current().sha1Hex())));
             }
             case "web" -> {
                 sender.sendMessage(ChatColor.GOLD + "VSMedia Studio: "
@@ -388,8 +468,10 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                 reloadConfig();
                 loadConfiguredPack();
                 stopStudioWeb();
+                stopResourcePackPublisher();
                 stopStudioCore();
                 startStudioCore();
+                startResourcePackPublisher();
                 startStudioWeb();
                 startRadioService();
                 startRemoteCatalog();
@@ -430,6 +512,10 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
                         + "SUCCESSFULLY_LOADED = Minecraft notificó carga; "
                         + "no confirma que un sonido específico haya sonado.");
             }
+            case "publish" -> {
+                publishCurrentPack();
+                sender.sendMessage(ChatColor.GREEN + "Publicación del Resource Pack programada.");
+            }
             case "send" -> {
                 Player target;
                 if (args.length >= 2) {
@@ -458,7 +544,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
             case "title", "subtitle", "preview", "chatfont", "play", "sound", "stopsound" ->
                     playback.execute(sender, sub, args);
             default -> sender.sendMessage(ChatColor.YELLOW
-                    + "Uso: /vsmedia <status|web|reload|send|packs|title|subtitle|preview|chatfont|play|stopsound>");
+                    + "Uso: /vsmedia <status|web|reload|publish|send|packs|title|subtitle|preview|chatfont|play|stopsound>");
         }
         return true;
     }
@@ -471,6 +557,7 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         HandlerList.unregisterAll((Listener) this);
         if (playback != null) HandlerList.unregisterAll(playback);
         stopStudioWeb();
+        stopResourcePackPublisher();
         stopStudioCore();
         if (controller != null) {
             HandlerList.unregisterAll(controller);

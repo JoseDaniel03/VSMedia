@@ -760,7 +760,7 @@ mod tests {
         assert_eq!(upload.status(),StatusCode::OK);
         let response:Value=serde_json::from_slice(
             &to_bytes(upload.into_body(),1024*1024).await.unwrap()).unwrap();
-        assert_eq!(response["id"],"vsmedia:published.intro");
+        assert_eq!(response["id"],"vsmedia:published/intro");
         assert_eq!(response["deliveredToMinecraft"],false);
         let listing=app.clone().oneshot(request(Method::GET,
             "/api/v1/sounds",vec![])).await.unwrap();

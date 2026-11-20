@@ -41,14 +41,21 @@ public final class StudioWebServer implements AutoCloseable {
     private final Logger logger;
     private final String url;
     private final Consumer<String[]> minecraftHandler;
+    private final Runnable minecraftPublishHandler;
 
     public StudioWebServer(int port, Logger logger) throws IOException {
-        this(port, logger, null);
+        this(port, logger, null, null);
     }
 
     public StudioWebServer(int port, Logger logger, Consumer<String[]> minecraftHandler)
             throws IOException {
+        this(port, logger, minecraftHandler, null);
+    }
+
+    public StudioWebServer(int port, Logger logger, Consumer<String[]> minecraftHandler,
+                           Runnable minecraftPublishHandler) throws IOException {
         this.minecraftHandler = minecraftHandler;
+        this.minecraftPublishHandler = minecraftPublishHandler;
         if (port < 1024 || port > 65535) {
             throw new IllegalArgumentException("Port must be 1024..65535");
         }
@@ -113,6 +120,8 @@ public final class StudioWebServer implements AutoCloseable {
                 fail(exchange, 501, "Conversion on Folia is disabled; encode in the browser");
             } else if (path.equals("/api/v1/minecraft/action")) {
                 minecraftAction(exchange);
+            } else if (path.equals("/api/v1/minecraft/publish")) {
+                minecraftPublish(exchange);
             } else if (path.startsWith("/api/v1/")) {
                 proxy(exchange, path);
             } else {
@@ -133,6 +142,28 @@ public final class StudioWebServer implements AutoCloseable {
      * on the HTTP executor; the plugin callback schedules on Folia's global
      * region and each player subsequently on its owning entity scheduler.
      */
+    private void minecraftPublish(HttpExchange exchange) throws IOException {
+        if (!"POST".equals(exchange.getRequestMethod())) {
+            fail(exchange, 405, "Method not allowed"); return;
+        }
+        if (minecraftPublishHandler == null) {
+            fail(exchange, 503, "Minecraft Resource Pack publishing is unavailable"); return;
+        }
+        String origin = exchange.getRequestHeaders().getFirst("Origin");
+        int port = server.getAddress().getPort();
+        if (origin == null || !(origin.equals("http://127.0.0.1:" + port)
+                || origin.equals("http://localhost:" + port))
+                || !"1".equals(exchange.getRequestHeaders().getFirst("X-VSMedia-Control"))) {
+            fail(exchange, 403, "Same-origin local operator action required"); return;
+        }
+        minecraftPublishHandler.run();
+        byte[] result = "{\"scheduled\":true,\"status\":\"accepted\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(202, result.length);
+        try (OutputStream output = exchange.getResponseBody()) { output.write(result); }
+    }
+
     private void minecraftAction(HttpExchange exchange) throws IOException {
         if (!"POST".equals(exchange.getRequestMethod())) {
             fail(exchange, 405, "Method not allowed"); return;

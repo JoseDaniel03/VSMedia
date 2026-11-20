@@ -131,7 +131,8 @@
     })).json();
     await listSounds();
     selected('[name="sound"]').value = result.id;
-    return result.id + " incluido en el próximo ZIP. Falta distribuir el pack actualizado a los jugadores.";
+    await publishPack();
+    return result.id + " incluido y publicación a Minecraft programada.";
   }
   function base64(bytes) {
     let binary = "";
@@ -152,7 +153,15 @@
     await listFonts();
     selected('[name="font"]').value = result.id;
     await previewFont();
-    return "Fuente " + result.id + " importada. Se incluirá en el próximo ZIP; probala en Minecraft.";
+    await publishPack();
+    return "Fuente " + result.id + " importada y publicación a Minecraft programada.";
+  }
+  async function publishPack() {
+    const response = await fetch("/api/v1/minecraft/publish", {
+      method:"POST", headers:{"Content-Type":"application/json","X-VSMedia-Control":"1"}
+    });
+    if (!response.ok) throw Error(await response.text());
+    return "Publicación a Minecraft programada. El plugin regenerará el ZIP y ofrecerá la nueva versión a los jugadores.";
   }
   async function exportPack() {
     const response = await api("/packs/export");
@@ -186,7 +195,7 @@
           <label>ID del sonido <input name="sound-id" placeholder="intro, mezcla_01, radio_jingle" maxlength="48"></label>
           <button type="button" data-mc-upload-sound>＋ Agregar sonido al pack</button>
           <small data-mc-sound-count>Consultando sonidos…</small>
-          <button type="button" data-mc-export>↓ Exportar Resource Pack ZIP</button>
+          <button type="button" data-mc-export>↓ Exportar Resource Pack ZIP</button>\n          <button type="button" data-mc-publish>☁ Publicar en Minecraft</button>
           <small>Exportar el ZIP no lo instala a los jugadores. Publicalo en una URL HTTPS y actualizá el pack del plugin.</small>
         </div>
         <div data-mc-page="fonts" hidden>
@@ -235,6 +244,7 @@
     shell.querySelector("[data-mc-upload-sound]").onclick = e => loading(e.currentTarget,uploadSound);
     shell.querySelector("[data-mc-import-font]").onclick = e => loading(e.currentTarget,importFont);
     shell.querySelector("[data-mc-export]").onclick = e => loading(e.currentTarget,exportPack);
+    shell.querySelector("[data-mc-publish]").onclick = e => loading(e.currentTarget,publishPack);
     shell.querySelector("[name=font]").onchange = () => previewFont();
     shell.querySelector("[name=text]").oninput = () => {
       const el = selected("[data-mc-font-preview]");
