@@ -318,9 +318,18 @@ public final class VSMediaPlugin extends JavaPlugin implements Listener {
         }
         int port=getConfig().getInt("studio-web.port", 3060);
         try {
-            studioWeb=new StudioWebServer(port,getLogger(), args -> 
+            studioWeb=new StudioWebServer(port,getLogger(), args ->
                     getServer().getGlobalRegionScheduler().run(this, task ->
                             playback.execute(getServer().getConsoleSender(), args[0], args)),
+                    radioArgs -> getServer().getGlobalRegionScheduler().run(this, task -> {
+                        Player player = Bukkit.getPlayerExact(radioArgs[0]);
+                        if (player == null || !player.isOnline()) return;
+                        if (radioService == null) return;
+                        String[] commandArgs = radioArgs[1].isEmpty()
+                                ? new String[]{radioArgs[1]}
+                                : new String[]{radioArgs[1], radioArgs[2]};
+                        radioService.command(player, commandArgs);
+                    }),
                     this::publishCurrentPack);
             studioWeb.start();
         } catch (IOException | RuntimeException error) {
