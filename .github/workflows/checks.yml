@@ -99,16 +99,21 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-      - name: Provide a tiny web fixture for the existing HTTP unit tests (no JAR)
+      - name: Prepare and validate original VSMedia AutoMic v14 website
         run: |
-          mkdir -p java/vsmedia-folia-plugin/target/studio-web
-          printf '<!doctype html><title>VSMedia test fixture</title>\n' > java/vsmedia-folia-plugin/target/studio-web/index.html
-      - name: Compile Java sources and run tests without packaging any JAR
+          python3 scripts/stage-vsmedia-v14.py 'VSMedia-Studio-2026-AutoMic-v14 (1).tar.gz' web
+          test -s web/version.json
+          test -s web/modules/vspack/vs-model-studio/dist/bundle.js
+          node --check web/assets/js/core.js
+          node --check web/assets/js/simple.js
+          node --check web/assets/js/mix.js
+          node --check web/assets/js/radio.js
+      - name: Compile Java and execute HTTP/proxy tests
         run: mvn -B -f java/pom.xml test
   java-api:
-    # Authorized release JAR: build only on this feature branch.
-    if: ${{ github.ref == 'refs/heads/feature/vsrender-vsassets-jar-20261115' }}
-    needs: [studio-frontend, studio-backend]
+    # Explicit, authorized JAR packaging of AutoMic v14 on main and repair branch.
+    if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/vsmedia-studio-v14-bundling-20261120' }}
+    needs: [studio-backend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -116,43 +121,41 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
+      - name: Stage complete AutoMic v14 web from the uploaded original archive
+        run: |
+          python3 scripts/stage-vsmedia-v14.py 'VSMedia-Studio-2026-AutoMic-v14 (1).tar.gz' web
+          test -s web/index.html
+          test -s web/assets/js/core.js
+          test -s web/assets/js/vspack.js
+          test -s web/modules/vspack/vs-model-studio/dist/bundle.js
+          test -s web/modules/vspack/pixel-studio/web/vs-pixel-studio.mjs
       - uses: actions/download-artifact@v4
-        if: ${{ hashFiles('web/index.html') == '' }}
-        with:
-          name: VSMedia-Original-Studio-Web
-          path: java/vsmedia-folia-plugin/target/studio-web
-      - uses: actions/download-artifact@v4
-        if: ${{ hashFiles('web/index.html') == '' }}
         with:
           name: VSMedia-Rust-VSCore-Linux-x86_64
           path: java/vsmedia-folia-plugin/target/studio-native
-      - run: mvn -B -f java/pom.xml verify
-      - name: Verify Folia JAR with native VSCore and original WASM Studio
-        if: ${{ hashFiles('web/index.html') == '' }}
+      - name: Build and test complete Folia JAR with native VSCore
+        run: mvn -B -f java/pom.xml verify
+      - name: Assert AutoMic v14 is packaged and legacy FullCanvas is excluded
         run: |
-          test -s java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar
-          unzip -p java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar plugin.yml | grep -F 'folia-supported: true'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'io/virgoland/vsmedia/plugin/VSMediaPlugin.class'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'io/virgoland/vsmedia/plugin/StudioWebServer.class'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'io/virgoland/vsmedia/plugin/StudioCoreProcess.class'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web/index.html'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web/minecraft.js'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web/workspace-assets.js'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -E 'studio-web/.*[.]css$'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web/vs-ogg-vorbis.js'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -E 'studio-web/.*[.]wasm'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-native/vsmedia-studio-bridge'
-      - name: Verify bundled client web when web/ is published
-        if: ${{ hashFiles('web/index.html') != '' }}
-        run: |
-          test -s java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar
-          unzip -p java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar plugin.yml | grep -F 'folia-supported: true'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web-v11/index.html'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web-v11/assets/js/vs-codecs.js'
-          jar tf java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar | grep -F 'studio-web-v11/modules/vspack/vs-model-studio/dist/bundle.js'
+          JAR=java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar
+          test -s "$JAR"
+          unzip -p "$JAR" plugin.yml | grep -F 'folia-supported: true'
+          jar tf "$JAR" | grep -F 'io/virgoland/vsmedia/plugin/StudioWebServer.class'
+          jar tf "$JAR" | grep -F 'studio-web-v14/index.html'
+          jar tf "$JAR" | grep -F 'studio-web-v14/assets/js/core.js'
+          jar tf "$JAR" | grep -F 'studio-web-v14/assets/js/mix.js'
+          jar tf "$JAR" | grep -F 'studio-web-v14/assets/js/radio.js'
+          jar tf "$JAR" | grep -F 'studio-web-v14/modules/vspack/vs-model-studio/dist/bundle.js'
+          jar tf "$JAR" | grep -F 'studio-web-v14/modules/vspack/pixel-studio/web/vs-pixel-studio.mjs'
+          jar tf "$JAR" | grep -F 'studio-native/vsmedia-studio-bridge'
+          unzip -p "$JAR" studio-web-v14/version.json | grep -F '"version": "AutoMic v14"'
+          if jar tf "$JAR" | grep -q '^studio-web/index.html$'; then
+            echo "Error: FullCanvas legacy sigue incluido" >&2
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: VSMedia-Folia-26.3-VSAssets-VSRender-JAR
+          name: VSMedia-Folia-26.3-AutoMic-v14-VSCore-JAR
           path: java/vsmedia-folia-plugin/target/vsmedia-folia-plugin-0.1.0-SNAPSHOT.jar
           if-no-files-found: error
           retention-days: 14
