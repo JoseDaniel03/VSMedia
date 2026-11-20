@@ -29,8 +29,8 @@ import java.util.logging.Logger;
  * Read-only packaged VSMedia Studio AutoMic v14 plus a loopback-only HTTP API proxy.
  *
  * No Bukkit API or audio conversion is called on request threads. The Rust
- * bridge at 127.0.0.1:3061 is a separate process. WebSocket features such as
- * VSRadio need their own integration and are not proxied.
+ * bridge at 127.0.0.1:3061 is a separate process. VSRadio control is forwarded
+ * to the Folia plugin; the actual voice transport remains Plasmo Voice.
  */
 public final class StudioWebServer implements AutoCloseable {
     private static final long MAX_BODY = 96L * 1024 * 1024;
@@ -41,20 +41,28 @@ public final class StudioWebServer implements AutoCloseable {
     private final Logger logger;
     private final String url;
     private final Consumer<String[]> minecraftHandler;
+    private final Consumer<String[]> minecraftRadioHandler;
     private final Runnable minecraftPublishHandler;
 
     public StudioWebServer(int port, Logger logger) throws IOException {
-        this(port, logger, null, null);
+        this(port, logger, null, null, null);
     }
 
     public StudioWebServer(int port, Logger logger, Consumer<String[]> minecraftHandler)
             throws IOException {
-        this(port, logger, minecraftHandler, null);
+        this(port, logger, minecraftHandler, null, null);
     }
 
     public StudioWebServer(int port, Logger logger, Consumer<String[]> minecraftHandler,
                            Runnable minecraftPublishHandler) throws IOException {
+        this(port, logger, minecraftHandler, null, minecraftPublishHandler);
+    }
+
+    public StudioWebServer(int port, Logger logger, Consumer<String[]> minecraftHandler,
+                           Consumer<String[]> minecraftRadioHandler,
+                           Runnable minecraftPublishHandler) throws IOException {
         this.minecraftHandler = minecraftHandler;
+        this.minecraftRadioHandler = minecraftRadioHandler;
         this.minecraftPublishHandler = minecraftPublishHandler;
         if (port < 1024 || port > 65535) {
             throw new IllegalArgumentException("Port must be 1024..65535");
@@ -122,6 +130,8 @@ public final class StudioWebServer implements AutoCloseable {
                 minecraftAction(exchange);
             } else if (path.equals("/api/v1/minecraft/publish")) {
                 minecraftPublish(exchange);
+            } else if (path.equals("/api/v1/minecraft/radio")) {
+                minecraftRadio(exchange);
             } else if (path.startsWith("/api/v1/")) {
                 proxy(exchange, path);
             } else {
@@ -158,6 +168,65 @@ public final class StudioWebServer implements AutoCloseable {
         }
         minecraftPublishHandler.run();
         byte[] result = "{\"scheduled\":true,\"status\":\"accepted\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(202, result.length);
+        try (OutputStream output = exchange.getResponseBody()) { output.write(result); }
+    }
+
+    private void minecraftRadio(HttpExchange exchange) throws IOException {
+        if (!"POST".equals(exchange.getRequestMethod())) {
+            fail(exchange, 405, "Method not allowed"); return;
+        }
+        if (minecraftRadioHandler == null) {
+            fail(exchange, 503, "VSRadio is unavailable"); return;
+        }
+        String origin = exchange.getRequestHeaders().getFirst("Origin");
+        int port = server.getAddress().getPort();
+        if (origin == null || !(origin.equals("http://127.0.0.1:" + port)
+                || origin.equals("http://localhost:" + port))
+                || !"1".equals(exchange.getRequestHeaders().getFirst("X-VSMedia-Control"))) {
+            fail(exchange, 403, "Same-origin local operator action required"); return;
+        }
+        byte[] bytes;
+        try (InputStream input = exchange.getRequestBody()) {
+            bytes = input.readNBytes(2049);
+        }
+        if (bytes.length > 2048) {
+            fail(exchange, 413, "Radio payload too large"); return;
+        }
+        Map<String,String> params = new HashMap<>();
+        try {
+            for (String entry : new String(bytes, StandardCharsets.UTF_8).split("&")) {
+                if (entry.isBlank()) continue;
+                String[] parts = entry.split("=", 2);
+                if (parts.length != 2 || params.size() >= 4) throw new IllegalArgumentException();
+                String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
+                String value = URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
+                if (value.length() > 128 || value.chars().anyMatch(ch -> ch < 32)
+                        || params.putIfAbsent(key, value) != null) throw new IllegalArgumentException();
+            }
+        } catch (IllegalArgumentException invalid) {
+            fail(exchange, 400, "Invalid radio control payload"); return;
+        }
+        String player = params.getOrDefault("player", "");
+        String radioAction = params.getOrDefault("action", "");
+        String station = params.getOrDefault("station", "");
+        if (!player.matches("[A-Za-z0-9_]{1,16}")) {
+            fail(exchange, 400, "Choose a player"); return;
+        }
+        if (!radioAction.matches("(emisora|apagar|estado)")) {
+            fail(exchange, 400, "Unknown radio action"); return;
+        }
+        if ("emisora".equals(radioAction) && !station.matches("[A-Za-z0-9_-]{1,48}")) {
+            fail(exchange, 400, "Invalid station"); return;
+        }
+        String[] args = "emisora".equals(radioAction)
+                ? new String[]{"emisora", station}
+                : new String[]{radioAction};
+        minecraftRadioHandler.accept(new String[]{player, args[0],
+                args.length > 1 ? args[1] : ""});
+        byte[] result = "{\"scheduled\":true,\"status\":\"accepted-not-confirmed\"}"
                 .getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         exchange.sendResponseHeaders(202, result.length);

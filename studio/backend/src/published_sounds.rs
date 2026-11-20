@@ -74,7 +74,7 @@ pub async fn list(State(store):State<Store>)->Result<Json<Value>,ApiError> {
     let records=store.list_assets("studio",PREFIX,MAX_COUNT).map_err(bad)?;
     let sounds=records.iter().filter_map(|record|{
         let id=name(record)?;
-        Some(json!({"name":id,"id":format!("vsmedia:published.{id}"),
+        Some(json!({"name":id,"id":format!("vsmedia:published/{id}"),
             "sha256":record.sha256,"bytes":record.size}))
     }).collect::<Vec<_>>();
     Ok(Json(json!({"schema":"vsmedia-sounds-v1","sounds":sounds})))
