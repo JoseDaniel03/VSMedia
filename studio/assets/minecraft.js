@@ -243,7 +243,8 @@
     shell.querySelectorAll("[data-mc-tab]").forEach(el => el.onclick = () => page(el.dataset.mcTab));
     shell.querySelector("[data-mc-upload-sound]").onclick = e => loading(e.currentTarget,uploadSound);
     shell.querySelector("[data-mc-import-font]").onclick = e => loading(e.currentTarget,importFont);
-    shell.querySelector("[data-mc-export]").onclick = e => loading(e.currentTarget,exportPack);\n    shell.querySelector("[data-mc-publish]").onclick = e => loading(e.currentTarget,publishPack);
+    shell.querySelector("[data-mc-export]").onclick = e => loading(e.currentTarget,exportPack);
+    shell.querySelector("[data-mc-publish]").onclick = e => loading(e.currentTarget,publishPack);
     shell.querySelector("[name=font]").onchange = () => previewFont();
     shell.querySelector("[name=text]").oninput = () => {
       const el = selected("[data-mc-font-preview]");
