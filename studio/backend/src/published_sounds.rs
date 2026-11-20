@@ -63,7 +63,7 @@ pub async fn publish(
     }
     let record=store.publish_for("studio",key,AssetKind::Sound,&body).map_err(not_found)?;
     Ok(Json(json!({
-        "ok":true,"id":format!("vsmedia:published.{id}"),
+        "ok":true,"id":format!("vsmedia:published/{id}"),
         "name":id,"sha256":record.sha256,"bytes":record.size,
         "addedToPack":true,"deliveredToMinecraft":false,
         "next":"Exportá /api/v1/packs/export y publicá la nueva versión HTTPS del ZIP"
