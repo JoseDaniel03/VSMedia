@@ -29,8 +29,8 @@ import java.util.logging.Logger;
  * Read-only packaged VSMedia Studio AutoMic v14 plus a loopback-only HTTP API proxy.
  *
  * No Bukkit API or audio conversion is called on request threads. The Rust
- * bridge at 127.0.0.1:3061 is a separate process. WebSocket features such as
- * VSRadio need their own integration and are not proxied.
+ * bridge at 127.0.0.1:3061 is a separate process. VSRadio control is forwarded
+ * to the Folia plugin; the actual voice transport remains Plasmo Voice.
  */
 public final class StudioWebServer implements AutoCloseable {
     private static final long MAX_BODY = 96L * 1024 * 1024;
