@@ -75,10 +75,43 @@ def stage(archive: Path, destination: Path):
             home = (root/"index.html").read_text("utf-8")
             if not all(x in home.lower() for x in ("home", "mix", "vspack")):
                 raise ValueError("Index no corresponde a VSMedia Studio completa")
+            # Remove only VSMedia's known legacy browser storage. Do not touch
+            # unrelated Blockbench preferences or arbitrary localStorage keys.
+            cleanup = root / "assets/js/vsmedia-legacy-cleanup.js"
+            cleanup.parent.mkdir(parents=True, exist_ok=True)
+            cleanup.write_text("""(() => {
+  if (window.__VSMEDIA_LEGACY_CLEANED__) return;
+  window.__VSMEDIA_LEGACY_CLEANED__ = true;
+  try {
+    const legacyDb = "vspack-local-v1";
+    if (window.indexedDB) window.indexedDB.deleteDatabase(legacyDb);
+  } catch (_) {}
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i) || "";
+      if (/^(vsmedia|vspack)([._:-]|$)/i.test(key)) localStorage.removeItem(key);
+    }
+  } catch (_) {}
+})();
+""", encoding="utf-8")
+            bridge = Path(__file__).resolve().parent.parent / "studio/assets/minecraft.js"
+            if not bridge.is_file():
+                raise ValueError("Falta studio/assets/minecraft.js para integrar Minecraft")
+            shutil.copyfile(bridge, root / "assets/js/vsmedia-minecraft.js")
+            index = root / "index.html"
+            html = index.read_text("utf-8")
+            marker = '<script src="/assets/js/vsmedia-legacy-cleanup.js"></script>'
+            if marker not in html:
+                html = html.replace("</head>", marker + '<script src="/assets/js/vsmedia-minecraft.js"></script></head>', 1)
+                if html == index.read_text("utf-8"):
+                    html += "\n" + marker + '<script src="/assets/js/vsmedia-minecraft.js"></script>\n'
+                index.write_text(html, encoding="utf-8")
             manifest = {"studio": "VSMedia Studio", "version": "AutoMic v14",
                         "source_archive": archive.name,
                         "source_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-                        "static_files": len(selected)}
+                        "static_files": len(selected),
+                        "legacy_vspack_storage": "purged-on-first-load",
+                        "minecraft_bridge": "enabled"}
             (root/"version.json").write_text(json.dumps(manifest, indent=2)+"\n", encoding="utf-8")
             if destination.exists():
                 destination.rmdir()
