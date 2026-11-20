@@ -4,8 +4,7 @@ radio:
   enabled: true
   max-active-stations: 8
   source: 'VSCore local 127.0.0.1:3061'
-# When web/ is present at build time, the JAR serves the optimized v11 automatically.
-# Otherwise it falls back to the old FullCanvas frontend and logs a warning.
+# The JAR serves the complete VSMedia Studio AutoMic v14. Missing v14 assets are a build error.
 # The Rust VSCore process is started by this plugin on Linux x86_64.
 # The web always starts with the Folia plugin. JS/audio/pack/rendering runs in browser.
 # Keep the HTTP interface on loopback: use an authenticated HTTPS reverse proxy/tunnel for remote users.
@@ -18,6 +17,7 @@ studio-core:
   # it on 127.0.0.1:3061. Set false if you already run the Rust bridge.
   autostart: true
 resource-pack:
+  # Static/external pack fallback. Live Studio publishing below takes precedence when enabled.
   enabled: false
   required: false
   logical-id: virgoland
@@ -25,6 +25,18 @@ resource-pack:
   url: 'https://example.invalid/virgoland-resourcepack.zip'
   sha1: '0000000000000000000000000000000000000000'
   size-bytes: 0
+
+# VSMedia can export the composed pack from VSCore and serve that ZIP directly.
+# Minecraft clients must be able to reach public-url; for Internet servers use
+# HTTPS/CDN. For a LAN, http://SERVER-IP:3062/resource-pack.zip is sufficient.
+resource-pack-server:
+  enabled: false
+  bind: '0.0.0.0'
+  port: 3062
+  public-url: 'http://127.0.0.1:3062/resource-pack.zip'
+  logical-id: virgoland
+  uuid: 'b1dd63eb-5961-53f1-a58d-6c08532cde6e'
+  publish-on-start: true
 
 # Otros plugins (VSRender, etc.) pueden ceder los packs HTTPS existentes a
 # VSMedia sin recompimir ni procesar texturas en Minecraft. El cliente descarga
