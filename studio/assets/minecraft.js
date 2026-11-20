@@ -82,6 +82,35 @@
     if ([...select.options].some(o => o.value === old)) select.value = old;
     await previewFont();
   }
+  async function listRadioStations() {
+    const data = await (await api("/radio/stations")).json();
+    const select = selected('[name="radio-station"]');
+    const old = select.value;
+    select.replaceChildren();
+    for (const station of data.stations || []) {
+      select.append(elm("option", {value:station.id},
+        station.display_name + " · " + station.tracks + " pista(s)"));
+    }
+    if ([...select.options].some(o => o.value === old)) select.value = old;
+    selected("[data-mc-radio-count]").textContent =
+      (data.stations || []).length + " emisoras publicadas en VSCore";
+  }
+  async function radioAction(kind) {
+    const player = value("player");
+    if (!/^[A-Za-z0-9_]{1,16}$/.test(player)) throw Error("Elegí un jugador válido para VSRadio.");
+    const station = value("radio-station");
+    if (kind === "emisora" && !station) throw Error("No hay una emisora publicada para sintonizar.");
+    const response = await fetch(API + "/minecraft/radio", {
+      method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8",
+               "X-VSMedia-Control":"1"},
+      body:new URLSearchParams({player,action:kind,station})
+    });
+    if (!response.ok) throw Error(await response.text());
+    return kind === "emisora"
+      ? "VSRadio: sintonización enviada a " + player + ". Requiere Plasmo Voice en servidor y cliente."
+      : "VSRadio: " + (kind === "apagar" ? "radio apagada." : "estado solicitado.");
+  }
   async function previewFont() {
     const el = selected("[data-mc-font-preview]");
     const fontId = value("font");
@@ -187,7 +216,8 @@
         <div class="vs-minecraft-tabs">
           <button type="button" data-mc-tab="audio" aria-pressed="true">Sonidos</button>
           <button type="button" data-mc-tab="fonts" aria-pressed="false">Tipografías</button>
-          <button type="button" data-mc-tab="player" aria-pressed="false">Jugador</button>
+          <button type="button" data-mc-tab="player" aria-pressed="false">Pruebas</button>
+          <button type="button" data-mc-tab="radio" aria-pressed="false">VSRadio</button>
         </div>
         <div data-mc-page="audio">
           <p>Subí OGG Vorbis o exportá WAV desde VSAudio/VSMix y elegí ese archivo. El navegador convierte a Vorbis y lo agrega al ZIP unificado.</p>
@@ -202,7 +232,7 @@
           <label>Archivo TTF u OTF <input type="file" name="font-file" accept=".ttf,.otf,font/ttf,font/otf"></label>
           <label>Nombre de familia <input name="font-family" placeholder="Ejemplo: Cinématica"></label>
           <button type="button" data-mc-import-font>＋ Importar tipografía al pack</button>
-          <small>TTF/OTF se convierte en provider del Resource Pack. La previsualización web no garantiza que el jugador ya lo tenga.</small>
+          <small>TTF/OTF se guarda en VSCore, se incorpora al mismo Resource Pack que los sonidos y se prueba en navegador y Minecraft.</small>
         </div>
         <div data-mc-page="player" hidden>
           <label>Jugador <input name="player" placeholder="Nick de Minecraft o *" maxlength="16"></label>
@@ -223,7 +253,18 @@
           <button type="button" data-mc-action="chatfont">Aplicar fuente al chat de este jugador</button>
           <small>Se formatea el texto que ese jugador envía; no el cuadro de escritura ni la interfaz vanilla.</small>
         </div>
-        <p role="status" data-mc-status>Los sonidos y fuentes se ven en Minecraft únicamente tras cargar el pack actualizado.</p>
+        <div data-mc-page="radio" hidden>
+          <p>Probá VSRadio directamente desde Studio. La emisión en Minecraft usa la integración Plasmo Voice del plugin; la web sólo controla la sintonización.</p>
+          <label>Emisora <select name="radio-station"></select></label>
+          <small data-mc-radio-count>Consultando emisoras…</small>
+          <div class="vs-minecraft-inline">
+            <button type="button" data-mc-radio="emisora">▶ Sintonizar</button>
+            <button type="button" data-mc-radio="estado">● Estado</button>
+            <button type="button" data-mc-radio="apagar">■ Apagar</button>
+          </div>
+          <small>El jugador debe estar conectado y tener Plasmo Voice activo. Esto no reemplaza el audio del Resource Pack.</small>
+        </div>
+        <p role="status" data-mc-status>Publicá el pack antes de probar títulos, fuentes o sonidos.</p>
       </div>
     `;
     document.body.append(shell);
@@ -245,6 +286,9 @@
     shell.querySelector("[data-mc-import-font]").onclick = e => loading(e.currentTarget,importFont);
     shell.querySelector("[data-mc-export]").onclick = e => loading(e.currentTarget,exportPack);
     shell.querySelector("[data-mc-publish]").onclick = e => loading(e.currentTarget,publishPack);
+    shell.querySelectorAll("[data-mc-radio]").forEach(el => {
+      el.onclick = e => loading(e.currentTarget,() => radioAction(el.dataset.mcRadio));
+    });
     shell.querySelector("[name=font]").onchange = () => previewFont();
     shell.querySelector("[name=text]").oninput = () => {
       const el = selected("[data-mc-font-preview]");
@@ -281,7 +325,7 @@
     const observer = new MutationObserver(addShortcuts);
     observer.observe(document.body,{subtree:true,childList:true});
     addShortcuts();
-    Promise.allSettled([listSounds(),listFonts()]).then(results => {
+    Promise.allSettled([listSounds(),listFonts(),listRadioStations()]).then(results => {
       const failures = results.filter(r => r.status === "rejected");
       if (failures.length) status("VSCore no está disponible; comprobá el servicio 3061.",true);
     });
