@@ -112,7 +112,7 @@ jobs:
         run: mvn -B -f java/pom.xml test
   java-api:
     # Explicit, authorized JAR packaging of AutoMic v14 on main and repair branch.
-    if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/vsmedia-studio-v14-bundling-20261120' }}
+    if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/vsmedia-studio-v14-bundling-20261120' || github.ref == 'refs/heads/feat/vsmc-live-publish-fonts-sounds-20261120' }}
     needs: [studio-backend]
     runs-on: ubuntu-latest
     steps:
@@ -129,6 +129,10 @@ jobs:
           test -s web/assets/js/vspack.js
           test -s web/modules/vspack/vs-model-studio/dist/bundle.js
           test -s web/modules/vspack/pixel-studio/web/vs-pixel-studio.mjs
+          test -s web/assets/js/vsmedia-legacy-cleanup.js
+          test -s web/assets/js/vsmedia-minecraft.js
+          node --check web/assets/js/vsmedia-legacy-cleanup.js
+          node --check web/assets/js/vsmedia-minecraft.js
       - uses: actions/download-artifact@v4
         with:
           name: VSMedia-Rust-VSCore-Linux-x86_64
@@ -147,6 +151,9 @@ jobs:
           jar tf "$JAR" | grep -F 'studio-web-v14/assets/js/radio.js'
           jar tf "$JAR" | grep -F 'studio-web-v14/modules/vspack/vs-model-studio/dist/bundle.js'
           jar tf "$JAR" | grep -F 'studio-web-v14/modules/vspack/pixel-studio/web/vs-pixel-studio.mjs'
+          jar tf "$JAR" | grep -F 'studio-web-v14/assets/js/vsmedia-legacy-cleanup.js'
+          jar tf "$JAR" | grep -F 'studio-web-v14/assets/js/vsmedia-minecraft.js'
+          jar tf "$JAR" | grep -F 'io/virgoland/vsmedia/plugin/StudioPackPublisher.class'
           jar tf "$JAR" | grep -F 'studio-native/vsmedia-studio-bridge'
           unzip -p "$JAR" studio-web-v14/version.json | grep -F '"version": "AutoMic v14"'
           if jar tf "$JAR" | grep -q '^studio-web/index.html$'; then
