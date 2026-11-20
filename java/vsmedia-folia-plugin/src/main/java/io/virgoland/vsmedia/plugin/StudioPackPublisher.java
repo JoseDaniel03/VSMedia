@@ -46,6 +46,7 @@ public final class StudioPackPublisher implements AutoCloseable {
     private final boolean enabled;
     private final HttpClient client;
     private final ExecutorService worker;
+    private final ExecutorService httpExecutor;
     private final Consumer<ResourcePackDelivery> onPublished;
     private volatile HttpServer server;
     private volatile ResourcePackDelivery current;
@@ -75,6 +76,11 @@ public final class StudioPackPublisher implements AutoCloseable {
             thread.setDaemon(true);
             return thread;
         });
+        this.httpExecutor = Executors.newFixedThreadPool(2, task -> {
+            Thread thread = new Thread(task, "vsmedia-pack-http");
+            thread.setDaemon(true);
+            return thread;
+        });
         if (enabled) {
             if (publicUrl == null || publicUrl.getHost() == null || publicUrl.getScheme() == null) {
                 throw new IllegalArgumentException("resource-pack-server.public-url debe ser una URL completa");
@@ -82,11 +88,7 @@ public final class StudioPackPublisher implements AutoCloseable {
             InetAddress bind = InetAddress.getByName(bindAddress);
             server = HttpServer.create(new InetSocketAddress(bind, port), 8);
             server.createContext("/resource-pack.zip", this::serveZip);
-            server.setExecutor(Executors.newFixedThreadPool(2, task -> {
-                Thread thread = new Thread(task, "vsmedia-pack-http");
-                thread.setDaemon(true);
-                return thread;
-            }));
+            server.setExecutor(httpExecutor);
             server.start();
             logger.info("VSMedia Resource Pack server: " + publicUrl);
         }
@@ -220,5 +222,6 @@ public final class StudioPackPublisher implements AutoCloseable {
         server = null;
         if (http != null) http.stop(0);
         worker.shutdownNow();
+        httpExecutor.shutdownNow();
     }
 }
